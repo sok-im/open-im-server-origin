@@ -23,6 +23,8 @@ logs
 components
 out-test
 Dockerfile.cross
+.cursor/
+.DS_Store
 
 ### Makefile ###
 tmp/

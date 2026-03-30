@@ -483,13 +483,16 @@ func (s *friendServer) GetSpecifiedFriendsInfo(ctx context.Context, req *relatio
 		var friendInfo *sdkws.FriendInfo
 		if friend := friendMap[userID]; friend != nil {
 			friendInfo = &sdkws.FriendInfo{
-				OwnerUserID:    friend.OwnerUserID,
-				Remark:         friend.Remark,
-				CreateTime:     friend.CreateTime.UnixMilli(),
-				AddSource:      friend.AddSource,
-				OperatorUserID: friend.OperatorUserID,
-				Ex:             friend.Ex,
-				IsPinned:       friend.IsPinned,
+				OwnerUserID:     friend.OwnerUserID,
+				Remark:          friend.Remark,
+				CreateTime:      friend.CreateTime.UnixMilli(),
+				AddSource:       friend.AddSource,
+				OperatorUserID:  friend.OperatorUserID,
+				Ex:              friend.Ex,
+				IsPinned:        friend.IsPinned,
+				IsMsgDestruct:   friend.IsMsgDestruct,
+				MsgDestructTime: friend.MsgDestructTime,
+				BurnDuration:    friend.BurnDuration,
 			}
 		}
 
@@ -544,6 +547,15 @@ func (s *friendServer) UpdateFriends(
 	}
 	if req.Ex != nil {
 		val["ex"] = req.Ex.Value
+	}
+	if req.IsMsgDestruct != nil {
+		val["is_msg_destruct"] = req.IsMsgDestruct.Value
+	}
+	if req.MsgDestructTime != nil {
+		val["msg_destruct_time"] = req.MsgDestructTime.Value
+	}
+	if req.BurnDuration != nil {
+		val["burn_duration"] = req.BurnDuration.Value
 	}
 	if err = s.db.UpdateFriends(ctx, req.OwnerUserID, req.FriendUserIDs, val); err != nil {
 		return nil, err
