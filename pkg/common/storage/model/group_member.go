@@ -24,6 +24,10 @@ type GroupMember struct {
 	Nickname       string    `bson:"nickname"`
 	FaceURL        string    `bson:"face_url"`
 	RoleLevel      int32     `bson:"role_level"`
+	IsPinned       bool      `bson:"is_pinned"`
+	IsMsgDestruct  bool      `bson:"is_msg_destruct"`
+	MsgDestructTime int64    `bson:"msg_destruct_time"`
+	BurnDuration   int32     `bson:"burn_duration"`
 	JoinTime       time.Time `bson:"join_time"`
 	JoinSource     int32     `bson:"join_source"`
 	InviterUserID  string    `bson:"inviter_user_id"`

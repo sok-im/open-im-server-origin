@@ -130,5 +130,17 @@ func UpdateGroupMemberMap(req *pbgroup.SetGroupMemberInfo) map[string]any {
 	if req.Ex != nil {
 		m["ex"] = req.Ex.Value
 	}
+	if req.IsPinned != nil {
+		m["is_pinned"] = req.IsPinned.Value
+	}
+	if req.IsMsgDestruct != nil {
+		m["is_msg_destruct"] = req.IsMsgDestruct.Value
+	}
+	if req.MsgDestructTime != nil {
+		m["msg_destruct_time"] = req.MsgDestructTime.Value
+	}
+	if req.BurnDuration != nil {
+		m["burn_duration"] = req.BurnDuration.Value
+	}
 	return m
 }
