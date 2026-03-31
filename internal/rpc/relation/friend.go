@@ -19,6 +19,7 @@ import (
 
 	"github.com/openimsdk/open-im-server/v3/pkg/notification/common_user"
 	"github.com/openimsdk/open-im-server/v3/pkg/rpcli"
+	"github.com/openimsdk/open-im-server/v3/pkg/msgprocessor"
 
 	"github.com/openimsdk/tools/mq/memamq"
 
@@ -35,8 +36,10 @@ import (
 	"github.com/openimsdk/open-im-server/v3/pkg/common/servererrs"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/controller"
 	"github.com/openimsdk/protocol/constant"
+	"github.com/openimsdk/protocol/conversation"
 	"github.com/openimsdk/protocol/relation"
 	"github.com/openimsdk/protocol/sdkws"
+	"github.com/openimsdk/protocol/wrapperspb"
 	"github.com/openimsdk/tools/db/mongoutil"
 	"github.com/openimsdk/tools/discovery"
 	"github.com/openimsdk/tools/errs"
@@ -54,6 +57,7 @@ type friendServer struct {
 	webhookClient      *webhook.Client
 	queue              *memamq.MemoryQueue
 	userClient         *rpcli.UserClient
+	conversationClient *rpcli.ConversationClient
 }
 
 type Config struct {
@@ -101,6 +105,10 @@ func Start(ctx context.Context, config *Config, client discovery.SvcDiscoveryReg
 	if err != nil {
 		return err
 	}
+	conversationConn, err := client.GetConn(ctx, config.Share.RpcRegisterName.Conversation)
+	if err != nil {
+		return err
+	}
 	userClient := rpcli.NewUserClient(userConn)
 
 	database := controller.NewFriendDatabase(
@@ -131,6 +139,7 @@ func Start(ctx context.Context, config *Config, client discovery.SvcDiscoveryReg
 		webhookClient:      webhook.NewWebhookClient(config.WebhooksConfig.URL),
 		queue:              memamq.NewMemoryQueue(16, 1024*1024),
 		userClient:         userClient,
+		conversationClient: rpcli.NewConversationClient(conversationConn),
 	})
 	return nil
 }
@@ -545,8 +554,29 @@ func (s *friendServer) UpdateFriends(
 	if req.Ex != nil {
 		val["ex"] = req.Ex.Value
 	}
+	if req.IsMute != nil {
+		val["is_mute"] = req.IsMute.Value
+	}
 	if err = s.db.UpdateFriends(ctx, req.OwnerUserID, req.FriendUserIDs, val); err != nil {
 		return nil, err
+	}
+	if req.IsMute != nil {
+		recvMsgOpt := int32(constant.ReceiveMessage)
+		if req.IsMute.Value {
+			recvMsgOpt = constant.ReceiveNotNotifyMessage
+		}
+		for _, friendUserID := range req.FriendUserIDs {
+			conversationID := msgprocessor.GetConversationIDBySessionType(constant.SingleChatType, req.OwnerUserID, friendUserID)
+			conversationReq := &conversation.ConversationReq{
+				ConversationID:   conversationID,
+				ConversationType: constant.SingleChatType,
+				UserID:           friendUserID,
+				RecvMsgOpt:       &wrapperspb.Int32Value{Value: recvMsgOpt},
+			}
+			if err := s.conversationClient.SetConversations(ctx, []string{req.OwnerUserID}, conversationReq); err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	resp := &relation.UpdateFriendsResp{}
