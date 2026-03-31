@@ -85,6 +85,8 @@ func FriendsDB2Pb(ctx context.Context, friendsDB []*model.Friend, getUsers func(
 		friendPb.CreateTime = friend.CreateTime.Unix()
 		friendPb.IsPinned = friend.IsPinned
 		friendPb.IsMute = friend.IsMute
+		friendPb.MuteDuration = friend.MuteDuration
+		friendPb.MuteEndTime = friend.MuteEndTime
 		friendPb.IsMsgDestruct = friend.IsMsgDestruct
 		friendPb.MsgDestructTime = friend.MsgDestructTime
 		friendPb.BurnDuration = friend.BurnDuration
@@ -105,6 +107,8 @@ func FriendOnlyDB2PbOnly(friendsDB []*model.Friend) []*relation.FriendInfoOnly {
 			Ex:              f.Ex,
 			IsPinned:        f.IsPinned,
 			IsMute:          f.IsMute,
+			MuteDuration:    f.MuteDuration,
+			MuteEndTime:     f.MuteEndTime,
 			IsMsgDestruct:   f.IsMsgDestruct,
 			MsgDestructTime: f.MsgDestructTime,
 			BurnDuration:    f.BurnDuration,

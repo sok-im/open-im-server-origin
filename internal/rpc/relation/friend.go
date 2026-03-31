@@ -16,11 +16,13 @@ package relation
 
 import (
 	"context"
+	"time"
 
 	"github.com/openimsdk/open-im-server/v3/pkg/msgprocessor"
 	"github.com/openimsdk/open-im-server/v3/pkg/notification/common_user"
 	"github.com/openimsdk/open-im-server/v3/pkg/rpcli"
 
+	"github.com/openimsdk/tools/log"
 	"github.com/openimsdk/tools/mq/memamq"
 
 	"github.com/openimsdk/open-im-server/v3/pkg/common/config"
@@ -557,40 +559,93 @@ func (s *friendServer) UpdateFriends(
 	if req.Ex != nil {
 		val["ex"] = req.Ex.Value
 	}
+
+	isMute := false
 	if req.IsMute != nil {
-		val["is_mute"] = req.IsMute.Value
-	}
-	if req.IsMsgDestruct != nil {
-		val["is_msg_destruct"] = req.IsMsgDestruct.Value
-	}
-	if req.MsgDestructTime != nil {
-		val["msg_destruct_time"] = req.MsgDestructTime.Value
-	}
-	if req.BurnDuration != nil {
-		val["burn_duration"] = req.BurnDuration.Value
-	}
-	if err = s.db.UpdateFriends(ctx, req.OwnerUserID, req.FriendUserIDs, val); err != nil {
-		return nil, err
-	}
-	if req.IsMute != nil {
-		recvMsgOpt := int32(constant.ReceiveMessage)
-		if req.IsMute.Value {
-			recvMsgOpt = constant.ReceiveNotNotifyMessage
-		}
-		for _, friendUserID := range req.FriendUserIDs {
-			conversationID := msgprocessor.GetConversationIDBySessionType(constant.SingleChatType, req.OwnerUserID, friendUserID)
-			conversationReq := &conversation.ConversationReq{
-				ConversationID:   conversationID,
-				ConversationType: constant.SingleChatType,
-				UserID:           friendUserID,
-				RecvMsgOpt:       &wrapperspb.Int32Value{Value: recvMsgOpt},
+		isMute = req.IsMute.Value
+		if isMute {
+			if req.MuteDuration == nil || req.MuteEndTime == nil {
+				return nil, errs.ErrArgs.WrapMsg("mute duration or mute end time is required")
 			}
-			if err := s.conversationClient.SetConversations(ctx, []string{req.OwnerUserID}, conversationReq); err != nil {
-				return nil, err
+			if req.MuteDuration.Value <= 0 {
+				return nil, errs.ErrArgs.WrapMsg("mute duration must be greater than 0")
 			}
+			if req.MuteEndTime.Value <= time.Now().UnixMilli() {
+				return nil, errs.ErrArgs.WrapMsg("mute end time must be greater than current time")
+			}
+			val["is_mute"] = req.IsMute.Value
+			val["mute_duration"] = req.MuteDuration.Value
+			val["mute_end_time"] = req.MuteEndTime.Value
+		} else {
+			val["is_mute"] = false
+			val["mute_duration"] = 0
+			val["mute_end_time"] = 0
 		}
 	}
 
+	isMsgDestruct := false
+	if req.IsMsgDestruct != nil {
+		isMsgDestruct = req.IsMsgDestruct.Value
+		if isMsgDestruct {
+			if req.BurnDuration == nil || req.MsgDestructTime == nil {
+				return nil, errs.ErrArgs.WrapMsg("burn duration or msg destruct time is required")
+			}
+			if req.BurnDuration.Value <= 0 {
+				return nil, errs.ErrArgs.WrapMsg("burn duration must be greater than 0")
+			}
+			if req.MsgDestructTime.Value <= time.Now().UnixMilli() {
+				return nil, errs.ErrArgs.WrapMsg("msg destruct time must be greater than current time")
+			}
+			val["is_msg_destruct"] = req.IsMsgDestruct.Value
+			val["msg_destruct_time"] = req.MsgDestructTime.Value
+			val["burn_duration"] = req.BurnDuration.Value
+		} else {
+			val["is_msg_destruct"] = false
+			val["msg_destruct_time"] = 0
+			val["burn_duration"] = 0
+		}
+	}
+
+	log.ZDebug(ctx, "UpdateFriends", "req", req, "val", val)
+
+	if err = s.db.UpdateFriends(ctx, req.OwnerUserID, req.FriendUserIDs, val); err != nil {
+		return nil, err
+	}
+
+	for _, friendUserID := range req.FriendUserIDs {
+		if req.IsMute == nil && req.IsMsgDestruct == nil {
+			continue
+		}
+
+		conversationID := msgprocessor.GetConversationIDBySessionType(constant.SingleChatType, req.OwnerUserID, friendUserID)
+		conversationReq := &conversation.ConversationReq{
+			ConversationID:   conversationID,
+			ConversationType: constant.SingleChatType,
+			UserID:           friendUserID,
+		}
+
+		if req.IsMute != nil {
+			if isMute {
+				conversationReq.RecvMsgOpt = &wrapperspb.Int32Value{Value: constant.ReceiveNotNotifyMessage}
+			} else {
+				conversationReq.RecvMsgOpt = &wrapperspb.Int32Value{Value: constant.ReceiveMessage}
+			}
+		}
+
+		if req.IsMsgDestruct != nil {
+			if isMsgDestruct {
+				conversationReq.IsMsgDestruct = &wrapperspb.BoolValue{Value: true}
+				conversationReq.MsgDestructTime = &wrapperspb.Int64Value{Value: req.MsgDestructTime.Value}
+				conversationReq.BurnDuration = &wrapperspb.Int32Value{Value: req.BurnDuration.Value}
+			} else {
+				conversationReq.IsMsgDestruct = &wrapperspb.BoolValue{Value: false}
+			}
+		}
+
+		if err := s.conversationClient.SetConversations(ctx, []string{req.OwnerUserID}, conversationReq); err != nil {
+			return nil, err
+		}
+	}
 	resp := &relation.UpdateFriendsResp{}
 
 	s.notificationSender.FriendsInfoUpdateNotification(ctx, req.OwnerUserID, req.FriendUserIDs)

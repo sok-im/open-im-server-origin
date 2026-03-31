@@ -317,6 +317,14 @@ func (c *conversationServer) SetConversations(ctx context.Context, req *pbconver
 			conversation.BurnDuration = req.Conversation.BurnDuration.Value
 			m["burn_duration"] = req.Conversation.BurnDuration.Value
 		}
+		if req.Conversation.MuteDuration != nil {
+			conversation.MuteDuration = req.Conversation.MuteDuration.Value
+			m["mute_duration"] = req.Conversation.MuteDuration.Value
+		}
+		if req.Conversation.MuteEndTime != nil {
+			conversation.MuteEndTime = req.Conversation.MuteEndTime.Value
+			m["mute_end_time"] = req.Conversation.MuteEndTime.Value
+		}
 	}
 
 	// set need set field in conversation
@@ -368,6 +376,16 @@ func (c *conversationServer) SetConversations(ctx context.Context, req *pbconver
 
 		if req.Conversation.BurnDuration != nil {
 			if req.Conversation.BurnDuration.Value == conversationMap[userID].BurnDuration {
+				unequal--
+			}
+		}
+		if req.Conversation.MuteDuration != nil {
+			if req.Conversation.MuteDuration.Value == conversationMap[userID].MuteDuration {
+				unequal--
+			}
+		}
+		if req.Conversation.MuteEndTime != nil {
+			if req.Conversation.MuteEndTime.Value == conversationMap[userID].MuteEndTime {
 				unequal--
 			}
 		}
@@ -676,6 +694,12 @@ func (c *conversationServer) UpdateConversation(ctx context.Context, req *pbconv
 	}
 	if req.BurnDuration != nil {
 		m["burn_duration"] = req.BurnDuration.Value
+	}
+	if req.MuteDuration != nil {
+		m["mute_duration"] = req.MuteDuration.Value
+	}
+	if req.MuteEndTime != nil {
+		m["mute_end_time"] = req.MuteEndTime.Value
 	}
 	if req.IsPrivateChat != nil {
 		m["is_private_chat"] = req.IsPrivateChat.Value

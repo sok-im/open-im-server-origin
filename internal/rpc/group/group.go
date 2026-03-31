@@ -1703,6 +1703,27 @@ func (s *groupServer) SetGroupMemberInfo(ctx context.Context, req *pbgroup.SetGr
 		return nil, err
 	}
 	for _, member := range req.Members {
+		if member.IsPinned == nil && member.IsMsgDestruct == nil && member.MsgDestructTime == nil && member.BurnDuration == nil {
+			continue
+		}
+		// Conversation settings are per-user private preferences; only self (or app manager) can modify.
+		/*if !isAppManagerUid && member.UserID != opUserID {
+			return nil, errs.ErrNoPermission.WrapMsg("can not set other user's group conversation settings")
+		}*/
+		conversation := &pbconversation.ConversationReq{
+			ConversationID:   msgprocessor.GetConversationIDBySessionType(constant.ReadGroupChatType, member.GroupID),
+			ConversationType: constant.ReadGroupChatType,
+			GroupID:          member.GroupID,
+			IsPinned:         member.IsPinned,
+			IsMsgDestruct:    member.IsMsgDestruct,
+			MsgDestructTime:  member.MsgDestructTime,
+			BurnDuration:     member.BurnDuration,
+		}
+		if err := s.conversationClient.SetConversations(ctx, []string{member.UserID}, conversation); err != nil {
+			return nil, err
+		}
+	}
+	for _, member := range req.Members {
 		if member.RoleLevel != nil {
 			switch member.RoleLevel.Value {
 			case constant.GroupAdmin:

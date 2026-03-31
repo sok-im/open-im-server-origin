@@ -32,6 +32,8 @@ type Friend struct {
 	Ex              string             `bson:"ex"`
 	IsPinned        bool               `bson:"is_pinned"`
 	IsMute          bool               `bson:"is_mute"`
+	MuteDuration    int64              `bson:"mute_duration"`
+	MuteEndTime     int64              `bson:"mute_end_time"`
 	IsMsgDestruct   bool               `bson:"is_msg_destruct"`
 	MsgDestructTime int64              `bson:"msg_destruct_time"`
 	BurnDuration    int32              `bson:"burn_duration"`

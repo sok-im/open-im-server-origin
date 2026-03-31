@@ -16,13 +16,14 @@ package msg
 
 import (
 	"context"
+	"math/rand"
+	"strconv"
+	"time"
+
 	"github.com/openimsdk/open-im-server/v3/pkg/common/servererrs"
 	"github.com/openimsdk/tools/utils/datautil"
 	"github.com/openimsdk/tools/utils/encrypt"
 	"github.com/openimsdk/tools/utils/timeutil"
-	"math/rand"
-	"strconv"
-	"time"
 
 	"github.com/openimsdk/protocol/constant"
 	"github.com/openimsdk/protocol/msg"
@@ -215,6 +216,20 @@ func (m *msgServer) modifyMessageByUserMessageReceiveOpt(ctx context.Context, us
 	case constant.ReceiveNotNotifyMessage:
 		if pb.MsgData.Options == nil {
 			pb.MsgData.Options = make(map[string]bool, 10)
+		}
+		conv, _ := m.ConversationLocalCache.GetConversation(ctx, userID, conversationID)
+		if conv != nil && conv.MuteEndTime > 0 && conv.MuteEndTime <= time.Now().UnixMilli() {
+			//_, err = m.conversationClient.ConversationClient.UpdateConversation(ctx, &pbconversation.UpdateConversationReq{
+			//	ConversationID: conversationID,
+			//	UserIDs:        []string{userID},
+			//	RecvMsgOpt:     &wrapperspb.Int32Value{Value: constant.ReceiveMessage},
+			//	MuteDuration:   &wrapperspb.Int32Value{Value: 0},
+			//	MuteEndTime:    &wrapperspb.Int64Value{Value: 0},
+			//})
+			//if err == nil {
+			//	return true, nil
+			//}
+			return false, nil
 		}
 		datautil.SetSwitchFromOptions(pb.MsgData.Options, constant.IsOfflinePush, false)
 		return true, nil
