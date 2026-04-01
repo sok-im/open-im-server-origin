@@ -1710,6 +1710,7 @@ func (s *groupServer) SetGroupMemberInfo(ctx context.Context, req *pbgroup.SetGr
 		//if !isAppManagerUid && member.UserID != opUserID {
 		//	return nil, errs.ErrNoPermission.WrapMsg("can not set other user's group conversation settings")
 		//}
+
 		conversation := &pbconversation.ConversationReq{
 			ConversationID:   msgprocessor.GetConversationIDBySessionType(constant.ReadGroupChatType, member.GroupID),
 			ConversationType: constant.ReadGroupChatType,

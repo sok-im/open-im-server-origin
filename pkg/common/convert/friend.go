@@ -49,8 +49,12 @@ func FriendDB2Pb(ctx context.Context, friendDB *model.Friend, getUsers func(ctx 
 	}
 
 	return &sdkws.FriendInfo{
-		FriendUser: user,
-		CreateTime: friendDB.CreateTime.Unix(),
+		FriendUser:      user,
+		CreateTime:      friendDB.CreateTime.Unix(),
+		IsPinned:        friendDB.IsPinned,
+		IsMsgDestruct:   friendDB.IsMsgDestruct,
+		MsgDestructTime: friendDB.MsgDestructTime,
+		BurnDuration:    friendDB.BurnDuration,
 	}, nil
 }
 
@@ -80,6 +84,12 @@ func FriendsDB2Pb(ctx context.Context, friendsDB []*model.Friend, getUsers func(
 		friendPb.FriendUser.Ex = users[friend.FriendUserID].Ex
 		friendPb.CreateTime = friend.CreateTime.Unix()
 		friendPb.IsPinned = friend.IsPinned
+		friendPb.IsMute = friend.IsMute
+		friendPb.MuteDuration = friend.MuteDuration
+		friendPb.MuteEndTime = friend.MuteEndTime
+		friendPb.IsMsgDestruct = friend.IsMsgDestruct
+		friendPb.MsgDestructTime = friend.MsgDestructTime
+		friendPb.BurnDuration = friend.BurnDuration
 		friendsPb = append(friendsPb, friendPb)
 	}
 	return friendsPb, nil
@@ -88,14 +98,20 @@ func FriendsDB2Pb(ctx context.Context, friendsDB []*model.Friend, getUsers func(
 func FriendOnlyDB2PbOnly(friendsDB []*model.Friend) []*relation.FriendInfoOnly {
 	return datautil.Slice(friendsDB, func(f *model.Friend) *relation.FriendInfoOnly {
 		return &relation.FriendInfoOnly{
-			OwnerUserID:    f.OwnerUserID,
-			FriendUserID:   f.FriendUserID,
-			Remark:         f.Remark,
-			CreateTime:     f.CreateTime.UnixMilli(),
-			AddSource:      f.AddSource,
-			OperatorUserID: f.OperatorUserID,
-			Ex:             f.Ex,
-			IsPinned:       f.IsPinned,
+			OwnerUserID:     f.OwnerUserID,
+			FriendUserID:    f.FriendUserID,
+			Remark:          f.Remark,
+			CreateTime:      f.CreateTime.UnixMilli(),
+			AddSource:       f.AddSource,
+			OperatorUserID:  f.OperatorUserID,
+			Ex:              f.Ex,
+			IsPinned:        f.IsPinned,
+			IsMute:          f.IsMute,
+			MuteDuration:    f.MuteDuration,
+			MuteEndTime:     f.MuteEndTime,
+			IsMsgDestruct:   f.IsMsgDestruct,
+			MsgDestructTime: f.MsgDestructTime,
+			BurnDuration:    f.BurnDuration,
 		}
 	})
 }
