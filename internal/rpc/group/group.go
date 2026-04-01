@@ -1707,9 +1707,10 @@ func (s *groupServer) SetGroupMemberInfo(ctx context.Context, req *pbgroup.SetGr
 			continue
 		}
 		// Conversation settings are per-user private preferences; only self (or app manager) can modify.
-		/*if !isAppManagerUid && member.UserID != opUserID {
-			return nil, errs.ErrNoPermission.WrapMsg("can not set other user's group conversation settings")
-		}*/
+		//if !isAppManagerUid && member.UserID != opUserID {
+		//	return nil, errs.ErrNoPermission.WrapMsg("can not set other user's group conversation settings")
+		//}
+
 		conversation := &pbconversation.ConversationReq{
 			ConversationID:   msgprocessor.GetConversationIDBySessionType(constant.ReadGroupChatType, member.GroupID),
 			ConversationType: constant.ReadGroupChatType,

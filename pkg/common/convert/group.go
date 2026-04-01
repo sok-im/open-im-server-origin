@@ -65,18 +65,22 @@ func Db2PbCMSGroup(m *model.Group, ownerUserID string, ownerUserName string, mem
 
 func Db2PbGroupMember(m *model.GroupMember) *sdkws.GroupMemberFullInfo {
 	return &sdkws.GroupMemberFullInfo{
-		GroupID:   m.GroupID,
-		UserID:    m.UserID,
-		RoleLevel: m.RoleLevel,
-		JoinTime:  m.JoinTime.UnixMilli(),
-		Nickname:  m.Nickname,
-		FaceURL:   m.FaceURL,
+		GroupID:        m.GroupID,
+		UserID:         m.UserID,
+		RoleLevel:      m.RoleLevel,
+		JoinTime:       m.JoinTime.UnixMilli(),
+		Nickname:       m.Nickname,
+		FaceURL:        m.FaceURL,
 		// AppMangerLevel: m.AppMangerLevel,
-		JoinSource:     m.JoinSource,
-		OperatorUserID: m.OperatorUserID,
-		Ex:             m.Ex,
-		MuteEndTime:    m.MuteEndTime.UnixMilli(),
-		InviterUserID:  m.InviterUserID,
+		JoinSource:      m.JoinSource,
+		OperatorUserID:  m.OperatorUserID,
+		Ex:              m.Ex,
+		MuteEndTime:     m.MuteEndTime.UnixMilli(),
+		InviterUserID:   m.InviterUserID,
+		IsPinned:        m.IsPinned,
+		IsMsgDestruct:   m.IsMsgDestruct,
+		MsgDestructTime: m.MsgDestructTime,
+		BurnDuration:    m.BurnDuration,
 	}
 }
 
