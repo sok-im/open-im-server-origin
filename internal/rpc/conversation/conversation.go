@@ -317,6 +317,32 @@ func (c *conversationServer) SetConversations(ctx context.Context, req *pbconver
 			conversation.BurnDuration = req.Conversation.BurnDuration.Value
 			m["burn_duration"] = req.Conversation.BurnDuration.Value
 		}
+		if req.Conversation.MuteDuration != nil || req.Conversation.MuteEndTime != nil {
+			duration := int32(0)
+			endTime := int64(0)
+			if req.Conversation.MuteDuration != nil {
+				duration = req.Conversation.MuteDuration.Value
+			}
+			if req.Conversation.MuteEndTime != nil {
+				endTime = req.Conversation.MuteEndTime.Value
+			}
+			switch {
+			case duration == dbModel.ConvMutePermanent || endTime == dbModel.ConvMutePermanentEnd:
+				conversation.MuteDuration = dbModel.ConvMutePermanent
+				conversation.MuteEndTime = dbModel.ConvMutePermanentEnd
+			case duration > 0:
+				conversation.MuteDuration = duration
+				conversation.MuteEndTime = time.Now().UnixMilli() + int64(duration)*1000
+			case endTime > 0:
+				conversation.MuteDuration = 0
+				conversation.MuteEndTime = endTime
+			default:
+				conversation.MuteDuration = 0
+				conversation.MuteEndTime = 0
+			}
+			m["mute_duration"] = conversation.MuteDuration
+			m["mute_end_time"] = conversation.MuteEndTime
+		}
 	}
 
 	// set need set field in conversation
@@ -368,6 +394,12 @@ func (c *conversationServer) SetConversations(ctx context.Context, req *pbconver
 
 		if req.Conversation.BurnDuration != nil {
 			if req.Conversation.BurnDuration.Value == conversationMap[userID].BurnDuration {
+				unequal--
+			}
+		}
+		if req.Conversation.MuteDuration != nil || req.Conversation.MuteEndTime != nil {
+			if conversation.MuteDuration == conversationMap[userID].MuteDuration &&
+				conversation.MuteEndTime == conversationMap[userID].MuteEndTime {
 				unequal--
 			}
 		}
@@ -689,6 +721,39 @@ func (c *conversationServer) UpdateConversation(ctx context.Context, req *pbconv
 	if req.LatestMsgDestructTime != nil {
 		m["latest_msg_destruct_time"] = time.UnixMilli(req.LatestMsgDestructTime.Value)
 	}
+
+	// Mute logic (mirrors friend mute rules):
+	//   MuteDuration==-1 OR MuteEndTime==-1  → permanent mute (both written as -1)
+	//   MuteDuration > 0                      → timed mute; MuteEndTime derived from duration
+	//   MuteEndTime > 0 (no duration)         → timed mute with explicit expiry
+	//   Both == 0                             → cancel mute (clear both fields)
+	if req.MuteDuration != nil || req.MuteEndTime != nil {
+		duration := int32(0)
+		endTime := int64(0)
+		if req.MuteDuration != nil {
+			duration = req.MuteDuration.Value
+		}
+		if req.MuteEndTime != nil {
+			endTime = req.MuteEndTime.Value
+		}
+
+		switch {
+		case duration == dbModel.ConvMutePermanent || endTime == dbModel.ConvMutePermanentEnd:
+			m["mute_duration"] = dbModel.ConvMutePermanent
+			m["mute_end_time"] = dbModel.ConvMutePermanentEnd
+		case duration > 0:
+			m["mute_duration"] = duration
+			m["mute_end_time"] = time.Now().UnixMilli() + int64(duration)*1000
+		case endTime > 0:
+			m["mute_duration"] = int32(0)
+			m["mute_end_time"] = endTime
+		default:
+			// Both == 0: cancel mute.
+			m["mute_duration"] = int32(0)
+			m["mute_end_time"] = int64(0)
+		}
+	}
+
 	if len(m) > 0 {
 		if err := c.conversationDatabase.UpdateUsersConversationField(ctx, req.UserIDs, req.ConversationID, m); err != nil {
 			return nil, err

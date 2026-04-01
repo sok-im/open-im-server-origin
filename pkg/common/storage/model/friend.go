@@ -19,6 +19,10 @@ import (
 	"time"
 )
 
+// MutePermanent is the sentinel value for IsMute fields indicating a permanent mute.
+// If MuteDuration == MutePermanent or MuteEndTime == MutePermanent, the mute is permanent.
+const MutePermanent int64 = -1
+
 // Friend represents the data structure for a friend relationship in MongoDB.
 type Friend struct {
 	ID             primitive.ObjectID `bson:"_id"`
@@ -30,4 +34,10 @@ type Friend struct {
 	OperatorUserID string             `bson:"operator_user_id"`
 	Ex             string             `bson:"ex"`
 	IsPinned       bool               `bson:"is_pinned"`
+	// IsMute indicates whether messages from this friend are silenced.
+	// MuteDuration (seconds) and MuteEndTime (unix ms) control the mute window.
+	// Either field set to MutePermanent (-1) means the mute has no expiry.
+	IsMute       bool  `bson:"is_mute"`
+	MuteDuration int64 `bson:"mute_duration"`
+	MuteEndTime  int64 `bson:"mute_end_time"`
 }

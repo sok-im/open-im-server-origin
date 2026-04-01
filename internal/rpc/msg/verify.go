@@ -183,6 +183,7 @@ func GetMsgID(sendID string) string {
 }
 
 func (m *msgServer) modifyMessageByUserMessageReceiveOpt(ctx context.Context, userID, conversationID string, sessionType int, pb *msg.SendMsgReq) (bool, error) {
+	// 1. Global user-level opt: takes highest priority.
 	opt, err := m.UserLocalCache.GetUserGlobalMsgRecvOpt(ctx, userID)
 	if err != nil {
 		return false, err
@@ -198,15 +199,19 @@ func (m *msgServer) modifyMessageByUserMessageReceiveOpt(ctx context.Context, us
 		datautil.SetSwitchFromOptions(pb.MsgData.Options, constant.IsOfflinePush, false)
 		return true, nil
 	}
-	singleOpt, err := m.ConversationLocalCache.GetSingleConversationRecvMsgOpt(ctx, userID, conversationID)
-	if errs.ErrRecordNotFound.Is(err) {
-		return true, nil
-	} else if err != nil {
+
+	// 2. Conversation-level: fetch once to get both RecvMsgOpt and mute timer.
+	conv, err := m.ConversationLocalCache.GetConversation(ctx, userID, conversationID)
+	if err != nil {
+		if errs.ErrRecordNotFound.Is(err) {
+			return true, nil
+		}
 		return false, err
 	}
-	switch singleOpt {
+
+	switch conv.RecvMsgOpt {
 	case constant.ReceiveMessage:
-		return true, nil
+		// Continue to mute-timer check.
 	case constant.NotReceiveMessage:
 		if datautil.Contain(int(pb.MsgData.ContentType), ExcludeContentType...) {
 			return true, nil
@@ -219,5 +224,47 @@ func (m *msgServer) modifyMessageByUserMessageReceiveOpt(ctx context.Context, us
 		datautil.SetSwitchFromOptions(pb.MsgData.Options, constant.IsOfflinePush, false)
 		return true, nil
 	}
+
+	// 3. Time-based conversation mute: suppress offline push while the mute window is active.
+	//    MuteEndTime == -1 → permanent; MuteEndTime > 0 → expires at that unix-ms timestamp.
+	if isConvMuteActive(conv.MuteEndTime) {
+		if pb.MsgData.Options == nil {
+			pb.MsgData.Options = make(map[string]bool, 10)
+		}
+		datautil.SetSwitchFromOptions(pb.MsgData.Options, constant.IsOfflinePush, false)
+		return true, nil
+	}
+
+	// 4. Friend-level mute (single chat only): receiver may have muted the sender as a friend.
+	//    Only suppress offline push; the message is still delivered.
+	if sessionType == constant.SingleChatType {
+		senderID := pb.MsgData.SendID
+		muteEndTime, err := m.FriendLocalCache.GetFriendMuteEndTime(ctx, userID, senderID)
+		if err != nil {
+			if !errs.ErrRecordNotFound.Is(err) {
+				return false, err
+			}
+			// Not friends — no friend-level mute applies.
+		} else if isConvMuteActive(muteEndTime) {
+			if pb.MsgData.Options == nil {
+				pb.MsgData.Options = make(map[string]bool, 10)
+			}
+			datautil.SetSwitchFromOptions(pb.MsgData.Options, constant.IsOfflinePush, false)
+		}
+	}
+
 	return true, nil
+}
+
+// isConvMuteActive reports whether a conversation mute is currently in effect.
+//
+//	MuteEndTime == -1 → permanent mute, always active
+//	MuteEndTime >  0  → timed mute, active until that unix-millisecond timestamp
+//	MuteEndTime == 0  → no mute
+func isConvMuteActive(muteEndTime int64) bool {
+	const permanent int64 = -1
+	if muteEndTime == permanent {
+		return true
+	}
+	return muteEndTime > 0 && time.Now().UnixMilli() < muteEndTime
 }

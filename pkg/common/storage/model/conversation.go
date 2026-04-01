@@ -18,6 +18,14 @@ import (
 	"time"
 )
 
+// ConvMutePermanent is the sentinel for a conversation mute with no expiry.
+// If MuteDuration == ConvMutePermanent or MuteEndTime == ConvMutePermanentEnd,
+// the mute never expires.
+const (
+	ConvMutePermanent    int32 = -1
+	ConvMutePermanentEnd int64 = -1
+)
+
 type Conversation struct {
 	OwnerUserID           string    `bson:"owner_user_id"`
 	ConversationID        string    `bson:"conversation_id"`
@@ -37,4 +45,8 @@ type Conversation struct {
 	IsMsgDestruct         bool      `bson:"is_msg_destruct"`
 	MsgDestructTime       int64     `bson:"msg_destruct_time"`
 	LatestMsgDestructTime time.Time `bson:"latest_msg_destruct_time"`
+	// MuteDuration (seconds) and MuteEndTime (unix ms) control message mute.
+	// Either set to its permanent sentinel disables the expiry check.
+	MuteDuration int32 `bson:"mute_duration"`
+	MuteEndTime  int64 `bson:"mute_end_time"`
 }

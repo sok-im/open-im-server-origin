@@ -16,6 +16,7 @@ package relation
 
 import (
 	"context"
+	"time"
 
 	"github.com/openimsdk/open-im-server/v3/pkg/notification/common_user"
 	"github.com/openimsdk/open-im-server/v3/pkg/rpcli"
@@ -490,6 +491,9 @@ func (s *friendServer) GetSpecifiedFriendsInfo(ctx context.Context, req *relatio
 				OperatorUserID: friend.OperatorUserID,
 				Ex:             friend.Ex,
 				IsPinned:       friend.IsPinned,
+				IsMute:         friend.IsMute,
+				MuteDuration:   friend.MuteDuration,
+				MuteEndTime:    friend.MuteEndTime,
 			}
 		}
 
@@ -545,6 +549,48 @@ func (s *friendServer) UpdateFriends(
 	if req.Ex != nil {
 		val["ex"] = req.Ex.Value
 	}
+
+	// Mute logic:
+	//   - IsMute=false  → clear mute (reset duration and end time to 0)
+	//   - IsMute=true, MuteDuration==-1 or MuteEndTime==-1 → permanent mute
+	//   - IsMute=true, MuteDuration>0  → timed mute; derive MuteEndTime from duration
+	//   - IsMute=true, MuteEndTime>0   → timed mute with explicit expiry timestamp
+	if req.IsMute != nil {
+		if !req.IsMute.Value {
+			// Cancel mute: clear all three fields.
+			val["is_mute"] = false
+			val["mute_duration"] = int64(0)
+			val["mute_end_time"] = int64(0)
+		} else {
+			val["is_mute"] = true
+
+			duration := int64(0)
+			endTime := int64(0)
+			if req.MuteDuration != nil {
+				duration = req.MuteDuration.Value
+			}
+			if req.MuteEndTime != nil {
+				endTime = req.MuteEndTime.Value
+			}
+
+			// Either field set to -1 means permanent mute.
+			if duration == model.MutePermanent || endTime == model.MutePermanent {
+				val["mute_duration"] = model.MutePermanent
+				val["mute_end_time"] = model.MutePermanent
+			} else if duration > 0 {
+				// Duration (seconds) provided: compute absolute expiry timestamp (ms).
+				val["mute_duration"] = duration
+				val["mute_end_time"] = time.Now().UnixMilli() + duration*1000
+			} else if endTime > 0 {
+				// Explicit expiry timestamp provided.
+				val["mute_duration"] = int64(0)
+				val["mute_end_time"] = endTime
+			} else {
+				return nil, errs.ErrArgs.WrapMsg("isMute=true requires muteDuration or muteEndTime")
+			}
+		}
+	}
+
 	if err = s.db.UpdateFriends(ctx, req.OwnerUserID, req.FriendUserIDs, val); err != nil {
 		return nil, err
 	}

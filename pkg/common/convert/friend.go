@@ -49,8 +49,12 @@ func FriendDB2Pb(ctx context.Context, friendDB *model.Friend, getUsers func(ctx 
 	}
 
 	return &sdkws.FriendInfo{
-		FriendUser: user,
-		CreateTime: friendDB.CreateTime.Unix(),
+		FriendUser:   user,
+		CreateTime:   friendDB.CreateTime.Unix(),
+		IsPinned:     friendDB.IsPinned,
+		IsMute:       friendDB.IsMute,
+		MuteDuration: friendDB.MuteDuration,
+		MuteEndTime:  friendDB.MuteEndTime,
 	}, nil
 }
 
@@ -80,6 +84,9 @@ func FriendsDB2Pb(ctx context.Context, friendsDB []*model.Friend, getUsers func(
 		friendPb.FriendUser.Ex = users[friend.FriendUserID].Ex
 		friendPb.CreateTime = friend.CreateTime.Unix()
 		friendPb.IsPinned = friend.IsPinned
+		friendPb.IsMute = friend.IsMute
+		friendPb.MuteDuration = friend.MuteDuration
+		friendPb.MuteEndTime = friend.MuteEndTime
 		friendsPb = append(friendsPb, friendPb)
 	}
 	return friendsPb, nil
@@ -96,6 +103,9 @@ func FriendOnlyDB2PbOnly(friendsDB []*model.Friend) []*relation.FriendInfoOnly {
 			OperatorUserID: f.OperatorUserID,
 			Ex:             f.Ex,
 			IsPinned:       f.IsPinned,
+			IsMute:         f.IsMute,
+			MuteDuration:   f.MuteDuration,
+			MuteEndTime:    f.MuteEndTime,
 		}
 	})
 }

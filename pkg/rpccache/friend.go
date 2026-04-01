@@ -19,6 +19,7 @@ import (
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/cache/cachekey"
 	"github.com/openimsdk/open-im-server/v3/pkg/rpcli"
 	"github.com/openimsdk/protocol/relation"
+	"github.com/openimsdk/tools/errs"
 
 	"github.com/openimsdk/open-im-server/v3/pkg/common/config"
 	"github.com/openimsdk/open-im-server/v3/pkg/localcache"
@@ -72,6 +73,41 @@ func (f *FriendLocalCache) isFriend(ctx context.Context, possibleFriendUserID, u
 		log.ZDebug(ctx, "FriendLocalCache isFriend rpc", "possibleFriendUserID", possibleFriendUserID, "userID", userID)
 		return cache.Marshal(f.client.FriendClient.IsFriend(ctx, &relation.IsFriendReq{UserID1: userID, UserID2: possibleFriendUserID}))
 	}, cachekey.GetFriendIDsKey(possibleFriendUserID)))
+}
+
+// getFriendInfo retrieves a single friend record via RPC, cached by the friend's cache key.
+// The local entry is invalidated automatically when UpdateFriends triggers DelFriends in Redis.
+func (f *FriendLocalCache) getFriendInfo(ctx context.Context, ownerUserID, friendUserID string) (val *relation.FriendInfoOnly, err error) {
+	log.ZDebug(ctx, "FriendLocalCache getFriendInfo req", "ownerUserID", ownerUserID, "friendUserID", friendUserID)
+	defer func() {
+		if err == nil {
+			log.ZDebug(ctx, "FriendLocalCache getFriendInfo return", "ownerUserID", ownerUserID, "friendUserID", friendUserID, "value", val)
+		} else {
+			log.ZError(ctx, "FriendLocalCache getFriendInfo return", err, "ownerUserID", ownerUserID, "friendUserID", friendUserID)
+		}
+	}()
+	var cache cacheProto[relation.FriendInfoOnly]
+	return cache.Unmarshal(f.local.Get(ctx, cachekey.GetFriendKey(ownerUserID, friendUserID), func(ctx context.Context) ([]byte, error) {
+		log.ZDebug(ctx, "FriendLocalCache getFriendInfo rpc", "ownerUserID", ownerUserID, "friendUserID", friendUserID)
+		infos, err := f.client.GetFriendsInfo(ctx, ownerUserID, []string{friendUserID})
+		if err != nil {
+			return nil, err
+		}
+		if len(infos) == 0 {
+			return nil, errs.ErrRecordNotFound.WrapMsg("friend not found", "ownerUserID", ownerUserID, "friendUserID", friendUserID)
+		}
+		return cache.Marshal(infos[0], nil)
+	}))
+}
+
+// GetFriendMuteEndTime returns the MuteEndTime stored on the friend relationship record.
+// MuteEndTime == -1 means permanent mute; MuteEndTime > 0 means timed mute; 0 means no mute.
+func (f *FriendLocalCache) GetFriendMuteEndTime(ctx context.Context, ownerUserID, friendUserID string) (int64, error) {
+	info, err := f.getFriendInfo(ctx, ownerUserID, friendUserID)
+	if err != nil {
+		return 0, err
+	}
+	return info.MuteEndTime, nil
 }
 
 // IsBlack possibleBlackUserID selfUserID.
