@@ -42,6 +42,7 @@ import (
 	"github.com/openimsdk/open-im-server/v3/pkg/notification/grouphash"
 	"github.com/openimsdk/protocol/constant"
 	pbconversation "github.com/openimsdk/protocol/conversation"
+	pbcrypto "github.com/openimsdk/protocol/crypto"
 	pbgroup "github.com/openimsdk/protocol/group"
 	"github.com/openimsdk/protocol/sdkws"
 	"github.com/openimsdk/protocol/wrapperspb"
@@ -66,6 +67,7 @@ type groupServer struct {
 	userClient         *rpcli.UserClient
 	msgClient          *rpcli.MsgClient
 	conversationClient *rpcli.ConversationClient
+	cryptoClient       *rpcli.CryptoServiceClient
 }
 
 type Config struct {
@@ -117,18 +119,36 @@ func Start(ctx context.Context, config *Config, client discovery.SvcDiscoveryReg
 	if err != nil {
 		return err
 	}
+	cryptoConn, err := client.GetConn(ctx, config.Share.RpcRegisterName.Crypto)
+	if err != nil {
+		return err
+	}
 	gs := groupServer{
 		config:             config,
 		webhookClient:      webhook.NewWebhookClient(config.WebhooksConfig.URL),
 		userClient:         rpcli.NewUserClient(userConn),
 		msgClient:          rpcli.NewMsgClient(msgConn),
 		conversationClient: rpcli.NewConversationClient(conversationConn),
+		cryptoClient:       rpcli.NewCryptoServiceClient(cryptoConn),
 	}
 	gs.db = controller.NewGroupDatabase(rdb, &config.LocalCacheConfig, groupDB, groupMemberDB, groupRequestDB, mgocli.GetTx(), grouphash.NewGroupHashFromGroupServer(&gs))
 	gs.notification = NewNotificationSender(gs.db, config, gs.userClient, gs.msgClient, gs.conversationClient)
 	localcache.InitLocalCache(&config.LocalCacheConfig)
 	pbgroup.RegisterGroupServer(server, &gs)
 	return nil
+}
+
+func (s *groupServer) tryBumpGroupKeyVersion(ctx context.Context, groupID string, eventType string) {
+	opUserID := mcontext.GetOpUserID(ctx)
+	_, err := s.cryptoClient.BumpGroupKeyVersion(ctx, &pbcrypto.BumpGroupKeyVersionReq{
+		GroupID:        groupID,
+		OperatorUserID: opUserID,
+		EventType:      eventType,
+	})
+	if err != nil {
+		log.ZWarn(ctx, "tryBumpGroupKeyVersion failed (non-fatal)", err,
+			"groupID", groupID, "eventType", eventType, "operator", opUserID)
+	}
 }
 
 func (s *groupServer) NotificationUserInfoUpdate(ctx context.Context, req *pbgroup.NotificationUserInfoUpdateReq) (*pbgroup.NotificationUserInfoUpdateResp, error) {
@@ -544,6 +564,7 @@ func (s *groupServer) InviteUserToGroup(ctx context.Context, req *pbgroup.Invite
 			return nil, err
 		}
 	}
+	s.tryBumpGroupKeyVersion(ctx, req.GroupID, "member_invited")
 	return &pbgroup.InviteUserToGroupResp{}, nil
 }
 
@@ -709,6 +730,7 @@ func (s *groupServer) KickGroupMember(ctx context.Context, req *pbgroup.KickGrou
 		return nil, err
 	}
 	s.webhookAfterKickGroupMember(ctx, &s.config.WebhooksConfig.AfterKickGroupMember, req)
+	s.tryBumpGroupKeyVersion(ctx, req.GroupID, "member_kicked")
 
 	return &pbgroup.KickGroupMemberResp{}, nil
 }
@@ -964,6 +986,7 @@ func (s *groupServer) GroupApplicationResponse(ctx context.Context, req *pbgroup
 			if err := s.setMemberJoinSeq(ctx, req.GroupID, []string{req.FromUserID}); err != nil {
 				return nil, err
 			}
+			s.tryBumpGroupKeyVersion(ctx, req.GroupID, "member_joined")
 		}
 	case constant.GroupResponseRefuse:
 		s.notification.GroupApplicationRejectedNotification(ctx, req)
@@ -1030,6 +1053,7 @@ func (s *groupServer) JoinGroup(ctx context.Context, req *pbgroup.JoinGroupReq) 
 			return nil, err
 		}
 		s.webhookAfterJoinGroup(ctx, &s.config.WebhooksConfig.AfterJoinGroup, req)
+		s.tryBumpGroupKeyVersion(ctx, req.GroupID, "member_joined")
 
 		return &pbgroup.JoinGroupResp{}, nil
 	}
@@ -1077,6 +1101,7 @@ func (s *groupServer) QuitGroup(ctx context.Context, req *pbgroup.QuitGroupReq) 
 		return nil, err
 	}
 	s.webhookAfterQuitGroup(ctx, &s.config.WebhooksConfig.AfterQuitGroup, req)
+	s.tryBumpGroupKeyVersion(ctx, req.GroupID, "member_quit")
 
 	return &pbgroup.QuitGroupResp{}, nil
 }
