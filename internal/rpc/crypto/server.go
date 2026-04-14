@@ -26,11 +26,12 @@ type Config struct {
 
 type cryptoServer struct {
 	pbcrypto.UnimplementedCryptoServiceServer
-	config       *Config
-	db           controller.CryptoDatabase
+	config        *Config
+	db            controller.CryptoDatabase
 	virgilPrivKey ed25519.PrivateKey
-	msgClient    *rpcli.MsgClient
-	userClient   *rpcli.UserClient
+	groupClient   *rpcli.GroupClient
+	msgClient     *rpcli.MsgClient
+	userClient    *rpcli.UserClient
 }
 
 // Start initialises the Crypto gRPC service and registers it with the gRPC server.
@@ -41,6 +42,11 @@ func Start(ctx context.Context, cfg *Config, client discovery.SvcDiscoveryRegist
 	}
 
 	cryptoDB, err := mgo.NewCryptoMongo(mgocli.GetDB())
+	if err != nil {
+		return err
+	}
+
+	groupConn, err := client.GetConn(ctx, cfg.Share.RpcRegisterName.Group)
 	if err != nil {
 		return err
 	}
@@ -61,11 +67,12 @@ func Start(ctx context.Context, cfg *Config, client discovery.SvcDiscoveryRegist
 	}
 
 	s := &cryptoServer{
-		config:       cfg,
-		db:           controller.NewCryptoDatabase(cryptoDB),
+		config:        cfg,
+		db:            controller.NewCryptoDatabase(cryptoDB),
 		virgilPrivKey: virgilPrivKey,
-		msgClient:    rpcli.NewMsgClient(msgConn),
-		userClient:   rpcli.NewUserClient(userConn),
+		groupClient:   rpcli.NewGroupClient(groupConn),
+		msgClient:     rpcli.NewMsgClient(msgConn),
+		userClient:    rpcli.NewUserClient(userConn),
 	}
 
 	pbcrypto.RegisterCryptoServiceServer(server, s)

@@ -12,6 +12,8 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
+const maxDevicesPerUser = 20
+
 // RegisterDevice creates a new E2EE device record. The Virgil Identity is
 // derived as "{userID}:{deviceID}" and stored alongside the device metadata.
 // If the device already exists (duplicate key), the existing record is returned
@@ -19,6 +21,14 @@ import (
 func (s *cryptoServer) RegisterDevice(ctx context.Context, req *pbcrypto.RegisterDeviceReq) (*pbcrypto.RegisterDeviceResp, error) {
 	if req.UserID == "" || req.DeviceID == "" {
 		return nil, errs.ErrArgs.WrapMsg("userID and deviceID are required")
+	}
+
+	count, err := s.db.CountDevicesByUserID(ctx, req.UserID)
+	if err != nil {
+		return nil, errs.WrapMsg(err, "CountDevicesByUserID failed", "userID", req.UserID)
+	}
+	if count >= maxDevicesPerUser {
+		return nil, errs.ErrArgs.WrapMsg("device limit reached for user", "max", fmt.Sprintf("%d", maxDevicesPerUser))
 	}
 
 	now := time.Now().UnixMilli()
@@ -54,13 +64,13 @@ func (s *cryptoServer) RegisterDevice(ctx context.Context, req *pbcrypto.Registe
 	return &pbcrypto.RegisterDeviceResp{Device: deviceModelToProto(device)}, nil
 }
 
-// GetDevices returns all devices registered by the given user.
+// GetDevices returns all devices registered by the given user (capped at maxDevicesPerUser).
 func (s *cryptoServer) GetDevices(ctx context.Context, req *pbcrypto.GetDevicesReq) (*pbcrypto.GetDevicesResp, error) {
 	if req.UserID == "" {
 		return nil, errs.ErrArgs.WrapMsg("userID is required")
 	}
 
-	devices, err := s.db.GetDevicesByUserID(ctx, req.UserID)
+	devices, err := s.db.GetDevicesByUserID(ctx, req.UserID, maxDevicesPerUser)
 	if err != nil {
 		return nil, errs.WrapMsg(err, "GetDevicesByUserID failed", "userID", req.UserID)
 	}
@@ -72,31 +82,32 @@ func (s *cryptoServer) GetDevices(ctx context.Context, req *pbcrypto.GetDevicesR
 	return &pbcrypto.GetDevicesResp{Devices: pbDevices}, nil
 }
 
-// RevokeDevice marks a device as revoked so it can no longer obtain Virgil JWTs.
-// This does not delete the record (audit trail), but prevents any further crypto
-// operations for the device.
+// RevokeDevice atomically marks a device as revoked so it can no longer obtain
+// Virgil JWTs. Uses a single atomic update with (deviceID + userID + status=active)
+// filter to avoid TOCTOU race conditions. Idempotent: returns success if already revoked.
 func (s *cryptoServer) RevokeDevice(ctx context.Context, req *pbcrypto.RevokeDeviceReq) (*pbcrypto.RevokeDeviceResp, error) {
 	if req.UserID == "" || req.DeviceID == "" {
 		return nil, errs.ErrArgs.WrapMsg("userID and deviceID are required")
 	}
 
-	device, err := s.db.GetDeviceByID(ctx, req.DeviceID)
+	modified, err := s.db.AtomicRevokeDevice(ctx, req.DeviceID, req.UserID)
 	if err != nil {
-		return nil, errs.WrapMsg(err, "device not found", "deviceID", req.DeviceID)
+		return nil, errs.WrapMsg(err, "AtomicRevokeDevice failed", "deviceID", req.DeviceID)
 	}
-	if device.UserID != req.UserID {
-		return nil, errs.ErrNoPermission.WrapMsg("device does not belong to user", "deviceID", req.DeviceID, "userID", req.UserID)
-	}
-	if device.Status == model.DeviceStatusRevoked {
+
+	if !modified {
+		device, getErr := s.db.GetDeviceByID(ctx, req.DeviceID)
+		if getErr != nil {
+			return nil, errs.WrapMsg(getErr, "device not found", "deviceID", req.DeviceID)
+		}
+		if device.UserID != req.UserID {
+			return nil, errs.ErrNoPermission.WrapMsg("device does not belong to user", "deviceID", req.DeviceID, "userID", req.UserID)
+		}
 		log.ZWarn(ctx, "RevokeDevice: device already revoked (idempotent)", nil, "deviceID", req.DeviceID)
-		return &pbcrypto.RevokeDeviceResp{}, nil
+	} else {
+		log.ZInfo(ctx, "RevokeDevice: device revoked successfully", "deviceID", req.DeviceID, "userID", req.UserID)
 	}
 
-	if err := s.db.UpdateDeviceStatus(ctx, req.DeviceID, model.DeviceStatusRevoked); err != nil {
-		return nil, errs.WrapMsg(err, "UpdateDeviceStatus failed", "deviceID", req.DeviceID)
-	}
-
-	log.ZInfo(ctx, "RevokeDevice: device revoked successfully", "deviceID", req.DeviceID, "userID", req.UserID)
 	return &pbcrypto.RevokeDeviceResp{}, nil
 }
 

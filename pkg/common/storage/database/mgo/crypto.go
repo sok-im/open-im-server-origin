@@ -72,8 +72,16 @@ func (c *cryptoMgo) GetDeviceByID(ctx context.Context, deviceID string) (*model.
 	return mongoutil.FindOne[*model.CryptoDevice](ctx, c.deviceColl, bson.M{"device_id": deviceID})
 }
 
-func (c *cryptoMgo) GetDevicesByUserID(ctx context.Context, userID string) ([]*model.CryptoDevice, error) {
-	return mongoutil.Find[*model.CryptoDevice](ctx, c.deviceColl, bson.M{"user_id": userID})
+func (c *cryptoMgo) GetDevicesByUserID(ctx context.Context, userID string, limit int64) ([]*model.CryptoDevice, error) {
+	opts := options.Find()
+	if limit > 0 {
+		opts.SetLimit(limit)
+	}
+	return mongoutil.Find[*model.CryptoDevice](ctx, c.deviceColl, bson.M{"user_id": userID}, opts)
+}
+
+func (c *cryptoMgo) CountDevicesByUserID(ctx context.Context, userID string) (int64, error) {
+	return c.deviceColl.CountDocuments(ctx, bson.M{"user_id": userID, "status": "active"})
 }
 
 func (c *cryptoMgo) UpdateDeviceStatus(ctx context.Context, deviceID string, status string) error {
@@ -92,6 +100,17 @@ func (c *cryptoMgo) UpdateDeviceLastSeen(ctx context.Context, deviceID string, l
 	return err
 }
 
+func (c *cryptoMgo) AtomicRevokeDevice(ctx context.Context, deviceID string, userID string) (bool, error) {
+	res, err := c.deviceColl.UpdateOne(ctx,
+		bson.M{"device_id": deviceID, "user_id": userID, "status": "active"},
+		bson.M{"$set": bson.M{"status": "revoked"}},
+	)
+	if err != nil {
+		return false, err
+	}
+	return res.ModifiedCount > 0, nil
+}
+
 func (c *cryptoMgo) AtomicBumpGroupKeyVersion(ctx context.Context, groupID string) (int64, error) {
 	filter := bson.M{"group_id": groupID}
 	update := bson.M{"$inc": bson.M{"version": int64(1)}}
@@ -105,22 +124,27 @@ func (c *cryptoMgo) CreateGroupKeyEvent(ctx context.Context, event *model.GroupK
 }
 
 func (c *cryptoMgo) GetLatestGroupKeyVersion(ctx context.Context, groupID string) (int64, error) {
-	opts := options.FindOne().SetSort(bson.M{"group_key_version": -1})
-	event, err := mongoutil.FindOne[*model.GroupKeyEvent](ctx, c.eventColl, bson.M{"group_id": groupID}, opts)
+	type versionDoc struct {
+		Version int64 `bson:"version"`
+	}
+	doc, err := mongoutil.FindOne[*versionDoc](ctx, c.versionColl, bson.M{"group_id": groupID})
 	if err != nil {
 		if IsNotFound(err) {
 			return 0, nil
 		}
 		return 0, err
 	}
-	return event.GroupKeyVersion, nil
+	return doc.Version, nil
 }
 
-func (c *cryptoMgo) GetGroupKeyEventsSince(ctx context.Context, groupID string, sinceVersion int64) ([]*model.GroupKeyEvent, error) {
+func (c *cryptoMgo) GetGroupKeyEventsSince(ctx context.Context, groupID string, sinceVersion int64, limit int64) ([]*model.GroupKeyEvent, error) {
 	filter := bson.M{
 		"group_id":          groupID,
 		"group_key_version": bson.M{"$gt": sinceVersion},
 	}
 	opts := options.Find().SetSort(bson.M{"group_key_version": 1})
+	if limit > 0 {
+		opts.SetLimit(limit)
+	}
 	return mongoutil.Find[*model.GroupKeyEvent](ctx, c.eventColl, filter, opts)
 }

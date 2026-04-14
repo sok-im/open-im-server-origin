@@ -58,9 +58,22 @@ func (s *cryptoServer) SecurityPrecheck(ctx context.Context, req *pbcrypto.Secur
 // Current implementation: accept-and-log. Production deployments should integrate
 // with platform-specific attestation verification (Google Play Integrity API,
 // Apple App Attest, etc.).
+const maxReportDataSize = 64 * 1024 // 64 KB
+
 func (s *cryptoServer) IntegrityReport(ctx context.Context, req *pbcrypto.IntegrityReportReq) (*pbcrypto.IntegrityReportResp, error) {
 	if req.UserID == "" || req.DeviceID == "" {
 		return nil, errs.ErrArgs.WrapMsg("userID and deviceID are required")
+	}
+	if len(req.ReportData) > maxReportDataSize {
+		return nil, errs.ErrArgs.WrapMsg("reportData exceeds maximum size limit (64KB)")
+	}
+
+	device, err := s.db.GetDeviceByID(ctx, req.DeviceID)
+	if err != nil {
+		return nil, errs.WrapMsg(err, "device not found", "deviceID", req.DeviceID)
+	}
+	if device.UserID != req.UserID {
+		return nil, errs.ErrNoPermission.WrapMsg("device does not belong to user", "deviceID", req.DeviceID, "userID", req.UserID)
 	}
 
 	log.ZInfo(ctx, "IntegrityReport received",

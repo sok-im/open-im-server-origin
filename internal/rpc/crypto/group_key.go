@@ -4,10 +4,13 @@ import (
 	"context"
 	"time"
 
+	"github.com/openimsdk/open-im-server/v3/pkg/authverify"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/model"
+	"github.com/openimsdk/protocol/constant"
 	pbcrypto "github.com/openimsdk/protocol/crypto"
 	"github.com/openimsdk/tools/errs"
 	"github.com/openimsdk/tools/log"
+	"github.com/openimsdk/tools/mcontext"
 )
 
 // GetGroupKeyVersion returns the latest group key version for the given group.
@@ -15,6 +18,10 @@ import (
 func (s *cryptoServer) GetGroupKeyVersion(ctx context.Context, req *pbcrypto.GetGroupKeyVersionReq) (*pbcrypto.GetGroupKeyVersionResp, error) {
 	if req.GroupID == "" {
 		return nil, errs.ErrArgs.WrapMsg("groupID is required")
+	}
+
+	if err := s.checkGroupMember(ctx, req.GroupID); err != nil {
+		return nil, err
 	}
 
 	version, err := s.db.GetLatestGroupKeyVersion(ctx, req.GroupID)
@@ -47,6 +54,16 @@ func (s *cryptoServer) BumpGroupKeyVersion(ctx context.Context, req *pbcrypto.Bu
 		return nil, errs.ErrArgs.WrapMsg("operatorUserID is required")
 	}
 
+	if !authverify.IsAppManagerUid(ctx, s.config.Share.IMAdminUserID) {
+		member, err := s.groupClient.GetGroupMemberCache(ctx, req.GroupID, mcontext.GetOpUserID(ctx))
+		if err != nil {
+			return nil, errs.ErrNoPermission.WrapMsg("caller is not a group member", "groupID", req.GroupID)
+		}
+		if member.RoleLevel != constant.GroupOwner && member.RoleLevel != constant.GroupAdmin {
+			return nil, errs.ErrNoPermission.WrapMsg("only group owner or admin can rotate group key")
+		}
+	}
+
 	newVersion, err := s.db.AtomicBumpGroupKeyVersion(ctx, req.GroupID)
 	if err != nil {
 		return nil, errs.WrapMsg(err, "AtomicBumpGroupKeyVersion failed", "groupID", req.GroupID)
@@ -67,7 +84,8 @@ func (s *cryptoServer) BumpGroupKeyVersion(ctx context.Context, req *pbcrypto.Bu
 	}
 
 	if err := s.db.CreateGroupKeyEvent(ctx, event); err != nil {
-		return nil, errs.WrapMsg(err, "CreateGroupKeyEvent failed", "groupID", req.GroupID, "newVersion", newVersion)
+		log.ZError(ctx, "CreateGroupKeyEvent failed (version already bumped, event lost)",
+			err, "groupID", req.GroupID, "newVersion", newVersion, "eventID", event.EventID)
 	}
 
 	log.ZInfo(ctx, "BumpGroupKeyVersion",
@@ -91,7 +109,12 @@ func (s *cryptoServer) GetGroupKeyEvents(ctx context.Context, req *pbcrypto.GetG
 		return nil, errs.ErrArgs.WrapMsg("groupID is required")
 	}
 
-	events, err := s.db.GetGroupKeyEventsSince(ctx, req.GroupID, req.SinceVersion)
+	if err := s.checkGroupMember(ctx, req.GroupID); err != nil {
+		return nil, err
+	}
+
+	const maxGroupKeyEvents = 200
+	events, err := s.db.GetGroupKeyEventsSince(ctx, req.GroupID, req.SinceVersion, maxGroupKeyEvents)
 	if err != nil {
 		return nil, errs.WrapMsg(err, "GetGroupKeyEventsSince failed", "groupID", req.GroupID)
 	}
@@ -109,4 +132,16 @@ func (s *cryptoServer) GetGroupKeyEvents(ctx context.Context, req *pbcrypto.GetG
 	}
 
 	return &pbcrypto.GetGroupKeyEventsResp{Events: pbEvents}, nil
+}
+
+func (s *cryptoServer) checkGroupMember(ctx context.Context, groupID string) error {
+	if authverify.IsAppManagerUid(ctx, s.config.Share.IMAdminUserID) {
+		return nil
+	}
+	opUserID := mcontext.GetOpUserID(ctx)
+	_, err := s.groupClient.GetGroupMemberCache(ctx, groupID, opUserID)
+	if err != nil {
+		return errs.ErrNoPermission.WrapMsg("caller is not a group member", "groupID", groupID, "userID", opUserID)
+	}
+	return nil
 }
