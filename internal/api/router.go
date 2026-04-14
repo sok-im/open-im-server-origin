@@ -12,6 +12,7 @@ import (
 	"github.com/openimsdk/protocol/group"
 	"github.com/openimsdk/protocol/msg"
 	"github.com/openimsdk/protocol/relation"
+	"github.com/openimsdk/protocol/crypto"
 	"github.com/openimsdk/protocol/rtc"
 	"github.com/openimsdk/protocol/third"
 	"github.com/openimsdk/protocol/user"
@@ -109,6 +110,10 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 		return nil, err
 	}
 	rtcConn, err := client.GetConn(ctx, config.Share.RpcRegisterName.Rtc)
+	if err != nil {
+		return nil, err
+	}
+	cryptoConn, err := client.GetConn(ctx, config.Share.RpcRegisterName.Crypto)
 	if err != nil {
 		return nil, err
 	}
@@ -345,6 +350,20 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 	}
 
 	{
+		cr := NewCryptoApi(crypto.NewCryptoServiceClient(cryptoConn))
+		cryptoGroup := r.Group("/crypto")
+		cryptoGroup.POST("/register_device", cr.RegisterDevice)
+		cryptoGroup.POST("/get_devices", cr.GetDevices)
+		cryptoGroup.POST("/revoke_device", cr.RevokeDevice)
+		cryptoGroup.POST("/get_virgil_jwt", cr.GetVirgilJWT)
+		cryptoGroup.POST("/get_group_key_version", cr.GetGroupKeyVersion)
+		cryptoGroup.POST("/bump_group_key_version", cr.BumpGroupKeyVersion)
+		cryptoGroup.POST("/get_group_key_events", cr.GetGroupKeyEvents)
+		cryptoGroup.POST("/security_precheck", cr.SecurityPrecheck)
+		cryptoGroup.POST("/integrity_report", cr.IntegrityReport)
+	}
+
+	{
 		statisticsGroup := r.Group("/statistics")
 		statisticsGroup.POST("/user/register", u.UserRegisterCount)
 		statisticsGroup.POST("/user/active", m.GetActiveUser)
@@ -374,6 +393,7 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 		proDiscoveryGroup.GET("/msg_gateway", pd.MessageGateway)
 		proDiscoveryGroup.GET("/msg_transfer", pd.MessageTransfer)
 		proDiscoveryGroup.GET("/rtc", pd.Rtc)
+		proDiscoveryGroup.GET("/crypto", pd.Crypto)
 	}
 	return r, nil
 }

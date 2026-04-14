@@ -22,4 +22,7 @@ const (
 	SignalInvitationName    = "signal_invitation"
 	SignalRecordName        = "signal_record"
 	SpamReportName          = "spam_report"
+	CryptoDeviceName             = "crypto_device"
+	CryptoGroupKeyEventName      = "crypto_group_key_event"
+	CryptoGroupKeyVersionName    = "crypto_group_key_version"
 )

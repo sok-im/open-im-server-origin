@@ -112,3 +112,7 @@ func (p *PrometheusDiscoveryApi) MessageTransfer(c *gin.Context) {
 func (p *PrometheusDiscoveryApi) Rtc(c *gin.Context) {
 	p.discovery(c, p.config.Share.RpcRegisterName.Rtc)
 }
+
+func (p *PrometheusDiscoveryApi) Crypto(c *gin.Context) {
+	p.discovery(c, p.config.Share.RpcRegisterName.Crypto)
+}

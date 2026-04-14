@@ -12,6 +12,10 @@ Dockerfile.cross
 .DS_Store
 .playwright-mcp/
 
+### 编译产物（根目录二进制）###
+/openim-api
+/openim-rpc-crypto
+
 ### 构建产物 ###
 tmp/
 bin/
@@ -26,6 +30,9 @@ config/notification.yaml
 
 ### 部署生成物 ###
 deployments/openim-server/charts
+
+### 本地设计文档 ###
+virgil_chat_server_design.md
 
 ### 本地笔记 ###
 .idea.md
@@ -59,6 +66,10 @@ go.work.sum
 ### JetBrains / IDE ###
 .idea/
 out/
+
+### Protocol Buffers 生成代码（submodule 中的生成文件，体积大且无需索引）###
+protocol/**/*.pb.go
+protocol/**/go.sum
 
 ### Tags ###
 TAGS

@@ -1,0 +1,28 @@
+rpc:
+  # The IP address where this RPC service registers itself; if left blank, it defaults to the internal network IP
+  registerIP:
+  # IP address that the RPC service listens on; setting to 0.0.0.0 listens on both internal and external IPs. If left blank, it automatically uses the internal network IP
+  listenIP: 0.0.0.0
+  # autoSetPorts indicates whether to automatically set the ports
+  autoSetPorts: true
+  # List of ports that the RPC service listens on; configuring multiple ports will launch multiple instances.
+  # It will only take effect when autoSetPorts is set to false.
+  ports: [ 10500 ]
+
+prometheus:
+  # Enable or disable Prometheus monitoring
+  enable: true
+  # List of ports that Prometheus listens on; these must match the number of rpc.ports.
+  # It will only take effect when autoSetPorts is set to false.
+  ports: [ 12500 ]
+
+virgil:
+  # Virgil Security application ID (from Virgil Dashboard)
+  appID: ""
+  # Virgil API Key ID (from Virgil Dashboard)
+  apiKeyID: ""
+  # Virgil API private key in base64 format (used for signing Virgil JWTs)
+  # WARNING: Keep this secret. Do not commit real values to version control.
+  apiKey: ""
+  # Virgil JWT token time-to-live in seconds (default: 3600 = 1 hour)
+  tokenTTL: 3600
