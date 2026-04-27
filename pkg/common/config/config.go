@@ -427,6 +427,7 @@ type RpcRegisterName struct {
 	Captcha        string `mapstructure:"captcha"`
 	Rtc            string `mapstructure:"rtc"`
 	Crypto         string `mapstructure:"crypto"`
+	Redpacket      string `mapstructure:"redpacket"`
 }
 
 func (r *RpcRegisterName) GetServiceNames() []string {
@@ -443,6 +444,7 @@ func (r *RpcRegisterName) GetServiceNames() []string {
 		r.Captcha,
 		r.Rtc,
 		r.Crypto,
+		r.Redpacket,
 	}
 }
 
@@ -482,6 +484,34 @@ type VirgilConfig struct {
 	AppKeyID string `mapstructure:"appKeyID"`
 }
 
+type RedPacketETH struct {
+	RPCURL                string `mapstructure:"rpcURL"`
+	ContractAddress       string `mapstructure:"contractAddress"`
+	SignerPrivateKey       string `mapstructure:"signerPrivateKey"`
+	ConfigAdminPrivateKey string `mapstructure:"configAdminPrivateKey"`
+	ChainID               int64  `mapstructure:"chainID"`
+	StartBlock            int64  `mapstructure:"startBlock"`
+}
+
+type RedPacketTRON struct {
+	NodeURL               string `mapstructure:"nodeURL"`
+	ContractAddress       string `mapstructure:"contractAddress"`
+	SignerPrivateKey       string `mapstructure:"signerPrivateKey"`
+	ConfigAdminPrivateKey string `mapstructure:"configAdminPrivateKey"`
+	StartBlock            int64  `mapstructure:"startBlock"`
+}
+
+type RedPacket struct {
+	RPC struct {
+		RegisterIP   string `mapstructure:"registerIP"`
+		ListenIP     string `mapstructure:"listenIP"`
+		AutoSetPorts bool   `mapstructure:"autoSetPorts"`
+		Ports        []int  `mapstructure:"ports"`
+	} `mapstructure:"rpc"`
+	Prometheus Prometheus    `mapstructure:"prometheus"`
+	ETH        RedPacketETH  `mapstructure:"eth"`
+	TRON       RedPacketTRON `mapstructure:"tron"`
+}
 
 // FullConfig stores all configurations for before and after events
 type Webhooks struct {
@@ -694,6 +724,7 @@ var (
 	OpenIMRPCUserCfgFileName         = "openim-rpc-user.yml"
 	OpenIMRPCRtcCfgFileName          = "openim-rpc-rtc.yml"
 	OpenIMRPCCryptoCfgFileName       = "openim-rpc-crypto.yml"
+	OpenIMRPCRedPacketCfgFileName    = "openim-rpc-redpacket.yml"
 	RedisConfigFileName              = "redis.yml"
 	ShareFileName                    = "share.yml"
 	WebhooksConfigFileName           = "webhooks.yml"
@@ -785,6 +816,10 @@ func (r *Rtc) GetConfigFileName() string {
 
 func (c *Crypto) GetConfigFileName() string {
 	return OpenIMRPCCryptoCfgFileName
+}
+
+func (r *RedPacket) GetConfigFileName() string {
+	return OpenIMRPCRedPacketCfgFileName
 }
 
 func (r *Redis) GetConfigFileName() string {

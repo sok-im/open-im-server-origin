@@ -1,0 +1,26 @@
+rpc:
+  registerIP: ""
+  listenIP: 0.0.0.0
+  autoSetPorts: false
+  ports: [10540]
+
+prometheus:
+  enable: false
+  ports: [12540]
+
+# Ethereum chain configuration (leave rpcURL empty to disable ETH support)
+eth:
+  rpcURL: ""
+  contractAddress: ""
+  signerPrivateKey: ""
+  configAdminPrivateKey: ""
+  chainID: 1
+  startBlock: 0
+
+# TRON chain configuration (leave nodeURL empty to disable TRON support)
+tron:
+  nodeURL: ""
+  contractAddress: ""
+  signerPrivateKey: ""
+  configAdminPrivateKey: ""
+  startBlock: 0

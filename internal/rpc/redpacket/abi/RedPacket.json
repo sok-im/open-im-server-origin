@@ -1,0 +1,92 @@
+[
+  {
+    "type": "function",
+    "name": "getSignMessage",
+    "inputs": [
+      { "name": "packetId",  "type": "uint256" },
+      { "name": "claimer",   "type": "address" },
+      { "name": "authNonce", "type": "uint256" },
+      { "name": "randomSeed","type": "uint256" },
+      { "name": "deadline",  "type": "uint256" }
+    ],
+    "outputs": [{ "name": "", "type": "bytes32" }],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "setSigner",
+    "inputs": [{ "name": "newSigner", "type": "address" }],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setAllowAllTokens",
+    "inputs": [{ "name": "allowed", "type": "bool" }],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setNativeTokenEnabled",
+    "inputs": [{ "name": "enabled", "type": "bool" }],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setAllowedToken",
+    "inputs": [
+      { "name": "token",          "type": "address" },
+      { "name": "allowed",        "type": "bool" },
+      { "name": "minShareAmount", "type": "uint256" }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setDefaultExpiryDuration",
+    "inputs": [{ "name": "duration", "type": "uint256" }],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "event",
+    "name": "PacketCreated",
+    "inputs": [
+      { "name": "packetId",    "type": "uint256", "indexed": true  },
+      { "name": "creator",     "type": "address", "indexed": true  },
+      { "name": "packetType",  "type": "uint8",   "indexed": false },
+      { "name": "token",       "type": "address", "indexed": false },
+      { "name": "totalAmount", "type": "uint256", "indexed": false },
+      { "name": "totalShares", "type": "uint256", "indexed": false },
+      { "name": "expiryAt",    "type": "uint256", "indexed": false }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "PacketClaimed",
+    "inputs": [
+      { "name": "packetId",      "type": "uint256", "indexed": true  },
+      { "name": "claimer",       "type": "address", "indexed": true  },
+      { "name": "authNonce",     "type": "uint256", "indexed": false },
+      { "name": "claimedAmount", "type": "uint256", "indexed": false },
+      { "name": "blockNumber",   "type": "uint256", "indexed": false },
+      { "name": "timestamp",     "type": "uint256", "indexed": false }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "PacketRefunded",
+    "inputs": [
+      { "name": "packetId",        "type": "uint256", "indexed": true  },
+      { "name": "creator",         "type": "address", "indexed": true  },
+      { "name": "token",           "type": "address", "indexed": false },
+      { "name": "refundedAmount",  "type": "uint256", "indexed": false }
+    ],
+    "anonymous": false
+  }
+]

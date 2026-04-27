@@ -12,6 +12,7 @@ import (
 	pbcrypto "github.com/openimsdk/protocol/crypto"
 	"github.com/openimsdk/protocol/group"
 	"github.com/openimsdk/protocol/msg"
+	pbredpacket "github.com/openimsdk/protocol/redpacket"
 	"github.com/openimsdk/protocol/relation"
 	"github.com/openimsdk/protocol/rtc"
 	"github.com/openimsdk/protocol/third"
@@ -117,6 +118,10 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 	if err != nil {
 		return nil, err
 	}
+	redpacketConn, err := client.GetConn(ctx, config.Share.RpcRegisterName.Redpacket)
+	if err != nil {
+		return nil, err
+	}
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	if v, ok := binding.Validator.Engine().(*validator.Validate); ok {
@@ -135,6 +140,7 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 	u := NewUserApi(user.NewUserClient(userConn), client, config.Share.RpcRegisterName, config.Share.IMAdminUserID)
 	m := NewMessageApi(msg.NewMsgClient(msgConn), rpcli.NewUserClient(userConn), config.Share.IMAdminUserID)
 	cp := NewCaptchaApi(pbcaptcha.NewCaptchaClient(captchaConn))
+	rp := NewRedPacketApi(pbredpacket.NewRedPacketClient(redpacketConn), config.Share.IMAdminUserID)
 	bl := NewUserGlobalBlackApi(blacklistCtrl, userDB, config.Share.IMAdminUserID, rpcli.NewAuthClient(authConn))
 	phoneSN := NewPhoneSNApi(phoneSNDB)
 	userRouterGroup := r.Group("/user")
@@ -331,6 +337,25 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 	}
 
 	{
+		rpGroup := r.Group("/api/redpacket")
+		rpGroup.POST("/create-order", rp.CreateOrder)
+		rpGroup.POST("/created-callback", rp.CreatedCallback)
+		rpGroup.GET("/detail", rp.GetDetail)
+		rpGroup.POST("/claim-sign", rp.ClaimSign)
+		rpGroup.POST("/claim-result", rp.ClaimResult)
+	}
+
+	{
+		adminGroup := r.Group("/admin/redpacket")
+		adminGroup.POST("/set-signer", rp.SetSigner)
+		adminGroup.POST("/set-token", rp.SetToken)
+		adminGroup.POST("/set-expiry", rp.SetExpiry)
+		adminGroup.POST("/set-allow-all-tokens", rp.SetAllowAllTokens)
+		adminGroup.POST("/set-native-token", rp.SetNativeToken)
+		adminGroup.POST("/parse-tx-events", rp.ParseTxEvents)
+	}
+
+	{
 		phoneGroup := r.Group("/phone")
 		phoneGroup.POST("/get_sn_info", phoneSN.GetSNInfo)
 		phoneGroup.POST("/set_sn_info", phoneSN.SetSNInfo)
@@ -429,10 +454,13 @@ func GinParseToken(authClient *rpcli.AuthClient) gin.HandlerFunc {
 	}
 }
 
-// Whitelist api not parse token
+// Whitelist api not parse token.
+// /admin/redpacket is intentionally NOT here; admin endpoints require an admin token
+// and are gated by authverify.CheckAdmin inside each handler.
 var Whitelist = []string{
 	"/auth/get_admin_token",
 	"/auth/parse_token",
 	"/captcha",
 	"/phone/get_sn_info",
+	"/api/redpacket",
 }
