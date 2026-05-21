@@ -61,7 +61,7 @@ func (o *GroupApi) SetSendMessageSetting(c *gin.Context) {
 		apiresp.GinError(c, errs.ErrArgs.WrapMsg("allowSendMsg must be 0 or 1"))
 		return
 	}
-	resp, err := o.Client.SetGroupInfoEx(c.Request.Context(), &group.SetGroupInfoExReq{
+	resp, err := o.Client.SetGroupInfoEx(c, &group.SetGroupInfoExReq{
 		GroupID:      req.GroupID,
 		AllowSendMsg: wrapperspb.Int32(req.AllowSendMsg),
 	})
@@ -90,7 +90,7 @@ func (o *GroupApi) SetInviteSetting(c *gin.Context) {
 		apiresp.GinError(c, errs.ErrArgs.WrapMsg("allowAddMember must be 0 or 1"))
 		return
 	}
-	resp, err := o.Client.SetGroupInfoEx(c.Request.Context(), &group.SetGroupInfoExReq{
+	resp, err := o.Client.SetGroupInfoEx(c, &group.SetGroupInfoExReq{
 		GroupID:        req.GroupID,
 		AllowAddMember: wrapperspb.Int32(req.AllowAddMember),
 	})
@@ -119,7 +119,7 @@ func (o *GroupApi) SetPinSetting(c *gin.Context) {
 		apiresp.GinError(c, errs.ErrArgs.WrapMsg("allowPinMsg must be 0 or 1"))
 		return
 	}
-	resp, err := o.Client.SetGroupInfoEx(c.Request.Context(), &group.SetGroupInfoExReq{
+	resp, err := o.Client.SetGroupInfoEx(c, &group.SetGroupInfoExReq{
 		GroupID:     req.GroupID,
 		AllowPinMsg: wrapperspb.Int32(req.AllowPinMsg),
 	})
@@ -148,7 +148,7 @@ func (o *GroupApi) SetBurnSetting(c *gin.Context) {
 		apiresp.GinError(c, errs.ErrArgs.WrapMsg("allowBurn must be 0 or 1"))
 		return
 	}
-	resp, err := o.Client.SetGroupInfoEx(c.Request.Context(), &group.SetGroupInfoExReq{
+	resp, err := o.Client.SetGroupInfoEx(c, &group.SetGroupInfoExReq{
 		GroupID:   req.GroupID,
 		AllowBurn: wrapperspb.Int32(req.AllowBurn),
 	})
@@ -177,7 +177,7 @@ func (o *GroupApi) SetEditSetting(c *gin.Context) {
 		apiresp.GinError(c, errs.ErrArgs.WrapMsg("allowEditGroupInfo must be 0 or 1"))
 		return
 	}
-	resp, err := o.Client.SetGroupInfoEx(c.Request.Context(), &group.SetGroupInfoExReq{
+	resp, err := o.Client.SetGroupInfoEx(c, &group.SetGroupInfoExReq{
 		GroupID:            req.GroupID,
 		AllowEditGroupInfo: wrapperspb.Int32(req.AllowEditGroupInfo),
 	})
@@ -206,7 +206,7 @@ func (o *GroupApi) GetGroupSetting(c *gin.Context) {
 		apiresp.GinError(c, errs.ErrArgs.WrapMsg("groupID is empty"))
 		return
 	}
-	resp, err := o.Client.GetGroupsInfo(c.Request.Context(), &group.GetGroupsInfoReq{
+	resp, err := o.Client.GetGroupsInfo(c, &group.GetGroupsInfoReq{
 		GroupIDs: []string{req.GroupID},
 	})
 	if err != nil {
@@ -253,7 +253,7 @@ func (o *GroupApi) SetMsgBurnDuration(c *gin.Context) {
 		apiresp.GinError(c, errs.ErrArgs.WrapMsg("burnDuration must be >= 0"))
 		return
 	}
-	resp, err := o.Client.SetGroupInfoEx(c.Request.Context(), &group.SetGroupInfoExReq{
+	resp, err := o.Client.SetGroupInfoEx(c, &group.SetGroupInfoExReq{
 		GroupID:         req.GroupID,
 		MsgBurnDuration: wrapperspb.Int32(req.BurnDuration),
 	})
@@ -277,7 +277,7 @@ func (o *GroupApi) GetMsgBurnDuration(c *gin.Context) {
 		apiresp.GinError(c, errs.ErrArgs.WrapMsg("groupID is empty"))
 		return
 	}
-	resp, err := o.Client.GetGroupsInfo(c.Request.Context(), &group.GetGroupsInfoReq{
+	resp, err := o.Client.GetGroupsInfo(c, &group.GetGroupsInfoReq{
 		GroupIDs: []string{req.GroupID},
 	})
 	if err != nil {
