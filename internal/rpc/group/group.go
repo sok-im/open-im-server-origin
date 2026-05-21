@@ -147,7 +147,7 @@ func Start(ctx context.Context, config *Config, client discovery.SvcDiscoveryReg
 	}
 	gs.db = controller.NewGroupDatabase(rdb, &config.LocalCacheConfig, groupDB, groupMemberDB, groupRequestDB, groupPinnedMsgDB, mgocli.GetTx(), grouphash.NewGroupHashFromGroupServer(&gs))
 	gs.groupMuteDB = controller.NewGroupMuteDatabase(groupMuteMongo)
-	gs.notification = NewNotificationSender(gs.db, config, gs.userClient, gs.msgClient, gs.conversationClient)
+	gs.notification = NewNotificationSender(gs.db, config, gs.userClient, gs.relationClient, gs.msgClient, gs.conversationClient)
 	localcache.InitLocalCache(&config.LocalCacheConfig)
 	pbgroup.RegisterGroupServer(server, &gs)
 	return nil
@@ -178,21 +178,19 @@ func (s *groupServer) NotificationFriendRemarkUpdate(ctx context.Context, req *p
 	return &pbgroup.NotificationFriendRemarkUpdateResp{}, nil
 }
 
-// resolveFriendDisplayName returns the display name for friendUserID as seen by ownerUserID,
-// following the priority: remark (if set) > firstName > nickname.
+// resolveFriendDisplayName returns the display name for friendUserID as seen by ownerUserID:
+// remark > firstName+lastName > nickname.
 func (s *groupServer) resolveFriendDisplayName(ctx context.Context, ownerUserID, friendUserID string) (string, error) {
+	var remark string
 	friendInfos, err := s.relationClient.GetFriendsInfo(ctx, ownerUserID, []string{friendUserID})
-	if err == nil && len(friendInfos) > 0 && friendInfos[0].GetRemark() != "" {
-		return friendInfos[0].GetRemark(), nil
+	if err == nil && len(friendInfos) > 0 {
+		remark = friendInfos[0].GetRemark()
 	}
 	users, err := s.userClient.GetUsersInfo(ctx, []string{friendUserID})
 	if err != nil || len(users) == 0 {
 		return "", err
 	}
-	if users[0].FirstName != "" || users[0].LastName != "" {
-		return users[0].FirstName + " " + users[0].LastName, nil
-	}
-	return users[0].Nickname, nil
+	return convert.DisplayNickname(remark, users[0]), nil
 }
 
 func (s *groupServer) NotificationUserInfoUpdate(ctx context.Context, req *pbgroup.NotificationUserInfoUpdateReq) (*pbgroup.NotificationUserInfoUpdateResp, error) {

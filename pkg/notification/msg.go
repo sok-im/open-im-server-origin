@@ -22,6 +22,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/openimsdk/open-im-server/v3/pkg/common/config"
+	"github.com/openimsdk/open-im-server/v3/pkg/common/convert"
 	"github.com/openimsdk/protocol/constant"
 	"github.com/openimsdk/protocol/msg"
 	"github.com/openimsdk/protocol/sdkws"
@@ -130,8 +131,9 @@ type NotificationSender struct {
 	contentTypeConf map[int32]config.NotificationConfig
 	sessionTypeConf map[int32]int32
 	sendMsg         func(ctx context.Context, req *msg.SendMsgReq) (*msg.SendMsgResp, error)
-	getUserInfo     func(ctx context.Context, userID string) (*sdkws.UserInfo, error)
-	queue           *memamq.MemoryQueue
+	getUserInfo         func(ctx context.Context, userID string) (*sdkws.UserInfo, error)
+	getDisplayNickname  func(ctx context.Context, viewerUserID, targetUserID string) (string, error)
+	queue               *memamq.MemoryQueue
 }
 
 func WithQueue(queue *memamq.MemoryQueue) NotificationSenderOptions {
@@ -159,6 +161,13 @@ func WithRpcClient(sendMsg func(ctx context.Context, req *msg.SendMsgReq) (*msg.
 func WithUserRpcClient(getUserInfo func(ctx context.Context, userID string) (*sdkws.UserInfo, error)) NotificationSenderOptions {
 	return func(s *NotificationSender) {
 		s.getUserInfo = getUserInfo
+	}
+}
+
+// WithDisplayNicknameResolver sets remark > firstName+lastName > nickname for notification sender names (viewer sees target).
+func WithDisplayNicknameResolver(fn func(ctx context.Context, viewerUserID, targetUserID string) (string, error)) NotificationSenderOptions {
+	return func(s *NotificationSender) {
+		s.getDisplayNickname = fn
 	}
 }
 
@@ -227,8 +236,16 @@ func (s *NotificationSender) send(ctx context.Context, sendID, recvID string, co
 			log.ZWarn(ctx, "getUserInfo failed", err, "sendID", sendID)
 			return
 		}
-		msg.SenderNickname = userInfo.Nickname
 		msg.SenderFaceURL = userInfo.FaceURL
+		if s.getDisplayNickname != nil && recvID != "" {
+			if name, err := s.getDisplayNickname(ctx, recvID, sendID); err == nil && name != "" {
+				msg.SenderNickname = name
+			} else {
+				msg.SenderNickname = convert.DisplayNickname("", userInfo)
+			}
+		} else {
+			msg.SenderNickname = convert.DisplayNickname("", userInfo)
+		}
 	}
 	var offlineInfo sdkws.OfflinePushInfo
 	msg.SendID = sendID

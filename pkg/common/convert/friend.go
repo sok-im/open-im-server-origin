@@ -48,8 +48,10 @@ func FriendDB2Pb(ctx context.Context, friendDB *model.Friend, getUsers func(ctx 
 		return nil, fmt.Errorf("user not found: %s", friendDB.FriendUserID)
 	}
 
+	displayUser := *user
+	displayUser.Nickname = DisplayNickname(friendDB.Remark, user)
 	return &sdkws.FriendInfo{
-		FriendUser: user,
+		FriendUser: &displayUser,
 		CreateTime: friendDB.CreateTime.Unix(),
 	}, nil
 }
@@ -74,9 +76,10 @@ func FriendsDB2Pb(ctx context.Context, friendsDB []*model.Friend, getUsers func(
 			return nil, err
 		}
 
-		friendPb.FriendUser.UserID = users[friend.FriendUserID].UserID
-		friendPb.FriendUser.Nickname = users[friend.FriendUserID].Nickname
-		friendPb.FriendUser.FaceURL = users[friend.FriendUserID].FaceURL
+		u := users[friend.FriendUserID]
+		friendPb.FriendUser.UserID = u.UserID
+		friendPb.FriendUser.Nickname = DisplayNickname(friend.Remark, u)
+		friendPb.FriendUser.FaceURL = u.FaceURL
 		friendPb.FriendUser.Ex = users[friend.FriendUserID].Ex
 		friendPb.FriendUser.FirstName = users[friend.FriendUserID].FirstName
 		friendPb.FriendUser.LastName = users[friend.FriendUserID].LastName
@@ -130,12 +133,14 @@ func FriendRequestDB2Pb(ctx context.Context, friendRequests []*model.FriendReque
 	for _, friendRequest := range friendRequests {
 		toUser := users[friendRequest.ToUserID]
 		fromUser := users[friendRequest.FromUserID]
+		fromU, _ := fromUser.(*sdkws.UserInfo)
+		toU, _ := toUser.(*sdkws.UserInfo)
 		res = append(res, &sdkws.FriendRequest{
 			FromUserID:    friendRequest.FromUserID,
-			FromNickname:  fromUser.GetNickname(),
+			FromNickname:  DisplayNickname("", fromU),
 			FromFaceURL:   fromUser.GetFaceURL(),
 			ToUserID:      friendRequest.ToUserID,
-			ToNickname:    toUser.GetNickname(),
+			ToNickname:    DisplayNickname("", toU),
 			ToFaceURL:     toUser.GetFaceURL(),
 			HandleResult:  friendRequest.HandleResult,
 			ReqMsg:        friendRequest.ReqMsg,

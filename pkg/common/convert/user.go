@@ -34,7 +34,8 @@ func BuildFullName(firstName, lastName string) string {
 	return strings.TrimSpace(firstName + " " + lastName)
 }
 
-// MemberDisplayNickname 非好友场景下的群成员展示名：优先 firstName+lastName，否则 nickname。
+// MemberDisplayNickname 无好友备注时的展示名：firstName+lastName，否则 nickname。
+// 完整规则（含 remark）请使用 DisplayNickname。
 func MemberDisplayNickname(u *sdkws.UserInfo) string {
 	if u == nil {
 		return ""

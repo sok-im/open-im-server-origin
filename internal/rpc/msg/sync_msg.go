@@ -18,12 +18,14 @@ import (
 	"context"
 
 	"github.com/openimsdk/open-im-server/v3/pkg/authverify"
+	"github.com/openimsdk/open-im-server/v3/pkg/common/convert"
 	"github.com/openimsdk/open-im-server/v3/pkg/msgprocessor"
 	"github.com/openimsdk/open-im-server/v3/pkg/util/conversationutil"
 	"github.com/openimsdk/protocol/constant"
 	"github.com/openimsdk/protocol/msg"
 	"github.com/openimsdk/protocol/sdkws"
 	"github.com/openimsdk/tools/log"
+	"github.com/openimsdk/tools/mcontext"
 	"github.com/openimsdk/tools/utils/datautil"
 	"github.com/openimsdk/tools/utils/timeutil"
 )
@@ -156,12 +158,14 @@ func (m *msgServer) SearchMessage(ctx context.Context, req *msg.SearchMessageReq
 	}
 
 	var (
-		sendIDs  []string
-		recvIDs  []string
-		groupIDs []string
-		sendMap  = make(map[string]string)
-		recvMap  = make(map[string]string)
-		groupMap = make(map[string]*sdkws.GroupInfo)
+		sendIDs   []string
+		recvIDs   []string
+		groupIDs  []string
+		peerIDs   []string
+		sendMap   = make(map[string]*sdkws.UserInfo)
+		recvMap   = make(map[string]*sdkws.UserInfo)
+		groupMap  = make(map[string]*sdkws.GroupInfo)
+		remarkMap map[string]string
 	)
 
 	for _, chatLog := range chatLogs {
@@ -175,25 +179,24 @@ func (m *msgServer) SearchMessage(ctx context.Context, req *msg.SearchMessageReq
 			groupIDs = append(groupIDs, chatLog.MsgData.GroupID)
 		}
 	}
+	peerIDs = datautil.Distinct(append(sendIDs, recvIDs...))
+	viewerID := mcontext.GetOpUserID(ctx)
 
-	// Retrieve sender and receiver information
-	if len(sendIDs) != 0 {
-		sendInfos, err := m.UserLocalCache.GetUsersInfo(ctx, sendIDs)
+	if len(peerIDs) != 0 {
+		userInfos, err := m.UserLocalCache.GetUsersInfo(ctx, peerIDs)
 		if err != nil {
 			return nil, err
 		}
-		for _, sendInfo := range sendInfos {
-			sendMap[sendInfo.UserID] = sendInfo.Nickname
+		for _, u := range userInfos {
+			sendMap[u.UserID] = u
+			recvMap[u.UserID] = u
 		}
-	}
-
-	if len(recvIDs) != 0 {
-		recvInfos, err := m.UserLocalCache.GetUsersInfo(ctx, recvIDs)
-		if err != nil {
-			return nil, err
-		}
-		for _, recvInfo := range recvInfos {
-			recvMap[recvInfo.UserID] = recvInfo.Nickname
+		if viewerID != "" {
+			friendInfos, err := m.relationClient.GetFriendsInfo(ctx, viewerID, peerIDs)
+			if err != nil {
+				return nil, err
+			}
+			remarkMap = convert.RemarkMapFromFriendInfos(friendInfos)
 		}
 	}
 
@@ -220,11 +223,11 @@ func (m *msgServer) SearchMessage(ctx context.Context, req *msg.SearchMessageReq
 		pbchatLog.SendTime = chatLog.MsgData.SendTime
 		pbchatLog.CreateTime = chatLog.MsgData.CreateTime
 		if chatLog.MsgData.SenderNickname == "" {
-			pbchatLog.SenderNickname = sendMap[chatLog.MsgData.SendID]
+			pbchatLog.SenderNickname = convert.DisplayNicknameForUser(chatLog.MsgData.SendID, sendMap, remarkMap)
 		}
 		switch chatLog.MsgData.SessionType {
 		case constant.SingleChatType, constant.NotificationChatType:
-			pbchatLog.RecvNickname = recvMap[chatLog.MsgData.RecvID]
+			pbchatLog.RecvNickname = convert.DisplayNicknameForUser(chatLog.MsgData.RecvID, recvMap, remarkMap)
 		case constant.ReadGroupChatType:
 			groupInfo := groupMap[chatLog.MsgData.GroupID]
 			pbchatLog.SenderFaceURL = groupInfo.FaceURL

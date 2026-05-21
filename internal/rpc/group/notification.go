@@ -51,13 +51,28 @@ const (
 	adminReceiver
 )
 
-func NewNotificationSender(db controller.GroupDatabase, config *Config, userClient *rpcli.UserClient, msgClient *rpcli.MsgClient, conversationClient *rpcli.ConversationClient) *NotificationSender {
+func NewNotificationSender(db controller.GroupDatabase, config *Config, userClient *rpcli.UserClient, relationClient *rpcli.RelationClient, msgClient *rpcli.MsgClient, conversationClient *rpcli.ConversationClient) *NotificationSender {
+	displayNickname := func(ctx context.Context, viewerUserID, targetUserID string) (string, error) {
+		var remark string
+		if relationClient != nil && viewerUserID != "" {
+			friends, err := relationClient.GetFriendsInfo(ctx, viewerUserID, []string{targetUserID})
+			if err == nil && len(friends) > 0 {
+				remark = friends[0].GetRemark()
+			}
+		}
+		u, err := userClient.GetUserInfo(ctx, targetUserID)
+		if err != nil {
+			return "", err
+		}
+		return convert.DisplayNickname(remark, u), nil
+	}
 	return &NotificationSender{
 		NotificationSender: notification.NewNotificationSender(&config.NotificationConfig,
 			notification.WithRpcClient(func(ctx context.Context, req *msg.SendMsgReq) (*msg.SendMsgResp, error) {
 				return msgClient.SendMsg(ctx, req)
 			}),
 			notification.WithUserRpcClient(userClient.GetUserInfo),
+			notification.WithDisplayNicknameResolver(displayNickname),
 		),
 		getUsersInfo: func(ctx context.Context, userIDs []string) ([]common_user.CommonUser, error) {
 			users, err := userClient.GetUsersInfo(ctx, userIDs)
@@ -107,7 +122,11 @@ func (g *NotificationSender) PopulateGroupMember(ctx context.Context, members ..
 				continue
 			}
 			if member.Nickname == "" {
-				members[i].Nickname = user.GetNickname()
+				if ui, ok := user.(*sdkws.UserInfo); ok {
+					members[i].Nickname = convert.DisplayNickname("", ui)
+				} else {
+					members[i].Nickname = user.GetNickname()
+				}
 			}
 			if member.FaceURL == "" {
 				members[i].FaceURL = user.GetFaceURL()

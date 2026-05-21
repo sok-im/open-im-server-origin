@@ -55,9 +55,10 @@ type conversationServer struct {
 	conversationNotificationSender *ConversationNotificationSender
 	config                         *Config
 
-	userClient  *rpcli.UserClient
-	msgClient   *rpcli.MsgClient
-	groupClient *rpcli.GroupClient
+	userClient     *rpcli.UserClient
+	msgClient      *rpcli.MsgClient
+	groupClient    *rpcli.GroupClient
+	relationClient *rpcli.RelationClient
 }
 
 type Config struct {
@@ -99,6 +100,10 @@ func Start(ctx context.Context, config *Config, client discovery.SvcDiscoveryReg
 	if err != nil {
 		return err
 	}
+	friendConn, err := client.GetConn(ctx, config.Share.RpcRegisterName.Friend)
+	if err != nil {
+		return err
+	}
 	msgConn, err := client.GetConn(ctx, config.Share.RpcRegisterName.Msg)
 	if err != nil {
 		return err
@@ -113,6 +118,7 @@ func Start(ctx context.Context, config *Config, client discovery.SvcDiscoveryReg
 		groupMsgBurnRecordDB: groupMsgBurnRecordDB,
 		userClient:           rpcli.NewUserClient(userConn),
 		groupClient:          rpcli.NewGroupClient(groupConn),
+		relationClient:       rpcli.NewRelationClient(friendConn),
 		msgClient:            msgClient,
 	})
 	return nil
@@ -674,13 +680,22 @@ func (c *conversationServer) getConversationInfo(
 			sendIDs = append(sendIDs, chatLog.SendID)
 		}
 	}
-	if len(sendIDs) != 0 {
-		sendInfos, err := c.userClient.GetUsersInfo(ctx, sendIDs)
+	peerIDs := datautil.Distinct(sendIDs)
+	var remarkMap map[string]string
+	if len(peerIDs) != 0 {
+		sendInfos, err := c.userClient.GetUsersInfo(ctx, peerIDs)
 		if err != nil {
 			return nil, err
 		}
 		for _, sendInfo := range sendInfos {
 			sendMap[sendInfo.UserID] = sendInfo
+		}
+		if userID != "" {
+			friendInfos, err := c.relationClient.GetFriendsInfo(ctx, userID, peerIDs)
+			if err != nil {
+				return nil, err
+			}
+			remarkMap = convert.RemarkMapFromFriendInfos(friendInfos)
 		}
 	}
 	if len(groupIDs) != 0 {
@@ -703,13 +718,13 @@ func (c *conversationServer) getConversationInfo(
 			if chatLog.SendID == userID {
 				if recv, ok := sendMap[chatLog.RecvID]; ok {
 					msgInfo.FaceURL = recv.FaceURL
-					msgInfo.SenderName = recv.Nickname
+					msgInfo.SenderName = convert.DisplayNickname(remarkMap[recv.UserID], recv)
 				}
 				break
 			}
 			if send, ok := sendMap[chatLog.SendID]; ok {
 				msgInfo.FaceURL = send.FaceURL
-				msgInfo.SenderName = send.Nickname
+				msgInfo.SenderName = convert.DisplayNickname(remarkMap[send.UserID], send)
 			}
 		case constant.WriteGroupChatType, constant.ReadGroupChatType:
 			msgInfo.GroupID = chatLog.GroupID
@@ -720,7 +735,7 @@ func (c *conversationServer) getConversationInfo(
 				msgInfo.GroupType = group.GroupType
 			}
 			if send, ok := sendMap[chatLog.SendID]; ok {
-				msgInfo.SenderName = send.Nickname
+				msgInfo.SenderName = convert.DisplayNickname(remarkMap[send.UserID], send)
 			}
 		}
 		pbchatLog.ConversationID = conversationID

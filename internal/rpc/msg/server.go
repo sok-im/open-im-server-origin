@@ -70,6 +70,7 @@ type msgServer struct {
 	config                 *Config                          // Global configuration settings.
 	webhookClient          *webhook.Client
 	conversationClient     *rpcli.ConversationClient
+	relationClient         *rpcli.RelationClient
 	spamReportDB           database.SpamReport
 	globalBlackDB          controller.UserGlobalBlackDatabase
 	msgBurnDeadlineDB      database.MsgBurnDeadline
@@ -154,6 +155,7 @@ func Start(ctx context.Context, config *Config, client discovery.SvcDiscoveryReg
 		config:                 config,
 		webhookClient:          webhook.NewWebhookClient(config.WebhooksConfig.URL),
 		conversationClient:     conversationClient,
+		relationClient:         rpcli.NewRelationClient(friendConn),
 		spamReportDB:           spamReportDB,
 		globalBlackDB:          controller.NewUserGlobalBlackDatabase(globalBlackMgo),
 		msgBurnDeadlineDB:      msgBurnDeadlineDB,

@@ -64,13 +64,7 @@ func (s *groupServer) applyMemberDisplayNicknames(ctx context.Context, members [
 		}
 	}
 	for _, m := range members {
-		if remark, ok := remarkMap[m.UserID]; ok && remark != "" {
-			m.Nickname = remark
-			continue
-		}
-		if name := convert.MemberDisplayNickname(users[m.UserID]); name != "" {
-			m.Nickname = name
-		}
+		m.Nickname = convert.DisplayNickname(remarkMap[m.UserID], users[m.UserID])
 	}
 	return nil
 }
