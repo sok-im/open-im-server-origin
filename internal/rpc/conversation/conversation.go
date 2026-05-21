@@ -190,12 +190,16 @@ func (c *conversationServer) GetSortedConversationList(ctx context.Context, req 
 			conversationMsg[conversationID] = &pbconversation.ConversationElem{
 				ConversationID: conversationID,
 				IsPinned:       v.IsPinned,
+				IsPrivateChat:  v.IsPrivateChat,
+				BurnDuration:   v.BurnDuration,
 				MsgInfo:        nil,
 			}
 			time = v.CreateTime.UnixMilli()
 		}
 
 		conversationMsg[conversationID].RecvMsgOpt = v.RecvMsgOpt
+		conversationMsg[conversationID].IsPrivateChat = v.IsPrivateChat
+		conversationMsg[conversationID].BurnDuration = v.BurnDuration
 		if v.IsPinned {
 			conversationMsg[conversationID].IsPinned = v.IsPinned
 			conversation_isPinTime[time] = conversationID
@@ -211,6 +215,8 @@ func (c *conversationServer) GetSortedConversationList(ctx context.Context, req 
 		elem.MuteDuration = v.MuteDuration
 		elem.MuteEndTime = v.MuteEndTime
 		elem.IsMuted = computeIsMuted(v.MuteDuration, v.MuteEndTime)
+		elem.IsPrivateChat = v.IsPrivateChat
+		elem.BurnDuration = v.BurnDuration
 	}
 	resp = &pbconversation.GetSortedConversationListResp{
 		ConversationTotal: int64(len(chatLogs)),
@@ -254,6 +260,49 @@ func (c *conversationServer) getConversations(ctx context.Context, ownerUserID s
 	list := convert.ConversationsDB2Pb(conversations)
 	c.fillConversationsUserMute(ctx, list)
 	return list, nil
+}
+
+// syncSingleChatPrivateSettings syncs isPrivateChat/burnDuration to the peer and notifies both sides.
+func (c *conversationServer) syncSingleChatPrivateSettings(
+	ctx context.Context,
+	ownerUserIDs []string,
+	peerUserID, conversationID string,
+	conversationType int32,
+	convTemplate dbModel.Conversation,
+	syncBurnDuration bool,
+) error {
+	if conversationType != constant.SingleChatType || peerUserID == "" {
+		return nil
+	}
+	conversations := make([]*dbModel.Conversation, 0, len(ownerUserIDs))
+	for _, ownerUserID := range ownerUserIDs {
+		trans := convTemplate
+		trans.OwnerUserID = ownerUserID
+		trans.UserID = peerUserID
+		trans.ConversationID = conversationID
+		trans.ConversationType = conversationType
+		conversations = append(conversations, &trans)
+	}
+	if err := c.conversationDatabase.SyncPeerUserPrivateConversationTx(ctx, conversations, syncBurnDuration); err != nil {
+		return err
+	}
+	c.notifySingleChatPrivateSettings(ctx, ownerUserIDs, peerUserID, conversationID, convTemplate.IsPrivateChat)
+	return nil
+}
+
+func (c *conversationServer) notifySingleChatPrivateSettings(ctx context.Context, ownerUserIDs []string, peerUserID, conversationID string, isPrivateChat bool) {
+	notifyUserIDs := datautil.Distinct(append(append([]string{}, ownerUserIDs...), peerUserID))
+	for _, userID := range notifyUserIDs {
+		if userID == "" {
+			continue
+		}
+		c.conversationNotificationSender.ConversationChangeNotification(ctx, userID, []string{conversationID})
+	}
+	for _, userID := range ownerUserIDs {
+		if peerUserID != "" && userID != peerUserID {
+			c.conversationNotificationSender.ConversationSetPrivateNotification(ctx, userID, peerUserID, isPrivateChat, conversationID)
+		}
+	}
 }
 
 // Deprecated
@@ -342,6 +391,14 @@ func (c *conversationServer) SetConversations(ctx context.Context, req *pbconver
 		if req.Conversation.BurnDuration != nil {
 			conversation.BurnDuration = req.Conversation.BurnDuration.Value
 			m["burn_duration"] = req.Conversation.BurnDuration.Value
+			if req.Conversation.IsPrivateChat == nil {
+				conversation.IsPrivateChat = req.Conversation.BurnDuration.Value > 0
+				m["is_private_chat"] = conversation.IsPrivateChat
+			}
+		}
+		if req.Conversation.IsPrivateChat != nil {
+			conversation.IsPrivateChat = req.Conversation.IsPrivateChat.Value
+			m["is_private_chat"] = req.Conversation.IsPrivateChat.Value
 		}
 	}
 
@@ -398,6 +455,12 @@ func (c *conversationServer) SetConversations(ctx context.Context, req *pbconver
 			}
 		}
 
+		if req.Conversation.IsPrivateChat != nil {
+			if req.Conversation.IsPrivateChat.Value == conversationMap[userID].IsPrivateChat {
+				unequal--
+			}
+		}
+
 		if unequal > 0 {
 			needUpdateUsersList = append(needUpdateUsersList, userID)
 		}
@@ -412,22 +475,18 @@ func (c *conversationServer) SetConversations(ctx context.Context, req *pbconver
 			c.conversationNotificationSender.ConversationChangeNotification(ctx, v, []string{req.Conversation.ConversationID})
 		}
 	}
-	if req.Conversation.IsPrivateChat != nil && req.Conversation.ConversationType != constant.ReadGroupChatType {
-		var conversations []*dbModel.Conversation
-		for _, ownerUserID := range req.UserIDs {
-			transConversation := conversation
-			transConversation.OwnerUserID = ownerUserID
-			transConversation.IsPrivateChat = req.Conversation.IsPrivateChat.Value
-			conversations = append(conversations, &transConversation)
-		}
-
-		if err := c.conversationDatabase.SyncPeerUserPrivateConversationTx(ctx, conversations); err != nil {
+	if req.Conversation.ConversationType == constant.SingleChatType &&
+		(req.Conversation.IsPrivateChat != nil || req.Conversation.BurnDuration != nil) {
+		if err := c.syncSingleChatPrivateSettings(
+			ctx,
+			req.UserIDs,
+			req.Conversation.UserID,
+			req.Conversation.ConversationID,
+			req.Conversation.ConversationType,
+			conversation,
+			req.Conversation.BurnDuration != nil,
+		); err != nil {
 			return nil, err
-		}
-
-		for _, userID := range req.UserIDs {
-			c.conversationNotificationSender.ConversationSetPrivateNotification(ctx, userID, req.Conversation.UserID,
-				req.Conversation.IsPrivateChat.Value, req.Conversation.ConversationID)
 		}
 	}
 
@@ -723,6 +782,27 @@ func (c *conversationServer) UpdateConversation(ctx context.Context, req *pbconv
 			return nil, err
 		}
 	}
+	if (req.IsPrivateChat != nil || req.BurnDuration != nil) && len(req.UserIDs) > 0 {
+		convs, err := c.conversationDatabase.FindConversations(ctx, req.UserIDs[0], []string{req.ConversationID})
+		if err != nil {
+			return nil, err
+		}
+		if len(convs) > 0 && convs[0].ConversationType == constant.SingleChatType && convs[0].UserID != "" {
+			conv := *convs[0]
+			if req.IsPrivateChat != nil {
+				conv.IsPrivateChat = req.IsPrivateChat.Value
+			}
+			if req.BurnDuration != nil {
+				conv.BurnDuration = req.BurnDuration.Value
+				if req.IsPrivateChat == nil {
+					conv.IsPrivateChat = req.BurnDuration.Value > 0
+				}
+			}
+			if err := c.syncSingleChatPrivateSettings(ctx, req.UserIDs, conv.UserID, req.ConversationID, conv.ConversationType, conv, req.BurnDuration != nil); err != nil {
+				return nil, err
+			}
+		}
+	}
 	return &pbconversation.UpdateConversationResp{}, nil
 }
 
@@ -972,17 +1052,39 @@ func (c *conversationServer) ClearGroupBurnExpiredMsgs(ctx context.Context, req 
 }
 
 func (c *conversationServer) SetConversationBurn(ctx context.Context, req *pbconversation.SetConversationBurnReq) (*pbconversation.SetConversationBurnResp, error) {
+	convs, err := c.conversationDatabase.FindConversations(ctx, req.OwnerUserID, []string{req.ConversationID})
+	if err != nil {
+		return nil, err
+	}
+	if len(convs) == 0 {
+		return nil, errs.ErrRecordNotFound.WrapMsg("conversation not found")
+	}
+	conv := convs[0]
+	isPrivateChat := req.BurnDuration > 0
 	if err := c.conversationDatabase.UpdateUsersConversationField(
 		ctx,
 		[]string{req.OwnerUserID},
 		req.ConversationID,
 		map[string]any{
-			"burn_duration": req.BurnDuration,
+			"burn_duration":   req.BurnDuration,
+			"is_private_chat": isPrivateChat,
 		},
 	); err != nil {
 		return nil, err
 	}
-	c.conversationNotificationSender.ConversationChangeNotification(ctx, req.OwnerUserID, []string{req.ConversationID})
+	conv.BurnDuration = req.BurnDuration
+	conv.IsPrivateChat = isPrivateChat
+	if err := c.syncSingleChatPrivateSettings(
+		ctx,
+		[]string{req.OwnerUserID},
+		conv.UserID,
+		req.ConversationID,
+		conv.ConversationType,
+		*conv,
+		true,
+	); err != nil {
+		return nil, err
+	}
 	return &pbconversation.SetConversationBurnResp{}, nil
 }
 

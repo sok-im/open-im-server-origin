@@ -36,8 +36,8 @@ type ConversationDatabase interface {
 	UpdateUsersConversationField(ctx context.Context, userIDs []string, conversationID string, args map[string]any) error
 	// CreateConversation creates a batch of new conversations.
 	CreateConversation(ctx context.Context, conversations []*relationtb.Conversation) error
-	// SyncPeerUserPrivateConversationTx ensures transactional operation while syncing private conversations between peers.
-	SyncPeerUserPrivateConversationTx(ctx context.Context, conversation []*relationtb.Conversation) error
+	// SyncPeerUserPrivateConversationTx syncs is_private_chat (and optionally burn_duration) between single-chat peers.
+	SyncPeerUserPrivateConversationTx(ctx context.Context, conversation []*relationtb.Conversation, syncBurnDuration bool) error
 	// FindConversations retrieves multiple conversations of a user by conversation IDs.
 	FindConversations(ctx context.Context, ownerUserID string, conversationIDs []string) ([]*relationtb.Conversation, error)
 	// GetUserAllConversation fetches all conversations of a user on the server.
@@ -193,11 +193,22 @@ func (c *conversationDatabase) CreateConversation(ctx context.Context, conversat
 		ChainExecDel(ctx)
 }
 
-func (c *conversationDatabase) SyncPeerUserPrivateConversationTx(ctx context.Context, conversations []*relationtb.Conversation) error {
+func privateChatPeerUpdateMap(conversation *relationtb.Conversation, syncBurnDuration bool) map[string]any {
+	m := map[string]any{"is_private_chat": conversation.IsPrivateChat}
+	if syncBurnDuration {
+		m["burn_duration"] = conversation.BurnDuration
+	} else if !conversation.IsPrivateChat {
+		m["burn_duration"] = int32(0)
+	}
+	return m
+}
+
+func (c *conversationDatabase) SyncPeerUserPrivateConversationTx(ctx context.Context, conversations []*relationtb.Conversation, syncBurnDuration bool) error {
 	return c.tx.Transaction(ctx, func(ctx context.Context) error {
 		cache := c.cache.CloneConversationCache()
 		for _, conversation := range conversations {
 			cache = cache.DelConversationVersionUserIDs(conversation.OwnerUserID, conversation.UserID)
+			updateMap := privateChatPeerUpdateMap(conversation, syncBurnDuration)
 			for _, v := range [][2]string{{conversation.OwnerUserID, conversation.UserID}, {conversation.UserID, conversation.OwnerUserID}} {
 				ownerUserID := v[0]
 				userID := v[1]
@@ -206,7 +217,7 @@ func (c *conversationDatabase) SyncPeerUserPrivateConversationTx(ctx context.Con
 					return err
 				}
 				if len(haveUserIDs) > 0 {
-					_, err := c.conversationDB.UpdateByMap(ctx, []string{ownerUserID}, conversation.ConversationID, map[string]any{"is_private_chat": conversation.IsPrivateChat})
+					_, err := c.conversationDB.UpdateByMap(ctx, []string{ownerUserID}, conversation.ConversationID, updateMap)
 					if err != nil {
 						return err
 					}
@@ -217,6 +228,10 @@ func (c *conversationDatabase) SyncPeerUserPrivateConversationTx(ctx context.Con
 					newConversation.UserID = userID
 					newConversation.ConversationID = conversation.ConversationID
 					newConversation.IsPrivateChat = conversation.IsPrivateChat
+					if syncBurnDuration || !conversation.IsPrivateChat {
+						newConversation.BurnDuration = conversation.BurnDuration
+					}
+					newConversation.CreateTime = time.Now()
 					if err := c.conversationDB.Create(ctx, []*relationtb.Conversation{&newConversation}); err != nil {
 						return err
 					}

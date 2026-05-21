@@ -34,7 +34,7 @@
   - `group_id` (`string`)：群聊群 ID
   - `recv_msg_opt` (`int32`)：消息接收选项
   - `is_pinned` (`bool`)：是否置顶
-  - `is_private_chat` (`bool`)：是否私聊
+  - `is_private_chat` (`bool`)：是否开启阅后即焚（私密会话模式）
   - `burn_duration` (`int32`)：阅后即焚时长
   - `group_at_type` (`int32`)：群 @ 设置
   - `attached_info` (`string`)：附加信息
