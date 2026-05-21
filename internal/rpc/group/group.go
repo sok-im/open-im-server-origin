@@ -347,7 +347,6 @@ func (s *groupServer) CreateGroup(ctx context.Context, req *pbgroup.CreateGroupR
 		GroupOwnerUser: s.groupMemberDB2PB(groupMembers[0], userMap[groupMembers[0].UserID].AppMangerLevel),
 	}
 	for _, member := range groupMembers {
-		member.Nickname = userMap[member.UserID].Nickname
 		tips.MemberList = append(tips.MemberList, s.groupMemberDB2PB(member, userMap[member.UserID].AppMangerLevel))
 		if member.UserID == opUserID {
 			tips.OpUser = s.groupMemberDB2PB(member, userMap[member.UserID].AppMangerLevel)

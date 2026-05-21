@@ -52,7 +52,7 @@ const (
 )
 
 func NewNotificationSender(db controller.GroupDatabase, config *Config, userClient *rpcli.UserClient, relationClient *rpcli.RelationClient, msgClient *rpcli.MsgClient, conversationClient *rpcli.ConversationClient) *NotificationSender {
-	displayNickname := func(ctx context.Context, viewerUserID, targetUserID string) (string, error) {
+	resolveDisplayNickname := func(ctx context.Context, viewerUserID, targetUserID string) (string, error) {
 		var remark string
 		if relationClient != nil && viewerUserID != "" {
 			friends, err := relationClient.GetFriendsInfo(ctx, viewerUserID, []string{targetUserID})
@@ -72,7 +72,7 @@ func NewNotificationSender(db controller.GroupDatabase, config *Config, userClie
 				return msgClient.SendMsg(ctx, req)
 			}),
 			notification.WithUserRpcClient(userClient.GetUserInfo),
-			notification.WithDisplayNicknameResolver(displayNickname),
+			notification.WithDisplayNicknameResolver(resolveDisplayNickname),
 		),
 		getUsersInfo: func(ctx context.Context, userIDs []string) ([]common_user.CommonUser, error) {
 			users, err := userClient.GetUsersInfo(ctx, userIDs)
@@ -81,20 +81,65 @@ func NewNotificationSender(db controller.GroupDatabase, config *Config, userClie
 			}
 			return datautil.Slice(users, func(e *sdkws.UserInfo) common_user.CommonUser { return e }), nil
 		},
-		db:                 db,
-		config:             config,
-		msgClient:          msgClient,
-		conversationClient: conversationClient,
+		userClient:             userClient,
+		relationClient:         relationClient,
+		resolveDisplayNickname: resolveDisplayNickname,
+		db:                     db,
+		config:                 config,
+		msgClient:              msgClient,
+		conversationClient:     conversationClient,
 	}
 }
 
 type NotificationSender struct {
 	*notification.NotificationSender
-	getUsersInfo       func(ctx context.Context, userIDs []string) ([]common_user.CommonUser, error)
-	db                 controller.GroupDatabase
-	config             *Config
-	msgClient          *rpcli.MsgClient
-	conversationClient *rpcli.ConversationClient
+	getUsersInfo           func(ctx context.Context, userIDs []string) ([]common_user.CommonUser, error)
+	userClient             *rpcli.UserClient
+	relationClient         *rpcli.RelationClient
+	resolveDisplayNickname func(ctx context.Context, viewerUserID, targetUserID string) (string, error)
+	db                     controller.GroupDatabase
+	config                 *Config
+	msgClient              *rpcli.MsgClient
+	conversationClient     *rpcli.ConversationClient
+}
+
+// applyPbMemberDisplayNicknames 按操作者视角重设 Nickname：remark > firstName+lastName > nickname。
+func (g *NotificationSender) applyPbMemberDisplayNicknames(ctx context.Context, members ...*sdkws.GroupMemberFullInfo) error {
+	if len(members) == 0 || g.userClient == nil {
+		return nil
+	}
+	viewerID := mcontext.GetOpUserID(ctx)
+	if viewerID == "" {
+		return nil
+	}
+	userIDs := make([]string, 0, len(members))
+	for _, m := range members {
+		if m != nil && m.UserID != "" {
+			userIDs = append(userIDs, m.UserID)
+		}
+	}
+	if len(userIDs) == 0 {
+		return nil
+	}
+	users, err := g.userClient.GetUsersInfoMap(ctx, userIDs)
+	if err != nil {
+		return err
+	}
+	remarkMap := make(map[string]string)
+	if g.relationClient != nil {
+		friendInfos, err := g.relationClient.GetFriendsInfo(ctx, viewerID, userIDs)
+		if err != nil {
+			return err
+		}
+		remarkMap = convert.RemarkMapFromFriendInfos(friendInfos)
+	}
+	for _, m := range members {
+		if m == nil {
+			continue
+		}
+		m.Nickname = convert.DisplayNickname(remarkMap[m.UserID], users[m.UserID])
+	}
+	return nil
 }
 
 func (g *NotificationSender) PopulateGroupMember(ctx context.Context, members ...*model.GroupMember) error {
@@ -122,7 +167,11 @@ func (g *NotificationSender) PopulateGroupMember(ctx context.Context, members ..
 				continue
 			}
 			if member.Nickname == "" {
-				if ui, ok := user.(*sdkws.UserInfo); ok {
+				if g.resolveDisplayNickname != nil {
+					if name, err := g.resolveDisplayNickname(ctx, mcontext.GetOpUserID(ctx), member.UserID); err == nil {
+						members[i].Nickname = name
+					}
+				} else if ui, ok := user.(*sdkws.UserInfo); ok {
 					members[i].Nickname = convert.DisplayNickname("", ui)
 				} else {
 					members[i].Nickname = user.GetNickname()
@@ -185,6 +234,9 @@ func (g *NotificationSender) getGroupMembers(ctx context.Context, groupID string
 	res := make([]*sdkws.GroupMemberFullInfo, 0, len(members))
 	for _, member := range members {
 		res = append(res, g.groupMemberDB2PB(member, 0))
+	}
+	if err := g.applyPbMemberDisplayNicknames(ctx, res...); err != nil {
+		return nil, err
 	}
 	return res, nil
 }
@@ -282,18 +334,22 @@ func (g *NotificationSender) fillUserByUserID(ctx context.Context, userID string
 	if err != nil {
 		return err
 	}
+	displayName := user.Nickname
+	if g.resolveDisplayNickname != nil {
+		if name, err := g.resolveDisplayNickname(ctx, mcontext.GetOpUserID(ctx), userID); err == nil && name != "" {
+			displayName = name
+		}
+	}
 	if *targetUser == nil {
 		*targetUser = &sdkws.GroupMemberFullInfo{
 			GroupID:        groupID,
 			UserID:         userID,
-			Nickname:       user.Nickname,
+			Nickname:       displayName,
 			FaceURL:        user.FaceURL,
 			OperatorUserID: userID,
 		}
 	} else {
-		if (*targetUser).Nickname == "" {
-			(*targetUser).Nickname = user.Nickname
-		}
+		(*targetUser).Nickname = displayName
 		if (*targetUser).FaceURL == "" {
 			(*targetUser).FaceURL = user.FaceURL
 		}
@@ -336,6 +392,16 @@ func (g *NotificationSender) GroupCreatedNotification(ctx context.Context, tips 
 		}
 	}()
 	if err = g.fillOpUser(ctx, &tips.OpUser, tips.Group.GroupID); err != nil {
+		return
+	}
+	displayMembers := tips.MemberList
+	if tips.GroupOwnerUser != nil {
+		displayMembers = append(displayMembers, tips.GroupOwnerUser)
+	}
+	if tips.OpUser != nil {
+		displayMembers = append(displayMembers, tips.OpUser)
+	}
+	if err = g.applyPbMemberDisplayNicknames(ctx, displayMembers...); err != nil {
 		return
 	}
 	g.setVersion(ctx, &tips.GroupMemberVersion, &tips.GroupMemberVersionID, database.GroupMemberVersionName, tips.Group.GroupID)
@@ -407,6 +473,16 @@ func (g *NotificationSender) getGroupRequest(ctx context.Context, groupID string
 			Nickname: users[0].GetNickname(),
 			FaceURL:  users[0].GetFaceURL(),
 			Ex:       users[0].GetEx(),
+		}
+	}
+	if g.resolveDisplayNickname != nil {
+		if name, err := g.resolveDisplayNickname(ctx, mcontext.GetOpUserID(ctx), userID); err == nil && name != "" {
+			info = &sdkws.UserInfo{
+				UserID:   info.UserID,
+				Nickname: name,
+				FaceURL:  info.FaceURL,
+				Ex:       info.Ex,
+			}
 		}
 	}
 	return convert.Db2PbGroupRequest(request, info, nil), nil
