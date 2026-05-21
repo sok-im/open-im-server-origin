@@ -65,6 +65,9 @@ func UpdateGroupInfoMap(ctx context.Context, group *sdkws.GroupInfoForSet) map[s
 	if group.AllowEditGroupInfo != nil {
 		m["allow_edit_group_info"] = group.AllowEditGroupInfo.Value
 	}
+	if group.AllowBurn != nil {
+		m["allow_burn"] = group.AllowBurn.Value
+	}
 	return m
 }
 
@@ -130,6 +133,10 @@ func UpdateGroupInfoExMap(ctx context.Context, group *pbgroup.SetGroupInfoExReq)
 	}
 	if group.MsgBurnDuration != nil {
 		m["msg_burn_duration"] = group.MsgBurnDuration.Value
+		normalFlag = true
+	}
+	if group.AllowBurn != nil {
+		m["allow_burn"] = group.AllowBurn.Value
 		normalFlag = true
 	}
 

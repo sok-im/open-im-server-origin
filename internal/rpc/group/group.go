@@ -1201,7 +1201,8 @@ func (s *groupServer) SetGroupInfo(ctx context.Context, req *pbgroup.SetGroupInf
 		requestsPermField := req.GroupInfoForSet.AllowSendMsg != nil ||
 			req.GroupInfoForSet.AllowPinMsg != nil ||
 			req.GroupInfoForSet.AllowAddMember != nil ||
-			req.GroupInfoForSet.AllowEditGroupInfo != nil
+			req.GroupInfoForSet.AllowEditGroupInfo != nil ||
+			req.GroupInfoForSet.AllowBurn != nil
 		if requestsPermField && !isOwnerOrAdmin {
 			return nil, errs.ErrNoPermission.WrapMsg("only owner or admin can change group permission settings")
 		}
@@ -1311,7 +1312,8 @@ func (s *groupServer) SetGroupInfoEx(ctx context.Context, req *pbgroup.SetGroupI
 		requestsPermField := req.AllowSendMsg != nil ||
 			req.AllowPinMsg != nil ||
 			req.AllowAddMember != nil ||
-			req.AllowEditGroupInfo != nil
+			req.AllowEditGroupInfo != nil ||
+			req.AllowBurn != nil
 		if requestsPermField && !isOwnerOrAdmin {
 			return nil, errs.ErrNoPermission.WrapMsg("only owner or admin can change group permission settings")
 		}

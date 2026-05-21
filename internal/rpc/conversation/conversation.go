@@ -330,6 +330,11 @@ func (c *conversationServer) SetConversations(ctx context.Context, req *pbconver
 	if req.Conversation == nil {
 		return nil, errs.ErrArgs.WrapMsg("conversation must not be nil")
 	}
+	if req.Conversation.BurnDuration != nil {
+		if err := c.checkGroupBurnPermissionByConversation(ctx, req.Conversation.ConversationType, req.Conversation.GroupID); err != nil {
+			return nil, err
+		}
+	}
 
 	log.ZDebug(ctx, "SetConversations", "conversation", req.Conversation)
 	if req.Conversation.ConversationType == constant.WriteGroupChatType {
@@ -755,6 +760,17 @@ func (c *conversationServer) GetConversationNotReceiveMessageUserIDs(ctx context
 }
 
 func (c *conversationServer) UpdateConversation(ctx context.Context, req *pbconversation.UpdateConversationReq) (*pbconversation.UpdateConversationResp, error) {
+	if req.BurnDuration != nil && len(req.UserIDs) > 0 {
+		convs, err := c.conversationDatabase.FindConversations(ctx, req.UserIDs[0], []string{req.ConversationID})
+		if err != nil {
+			return nil, err
+		}
+		if len(convs) > 0 {
+			if err := c.checkGroupBurnPermissionByConversation(ctx, convs[0].ConversationType, convs[0].GroupID); err != nil {
+				return nil, err
+			}
+		}
+	}
 	m := make(map[string]any)
 	if req.RecvMsgOpt != nil {
 		m["recv_msg_opt"] = req.RecvMsgOpt.Value
@@ -1075,6 +1091,9 @@ func (c *conversationServer) SetConversationBurn(ctx context.Context, req *pbcon
 		return nil, errs.ErrRecordNotFound.WrapMsg("conversation not found")
 	}
 	conv := convs[0]
+	if err := c.checkGroupBurnPermissionByConversation(ctx, conv.ConversationType, conv.GroupID); err != nil {
+		return nil, err
+	}
 	isPrivateChat := req.BurnDuration > 0
 	if err := c.conversationDatabase.UpdateUsersConversationField(
 		ctx,

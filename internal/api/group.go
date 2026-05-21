@@ -130,6 +130,35 @@ func (o *GroupApi) SetPinSetting(c *gin.Context) {
 	apiresp.GinSuccess(c, resp)
 }
 
+// SetBurnSetting 设置群成员阅后即焚权限：allowBurn 0=仅群主可设置（默认），1=全员可设置（委托 SetGroupInfoEx；成员设置会话阅后即焚时 RPC 已校验）。
+func (o *GroupApi) SetBurnSetting(c *gin.Context) {
+	var req struct {
+		GroupID   string `json:"groupID"`
+		AllowBurn int32  `json:"allowBurn"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		apiresp.GinError(c, errs.ErrArgs.WrapMsg(err.Error()))
+		return
+	}
+	if req.GroupID == "" {
+		apiresp.GinError(c, errs.ErrArgs.WrapMsg("groupID is empty"))
+		return
+	}
+	if req.AllowBurn != 0 && req.AllowBurn != 1 {
+		apiresp.GinError(c, errs.ErrArgs.WrapMsg("allowBurn must be 0 or 1"))
+		return
+	}
+	resp, err := o.Client.SetGroupInfoEx(c.Request.Context(), &group.SetGroupInfoExReq{
+		GroupID:   req.GroupID,
+		AllowBurn: wrapperspb.Int32(req.AllowBurn),
+	})
+	if err != nil {
+		apiresp.GinError(c, err)
+		return
+	}
+	apiresp.GinSuccess(c, resp)
+}
+
 // SetEditSetting 设置群成员编辑群资料权限：allowEditGroupInfo 0=全员可编辑，1=仅群主/管理员（委托 SetGroupInfoEx；改群资料走 set_group_info / set_group_info_ex 时 RPC 已校验）。
 func (o *GroupApi) SetEditSetting(c *gin.Context) {
 	var req struct {
@@ -164,6 +193,7 @@ func (o *GroupApi) SetEditSetting(c *gin.Context) {
 // allowAddMember：0=全员可邀请/拉人，1=仅群主/管理员。
 // allowPinMsg：0=全员可置顶，1=仅群主/管理员。
 // allowEditGroupInfo：0=全员可编辑群资料，1=仅群主/管理员。
+// allowMemberBurn：是否允许群成员设置阅后即焚，0=不允许（仅群主，默认），1=允许。
 func (o *GroupApi) GetGroupSetting(c *gin.Context) {
 	var req struct {
 		GroupID string `json:"groupID"`
@@ -194,12 +224,14 @@ func (o *GroupApi) GetGroupSetting(c *gin.Context) {
 		AllowAddMember     int32  `json:"allowAddMember"`
 		AllowPinMsg        int32  `json:"allowPinMsg"`
 		AllowEditGroupInfo int32  `json:"allowEditGroupInfo"`
+		AllowMemberBurn    int32  `json:"allowMemberBurn"`
 	}{
 		GroupID:            gi.GroupID,
 		AllowSendMsg:       gi.GetAllowSendMsg(),
 		AllowAddMember:     gi.GetAllowAddMember(),
 		AllowPinMsg:        gi.GetAllowPinMsg(),
 		AllowEditGroupInfo: gi.GetAllowEditGroupInfo(),
+		AllowMemberBurn:    gi.GetAllowBurn(),
 	})
 }
 

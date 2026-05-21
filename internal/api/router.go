@@ -237,6 +237,7 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 		groupRouterGroup.POST("/set_invite_setting", g.SetInviteSetting)
 		groupRouterGroup.POST("/set_pin_setting", g.SetPinSetting)
 		groupRouterGroup.POST("/set_edit_setting", g.SetEditSetting)
+		groupRouterGroup.POST("/set_burn_setting", g.SetBurnSetting)
 		groupRouterGroup.POST("/get_group_setting", g.GetGroupSetting)
 		groupRouterGroup.POST("/set_msg_burn_duration", g.SetMsgBurnDuration)
 		groupRouterGroup.POST("/get_msg_burn_duration", g.GetMsgBurnDuration)

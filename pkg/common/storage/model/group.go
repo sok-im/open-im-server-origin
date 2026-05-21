@@ -51,4 +51,13 @@ type Group struct {
 	AllowEditGroupInfo int32 `bson:"allow_edit_group_info"`
 	// MsgBurnDuration 群消息阅后即焚时长（秒）；0 表示未开启
 	MsgBurnDuration int32 `bson:"msg_burn_duration"`
+	// AllowBurn 0=仅群主可设置阅后即焚（默认） 1=全员可设置阅后即焚
+	AllowBurn int32 `bson:"allow_burn"`
 }
+
+const (
+	// GroupAllowBurnOwnerOnly 仅群主可设置群会话阅后即焚（默认值）
+	GroupAllowBurnOwnerOnly = int32(0)
+	// GroupAllowBurnAllMember 全员可设置群会话阅后即焚
+	GroupAllowBurnAllMember = int32(1)
+)
