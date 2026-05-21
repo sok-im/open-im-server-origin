@@ -34,6 +34,8 @@ type SignalDatabase interface {
 	// RemoveInvitee removes a single user from the invitee list via $pull;
 	// if the list becomes empty the document is deleted automatically.
 	RemoveInvitee(ctx context.Context, roomID string, userID string) error
+	// AddInvitee appends a user to the invitee list (e.g. user joined without prior invite).
+	AddInvitee(ctx context.Context, roomID string, userID string) error
 	// GetInvitationByGroupID retrieves the active invitation for a group.
 	GetInvitationByGroupID(ctx context.Context, groupID string) (*model.SignalInvitation, error)
 	// GetInvitationsByRoomIDs retrieves invitations for the given room IDs.

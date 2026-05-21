@@ -108,6 +108,12 @@ func (s *signalMgo) RemoveInvitee(ctx context.Context, roomID string, userID str
 	return err
 }
 
+func (s *signalMgo) AddInvitee(ctx context.Context, roomID string, userID string) error {
+	filter := bson.M{"room_id": roomID, "inviter_user_id": bson.M{"$ne": userID}}
+	update := bson.M{"$addToSet": bson.M{"invitee_user_id_list": userID}}
+	return mongoutil.UpdateOne(ctx, s.invColl, filter, update, false)
+}
+
 func (s *signalMgo) GetInvitationByGroupID(ctx context.Context, groupID string) (*model.SignalInvitation, error) {
 	opts := options.FindOne().SetSort(bson.M{"create_time": -1})
 	return mongoutil.FindOne[*model.SignalInvitation](ctx, s.invColl, bson.M{"group_id": groupID}, opts)

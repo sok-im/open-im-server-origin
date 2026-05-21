@@ -29,6 +29,7 @@ type RtcDatabase interface {
 	GetInvitationByInviteeUserID(ctx context.Context, userID string) (*model.SignalInvitation, error)
 	DeleteInvitation(ctx context.Context, roomID string) error
 	RemoveInvitee(ctx context.Context, roomID string, userID string) error
+	AddInvitee(ctx context.Context, roomID string, userID string) error
 	GetInvitationByGroupID(ctx context.Context, groupID string) (*model.SignalInvitation, error)
 	GetInvitationsByRoomIDs(ctx context.Context, roomIDs []string) ([]*model.SignalInvitation, error)
 	// GetBusyUserIDs returns the subset of userIDs that are currently in an active call.
@@ -65,6 +66,10 @@ func (r *rtcDatabase) DeleteInvitation(ctx context.Context, roomID string) error
 
 func (r *rtcDatabase) RemoveInvitee(ctx context.Context, roomID string, userID string) error {
 	return r.db.RemoveInvitee(ctx, roomID, userID)
+}
+
+func (r *rtcDatabase) AddInvitee(ctx context.Context, roomID string, userID string) error {
+	return r.db.AddInvitee(ctx, roomID, userID)
 }
 
 func (r *rtcDatabase) GetInvitationByGroupID(ctx context.Context, groupID string) (*model.SignalInvitation, error) {

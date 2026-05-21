@@ -534,22 +534,7 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 
 // handleGetTokenByRoomID returns a LiveKit token for an existing room.
 func (s *rtcServer) handleGetTokenByRoomID(ctx context.Context, req *rtc.SignalGetTokenByRoomIDReq) (*rtc.SignalGetTokenByRoomIDResp, error) {
-	dbInv, err := s.db.GetInvitationByRoomID(ctx, req.RoomID)
-	if err != nil {
-		return nil, errs.WrapMsg(err, "room not found or expired", "roomID", req.RoomID)
-	}
-	if req.UserID != dbInv.InviterUserID && !datautil.Contain(req.UserID, dbInv.InviteeUserIDList...) {
-		return nil, errs.ErrNoPermission.WrapMsg("user is not a participant of this room", "userID", req.UserID)
-	}
-
-	token, err := s.genToken(req.RoomID, req.UserID)
-	if err != nil {
-		return nil, err
-	}
-	return &rtc.SignalGetTokenByRoomIDResp{
-		Token:   token,
-		LiveURL: s.config.RpcConfig.LiveKit.ExternalAddress,
-	}, nil
+	return s.getTokenByRoomID(ctx, req)
 }
 
 // SignalGetRoomByGroupID returns room information for a group.
@@ -624,16 +609,19 @@ func (s *rtcServer) livekitRoomParticipantsMeta(ctx context.Context, roomID stri
 }
 
 // SignalGetTokenByRoomID returns a token for joining a room directly (HTTP API path).
-// Fix P0(安全): 同 handleGetTokenByRoomID，添加参与者身份校验。
 func (s *rtcServer) SignalGetTokenByRoomID(ctx context.Context, req *rtc.SignalGetTokenByRoomIDReq) (*rtc.SignalGetTokenByRoomIDResp, error) {
+	return s.getTokenByRoomID(ctx, req)
+}
+
+// getTokenByRoomID issues a LiveKit join token; users not in the original invite list are added as invitees.
+func (s *rtcServer) getTokenByRoomID(ctx context.Context, req *rtc.SignalGetTokenByRoomIDReq) (*rtc.SignalGetTokenByRoomIDResp, error) {
 	dbInv, err := s.db.GetInvitationByRoomID(ctx, req.RoomID)
 	if err != nil {
 		return nil, errs.WrapMsg(err, "room not found or expired", "roomID", req.RoomID)
 	}
-	if req.UserID != dbInv.InviterUserID && !datautil.Contain(req.UserID, dbInv.InviteeUserIDList...) {
-		return nil, errs.ErrNoPermission.WrapMsg("user is not a participant of this room", "userID", req.UserID)
+	if err := s.ensureCallParticipant(ctx, dbInv, req.UserID); err != nil {
+		return nil, err
 	}
-
 	token, err := s.genToken(req.RoomID, req.UserID)
 	if err != nil {
 		return nil, err
@@ -642,6 +630,13 @@ func (s *rtcServer) SignalGetTokenByRoomID(ctx context.Context, req *rtc.SignalG
 		Token:   token,
 		LiveURL: s.config.RpcConfig.LiveKit.ExternalAddress,
 	}, nil
+}
+
+func (s *rtcServer) ensureCallParticipant(ctx context.Context, inv *model.SignalInvitation, userID string) error {
+	if userID == inv.InviterUserID || datautil.Contain(userID, inv.InviteeUserIDList...) {
+		return nil
+	}
+	return s.db.AddInvitee(ctx, inv.RoomID, userID)
 }
 
 // SignalGetRooms returns room info for a list of room IDs.
