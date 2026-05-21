@@ -28,6 +28,16 @@ func (s *groupServer) PopulateGroupMember(ctx context.Context, members ...*relat
 	return s.notification.PopulateGroupMember(ctx, members...)
 }
 
+func (s *groupServer) membersToPbWithDisplayNicknames(ctx context.Context, members []*relationtb.GroupMember) ([]*sdkws.GroupMemberFullInfo, error) {
+	pbMembers := datautil.Slice(members, func(e *relationtb.GroupMember) *sdkws.GroupMemberFullInfo {
+		return convert.Db2PbGroupMember(e)
+	})
+	if err := s.applyMemberDisplayNicknames(ctx, pbMembers); err != nil {
+		return nil, err
+	}
+	return pbMembers, nil
+}
+
 // applyMemberDisplayNicknames 按当前用户视角重设群成员 Nickname：
 // 好友用 remark；非好友用 firstName+lastName，为空则 fallback 到 nickname。
 func (s *groupServer) applyMemberDisplayNicknames(ctx context.Context, members []*sdkws.GroupMemberFullInfo) error {

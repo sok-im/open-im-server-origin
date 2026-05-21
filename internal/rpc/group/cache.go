@@ -18,6 +18,7 @@ import (
 	"context"
 
 	"github.com/openimsdk/open-im-server/v3/pkg/common/convert"
+	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/model"
 	pbgroup "github.com/openimsdk/protocol/group"
 )
 
@@ -36,11 +37,16 @@ func (s *groupServer) GetGroupMemberCache(ctx context.Context, req *pbgroup.GetG
 	if err := s.checkAdminOrInGroup(ctx, req.GroupID); err != nil {
 		return nil, err
 	}
-	members, err := s.db.TakeGroupMember(ctx, req.GroupID, req.GroupMemberID)
+	member, err := s.db.TakeGroupMember(ctx, req.GroupID, req.GroupMemberID)
 	if err != nil {
 		return nil, err
 	}
-	return &pbgroup.GetGroupMemberCacheResp{
-		Member: convert.Db2PbGroupMember(members),
-	}, nil
+	if err := s.PopulateGroupMember(ctx, member); err != nil {
+		return nil, err
+	}
+	pbMembers, err := s.membersToPbWithDisplayNicknames(ctx, []*model.GroupMember{member})
+	if err != nil {
+		return nil, err
+	}
+	return &pbgroup.GetGroupMemberCacheResp{Member: pbMembers[0]}, nil
 }

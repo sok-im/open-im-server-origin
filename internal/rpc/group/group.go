@@ -646,11 +646,11 @@ func (s *groupServer) GetGroupAllMember(ctx context.Context, req *pbgroup.GetGro
 	if err := s.PopulateGroupMember(ctx, members...); err != nil {
 		return nil, err
 	}
-	var resp pbgroup.GetGroupAllMemberResp
-	resp.Members = datautil.Slice(members, func(e *model.GroupMember) *sdkws.GroupMemberFullInfo {
-		return convert.Db2PbGroupMember(e)
-	})
-	return &resp, nil
+	pbMembers, err := s.membersToPbWithDisplayNicknames(ctx, members)
+	if err != nil {
+		return nil, err
+	}
+	return &pbgroup.GetGroupAllMemberResp{Members: pbMembers}, nil
 }
 
 func (s *groupServer) checkAdminOrInGroup(ctx context.Context, groupID string) error {
@@ -688,9 +688,13 @@ func (s *groupServer) GetGroupMemberList(ctx context.Context, req *pbgroup.GetGr
 	if err := s.PopulateGroupMember(ctx, members...); err != nil {
 		return nil, err
 	}
+	pbMembers, err := s.membersToPbWithDisplayNicknames(ctx, members)
+	if err != nil {
+		return nil, err
+	}
 	return &pbgroup.GetGroupMemberListResp{
 		Total:   uint32(total),
-		Members: datautil.Batch(convert.Db2PbGroupMember, members),
+		Members: pbMembers,
 	}, nil
 }
 
@@ -835,13 +839,7 @@ func (s *groupServer) getGroupMembersInfo(ctx context.Context, groupID string, u
 	if err := s.PopulateGroupMember(ctx, members...); err != nil {
 		return nil, err
 	}
-	pbMembers := datautil.Slice(members, func(e *model.GroupMember) *sdkws.GroupMemberFullInfo {
-		return convert.Db2PbGroupMember(e)
-	})
-	if err := s.applyMemberDisplayNicknames(ctx, pbMembers); err != nil {
-		return nil, err
-	}
-	return pbMembers, nil
+	return s.membersToPbWithDisplayNicknames(ctx, members)
 }
 
 // GetGroupApplicationList handles functions that get a list of group requests.
@@ -1556,9 +1554,10 @@ func (s *groupServer) GetGroupMembersCMS(ctx context.Context, req *pbgroup.GetGr
 	if err := s.PopulateGroupMember(ctx, members...); err != nil {
 		return nil, err
 	}
-	resp.Members = datautil.Slice(members, func(e *model.GroupMember) *sdkws.GroupMemberFullInfo {
-		return convert.Db2PbGroupMember(e)
-	})
+	resp.Members, err = s.membersToPbWithDisplayNicknames(ctx, members)
+	if err != nil {
+		return nil, err
+	}
 	return &resp, nil
 }
 
@@ -1969,11 +1968,11 @@ func (s *groupServer) GetUserInGroupMembers(ctx context.Context, req *pbgroup.Ge
 	if err := s.PopulateGroupMember(ctx, members...); err != nil {
 		return nil, err
 	}
-	return &pbgroup.GetUserInGroupMembersResp{
-		Members: datautil.Slice(members, func(e *model.GroupMember) *sdkws.GroupMemberFullInfo {
-			return convert.Db2PbGroupMember(e)
-		}),
-	}, nil
+	pbMembers, err := s.membersToPbWithDisplayNicknames(ctx, members)
+	if err != nil {
+		return nil, err
+	}
+	return &pbgroup.GetUserInGroupMembersResp{Members: pbMembers}, nil
 }
 
 func (s *groupServer) GetGroupMemberUserIDs(ctx context.Context, req *pbgroup.GetGroupMemberUserIDsReq) (*pbgroup.GetGroupMemberUserIDsResp, error) {
@@ -2005,11 +2004,11 @@ func (s *groupServer) GetGroupMemberRoleLevel(ctx context.Context, req *pbgroup.
 	if err := s.PopulateGroupMember(ctx, members...); err != nil {
 		return nil, err
 	}
-	return &pbgroup.GetGroupMemberRoleLevelResp{
-		Members: datautil.Slice(members, func(e *model.GroupMember) *sdkws.GroupMemberFullInfo {
-			return convert.Db2PbGroupMember(e)
-		}),
-	}, nil
+	pbMembers, err := s.membersToPbWithDisplayNicknames(ctx, members)
+	if err != nil {
+		return nil, err
+	}
+	return &pbgroup.GetGroupMemberRoleLevelResp{Members: pbMembers}, nil
 }
 
 func (s *groupServer) GetGroupUsersReqApplicationList(ctx context.Context, req *pbgroup.GetGroupUsersReqApplicationListReq) (*pbgroup.GetGroupUsersReqApplicationListResp, error) {
