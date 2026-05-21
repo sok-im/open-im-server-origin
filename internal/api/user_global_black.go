@@ -110,12 +110,16 @@ func (b *UserGlobalBlackApi) AddGlobalBlacklist(c *gin.Context) {
 	if req.Status == model.UserStatusBlacklist {
 		for _, black := range blacks {
 			for platformID := range constant.PlatformID2Name {
-				if int32(platformID) == constant.AdminPlatformID {
+				plf := int32(platformID)
+				if plf == constant.AdminPlatformID {
 					continue
 				}
-				if err := b.authClient.ForceLogout(c, black.UserID, int32(platformID)); err != nil {
+				if plf < constant.IOSPlatformID || plf > constant.HarmonyOSPlatformID {
+					continue
+				}
+				if err := b.authClient.ForceLogout(c, black.UserID, plf); err != nil {
 					log.ZWarn(c, "AddGlobalBlacklist: ForceLogout failed", err,
-						"userID", black.UserID, "platformID", platformID)
+						"userID", black.UserID, "platformID", plf)
 				}
 			}
 		}

@@ -73,13 +73,17 @@ func (d *DeleteUserApi) DeleteUser(c *gin.Context) {
 		return
 	}
 
-	// 2. Force logout from every platform
+	// 2. Force logout from every client platform (skip Admin; only IDs accepted by ForceLogout RPC).
 	for platformID := range constant.PlatformID2Name {
-		if int32(platformID) == constant.AdminPlatformID {
+		plf := int32(platformID)
+		if plf == constant.AdminPlatformID {
 			continue
 		}
-		if err := d.authClient.ForceLogout(c, req.UserID, int32(platformID)); err != nil {
-			log.ZWarn(c, "DeleteUser: ForceLogout failed", err, "userID", req.UserID, "platformID", platformID)
+		if plf < constant.IOSPlatformID || plf > constant.HarmonyOSPlatformID {
+			continue
+		}
+		if err := d.authClient.ForceLogout(c, req.UserID, plf); err != nil {
+			log.ZWarn(c, "DeleteUser: ForceLogout failed", err, "userID", req.UserID, "platformID", plf)
 		}
 	}
 
@@ -108,20 +112,24 @@ func (d *DeleteUserApi) DeleteUser(c *gin.Context) {
 		}
 	}
 
-	// 4. Leave all joined groups: dismiss groups owned by the user, quit the rest (paginated).
-	pageNumber := int32(1)
+	// 4. Leave all joined groups: dismiss groups owned by the user, quit the rest.
+	// Always request page 1: after dismiss/quit the joined list shrinks; incrementing pageNumber
+	// would skip remaining groups (e.g. 150 groups → page 2 is empty after processing page 1).
 	const pageSize = int32(100)
 	for {
 		groupListResp, err := d.groupClient.GetJoinedGroupList(c, &group.GetJoinedGroupListReq{
 			FromUserID: req.UserID,
-			Pagination: &sdkws.RequestPagination{PageNumber: pageNumber, ShowNumber: pageSize},
+			Pagination: &sdkws.RequestPagination{PageNumber: 1, ShowNumber: pageSize},
 		})
 		if err != nil {
-			log.ZWarn(c, "DeleteUser: GetJoinedGroupList failed", err, "userID", req.UserID, "page", pageNumber)
+			log.ZWarn(c, "DeleteUser: GetJoinedGroupList failed", err, "userID", req.UserID)
+			break
+		}
+		if len(groupListResp.Groups) == 0 {
 			break
 		}
 		for _, g := range groupListResp.Groups {
-			if g.OwnerUserID == req.UserID {
+			if d.isGroupOwnerForDelete(c, g.GroupID, req.UserID, g.OwnerUserID) {
 				if _, err := d.groupClient.DismissGroup(c, &group.DismissGroupReq{
 					GroupID:      g.GroupID,
 					DeleteMember: true,
@@ -140,7 +148,6 @@ func (d *DeleteUserApi) DeleteUser(c *gin.Context) {
 		if int32(len(groupListResp.Groups)) < pageSize {
 			break
 		}
-		pageNumber++
 	}
 
 	// 5. Delete phone_sn_info record bound to this user's phone number.
@@ -160,4 +167,24 @@ func (d *DeleteUserApi) DeleteUser(c *gin.Context) {
 
 	log.ZInfo(c, "DeleteUser: user deleted", "userID", req.UserID)
 	apiresp.GinSuccess(c, nil)
+}
+
+// isGroupOwnerForDelete 判断用户是否为群主。优先用 GroupInfo.OwnerUserID；为空或不一致时回查成员角色，
+// 避免 OwnerUserID 未填充时误走 QuitGroup（群主不能退群）导致群未解散。
+func (d *DeleteUserApi) isGroupOwnerForDelete(c *gin.Context, groupID, userID, ownerUserID string) bool {
+	if ownerUserID == userID {
+		return true
+	}
+	resp, err := d.groupClient.GetGroupMembersInfo(c, &group.GetGroupMembersInfoReq{
+		GroupID: groupID,
+		UserIDs: []string{userID},
+	})
+	if err != nil {
+		log.ZWarn(c, "DeleteUser: GetGroupMembersInfo failed", err, "userID", userID, "groupID", groupID)
+		return false
+	}
+	if len(resp.Members) == 0 {
+		return false
+	}
+	return resp.Members[0].RoleLevel == constant.GroupOwner
 }
