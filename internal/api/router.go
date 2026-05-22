@@ -76,6 +76,10 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 	if err != nil {
 		return nil, err
 	}
+	friendDB, err := mgo.NewFriendMongo(mgocli.GetDB())
+	if err != nil {
+		return nil, err
+	}
 	blacklistCtrl := controller.NewUserGlobalBlackDatabase(userGlobalBlackDB)
 
 	authConn, err := client.GetConn(ctx, config.Share.RpcRegisterName.Auth)
@@ -141,7 +145,7 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 	m := NewMessageApi(msg.NewMsgClient(msgConn), rpcli.NewUserClient(userConn), config.Share.IMAdminUserID)
 	cp := NewCaptchaApi(pbcaptcha.NewCaptchaClient(captchaConn))
 	bl := NewUserGlobalBlackApi(blacklistCtrl, userDB, config.Share.IMAdminUserID, rpcli.NewAuthClient(authConn))
-	du := NewDeleteUserApi(userDB, phoneSNDB, rpcli.NewAuthClient(authConn), group.NewGroupClient(groupConn), relation.NewFriendClient(friendConn), config.Share.IMAdminUserID)
+	du := NewDeleteUserApi(userDB, friendDB, phoneSNDB, rpcli.NewAuthClient(authConn), group.NewGroupClient(groupConn), relation.NewFriendClient(friendConn), config.Share.IMAdminUserID)
 	phoneSN := NewPhoneSNApi(phoneSNDB)
 	userRouterGroup := r.Group("/user")
 	{

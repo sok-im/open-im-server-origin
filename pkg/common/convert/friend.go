@@ -77,12 +77,18 @@ func FriendsDB2Pb(ctx context.Context, friendsDB []*model.Friend, getUsers func(
 		}
 
 		u := users[friend.FriendUserID]
-		friendPb.FriendUser.UserID = u.UserID
-		friendPb.FriendUser.Nickname = DisplayNickname(friend.Remark, u)
-		friendPb.FriendUser.FaceURL = u.FaceURL
-		friendPb.FriendUser.Ex = users[friend.FriendUserID].Ex
-		friendPb.FriendUser.FirstName = users[friend.FriendUserID].FirstName
-		friendPb.FriendUser.LastName = users[friend.FriendUserID].LastName
+		if u == nil {
+			// Friend record may reference a deleted or renamed user; avoid panic and return partial info.
+			friendPb.FriendUser.UserID = friend.FriendUserID
+			friendPb.FriendUser.Nickname = DisplayNickname(friend.Remark, nil)
+		} else {
+			friendPb.FriendUser.UserID = u.UserID
+			friendPb.FriendUser.Nickname = DisplayNickname(friend.Remark, u)
+			friendPb.FriendUser.FaceURL = u.FaceURL
+			friendPb.FriendUser.Ex = u.Ex
+			friendPb.FriendUser.FirstName = u.FirstName
+			friendPb.FriendUser.LastName = u.LastName
+		}
 		friendPb.CreateTime = friend.CreateTime.Unix()
 		friendPb.IsPinned = friend.IsPinned
 		friendPb.IsMute = friend.IsMuted

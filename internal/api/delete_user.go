@@ -1,6 +1,8 @@
 package api
 
 import (
+	"context"
+
 	"github.com/gin-gonic/gin"
 	"github.com/openimsdk/open-im-server/v3/pkg/authverify"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/database"
@@ -12,12 +14,14 @@ import (
 	"github.com/openimsdk/tools/apiresp"
 	"github.com/openimsdk/tools/errs"
 	"github.com/openimsdk/tools/log"
+	"github.com/openimsdk/tools/mcontext"
 )
 
 // DeleteUserApi handles real account deletion (hard delete).
 // It follows the same direct-DB pattern as UserGlobalBlackApi.
 type DeleteUserApi struct {
 	userDB         database.User
+	friendDB       database.Friend
 	phoneSNDB      database.PhoneSN
 	authClient     *rpcli.AuthClient
 	groupClient    group.GroupClient
@@ -27,6 +31,7 @@ type DeleteUserApi struct {
 
 func NewDeleteUserApi(
 	userDB database.User,
+	friendDB database.Friend,
 	phoneSNDB database.PhoneSN,
 	authClient *rpcli.AuthClient,
 	groupClient group.GroupClient,
@@ -35,6 +40,7 @@ func NewDeleteUserApi(
 ) *DeleteUserApi {
 	return &DeleteUserApi{
 		userDB:         userDB,
+		friendDB:       friendDB,
 		phoneSNDB:      phoneSNDB,
 		authClient:     authClient,
 		groupClient:    groupClient,
@@ -87,13 +93,12 @@ func (d *DeleteUserApi) DeleteUser(c *gin.Context) {
 		}
 	}
 
-	// 3. Delete all friendships (both directions: target→friend and friend→target)
+	// 3. Delete friendships on the deleted user's side (owner_user_id = req.UserID).
 	friendIDsResp, err := d.friendClient.GetFriendIDs(c, &relation.GetFriendIDsReq{UserID: req.UserID})
 	if err != nil {
 		log.ZWarn(c, "DeleteUser: GetFriendIDs failed", err, "userID", req.UserID)
 	} else {
 		for _, friendID := range friendIDsResp.FriendIDs {
-			// Remove from target user's friend list
 			if _, err := d.friendClient.DeleteFriend(c, &relation.DeleteFriendReq{
 				OwnerUserID:  req.UserID,
 				FriendUserID: friendID,
@@ -101,16 +106,11 @@ func (d *DeleteUserApi) DeleteUser(c *gin.Context) {
 				log.ZWarn(c, "DeleteUser: DeleteFriend (owner→friend) failed", err,
 					"ownerUserID", req.UserID, "friendUserID", friendID)
 			}
-			// Remove from the friend's friend list
-			//if _, err := d.friendClient.DeleteFriend(c, &relation.DeleteFriendReq{
-			//	OwnerUserID:  friendID,
-			//	FriendUserID: req.UserID,
-			//}); err != nil {
-			//	log.ZWarn(c, "DeleteUser: DeleteFriend (friend→owner) failed", err,
-			//		"ownerUserID", friendID, "friendUserID", req.UserID)
-			//}
 		}
 	}
+
+	// 3b. Remove this user from every other user's friend list (friend_user_id = req.UserID).
+	d.deleteFriendsReferencingUser(c, req.UserID)
 
 	// 4. Leave all joined groups: dismiss groups owned by the user, quit the rest.
 	// Always request page 1: after dismiss/quit the joined list shrinks; incrementing pageNumber
@@ -167,6 +167,42 @@ func (d *DeleteUserApi) DeleteUser(c *gin.Context) {
 
 	log.ZInfo(c, "DeleteUser: user deleted", "userID", req.UserID)
 	apiresp.GinSuccess(c, nil)
+}
+
+// deleteFriendsReferencingUser 删除所有 owner 侧仍引用被删用户的好友记录（friend_user_id = deletedUserID）。
+// 使用管理员身份调用 DeleteFriend，避免自删账号时 opUserID 无权操作他人 owner_user_id。
+func (d *DeleteUserApi) deleteFriendsReferencingUser(ctx context.Context, deletedUserID string) {
+	if d.friendDB == nil {
+		log.ZWarn(ctx, "DeleteUser: friendDB is nil, skip reversal friend cleanup", nil, "userID", deletedUserID)
+		return
+	}
+	if len(d.imAdminUserIDs) == 0 {
+		log.ZWarn(ctx, "DeleteUser: no imAdminUserID, skip reversal friend cleanup", nil, "userID", deletedUserID)
+		return
+	}
+
+	ownerUserIDs, err := d.friendDB.FindFriendUserID(ctx, deletedUserID)
+	if err != nil {
+		log.ZWarn(ctx, "DeleteUser: FindFriendUserID failed", err, "userID", deletedUserID)
+		return
+	}
+	if len(ownerUserIDs) == 0 {
+		return
+	}
+
+	adminCtx := mcontext.SetOpUserID(ctx, d.imAdminUserIDs[0])
+	for _, ownerUserID := range ownerUserIDs {
+		if ownerUserID == deletedUserID {
+			continue
+		}
+		if _, err := d.friendClient.DeleteFriend(adminCtx, &relation.DeleteFriendReq{
+			OwnerUserID:  ownerUserID,
+			FriendUserID: deletedUserID,
+		}); err != nil {
+			log.ZWarn(ctx, "DeleteUser: DeleteFriend (friend→owner) failed", err,
+				"ownerUserID", ownerUserID, "friendUserID", deletedUserID)
+		}
+	}
 }
 
 // isGroupOwnerForDelete 判断用户是否为群主。优先用 GroupInfo.OwnerUserID；为空或不一致时回查成员角色，
