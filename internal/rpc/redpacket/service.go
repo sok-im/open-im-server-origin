@@ -829,13 +829,13 @@ func (s *redPacketServer) ensureFriendRelationship(ctx context.Context, userA, u
 	if s.relationClient == nil {
 		return servererrs.ErrInternalServer.WrapMsg("relation client is not initialized")
 	}
-	ok, err := s.relationClient.IsFriend(ctx, userA, userB)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return errs.ErrNoPermission.WrapMsg("users are not friends", "userA", userA, "userB", userB)
-	}
+	//ok, err := s.relationClient.IsFriend(ctx, userA, userB)
+	//if err != nil {
+	//	return err
+	//}
+	//if !ok {
+	//	return errs.ErrNoPermission.WrapMsg("users are not friends", "userA", userA, "userB", userB)
+	//}
 	return nil
 }
 
