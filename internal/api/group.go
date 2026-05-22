@@ -264,6 +264,69 @@ func (o *GroupApi) SetMsgBurnDuration(c *gin.Context) {
 	apiresp.GinSuccess(c, resp)
 }
 
+// SetGroupAnnouncement 设置群公告（委托 SetGroupInfoEx；存储字段为 notification，会触发群公告变更通知）。
+func (o *GroupApi) SetGroupAnnouncement(c *gin.Context) {
+	var req struct {
+		GroupID      string `json:"groupID"`
+		Notification string `json:"notification"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		apiresp.GinError(c, errs.ErrArgs.WrapMsg(err.Error()))
+		return
+	}
+	if req.GroupID == "" {
+		apiresp.GinError(c, errs.ErrArgs.WrapMsg("groupID is empty"))
+		return
+	}
+	resp, err := o.Client.SetGroupInfoEx(c, &group.SetGroupInfoExReq{
+		GroupID:      req.GroupID,
+		Notification: wrapperspb.String(req.Notification),
+	})
+	if err != nil {
+		apiresp.GinError(c, err)
+		return
+	}
+	apiresp.GinSuccess(c, resp)
+}
+
+// GetGroupAnnouncement 返回群公告及最近更新时间、编辑者（与 get_groups_info 中 notification 相关字段一致）。
+func (o *GroupApi) GetGroupAnnouncement(c *gin.Context) {
+	var req struct {
+		GroupID string `json:"groupID"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		apiresp.GinError(c, errs.ErrArgs.WrapMsg(err.Error()))
+		return
+	}
+	if req.GroupID == "" {
+		apiresp.GinError(c, errs.ErrArgs.WrapMsg("groupID is empty"))
+		return
+	}
+	resp, err := o.Client.GetGroupsInfo(c, &group.GetGroupsInfoReq{
+		GroupIDs: []string{req.GroupID},
+	})
+	if err != nil {
+		apiresp.GinError(c, err)
+		return
+	}
+	if len(resp.GroupInfos) == 0 {
+		apiresp.GinError(c, errs.ErrRecordNotFound.WrapMsg("group not found", "groupID", req.GroupID))
+		return
+	}
+	gi := resp.GroupInfos[0]
+	apiresp.GinSuccess(c, struct {
+		GroupID                string `json:"groupID"`
+		Notification           string `json:"notification"`
+		NotificationUpdateTime int64  `json:"notificationUpdateTime"`
+		NotificationUserID     string `json:"notificationUserID"`
+	}{
+		GroupID:                gi.GroupID,
+		Notification:           gi.GetNotification(),
+		NotificationUpdateTime: gi.GetNotificationUpdateTime(),
+		NotificationUserID:     gi.GetNotificationUserID(),
+	})
+}
+
 // GetMsgBurnDuration 返回当前群消息阅后即焚时长（秒）；0 表示关闭（与 get_groups_info 中字段一致）。
 func (o *GroupApi) GetMsgBurnDuration(c *gin.Context) {
 	var req struct {
