@@ -153,6 +153,13 @@ func (m *RedPacketMgo) UpdateClaimProgress(ctx context.Context, packetID, claime
 	// transaction, only the first UpdateOne will match and the second is a no-op.
 	filter := bson.M{"packet_id": packetID}
 	if claimTxHash != "" {
+		// Backward compatibility: historical rows may have processed_claim_hashes=null.
+		// $addToSet only works on array fields, so initialize null/missing to [] first.
+		_, _ = m.coll.UpdateOne(
+			ctx,
+			bson.M{"packet_id": packetID, "processed_claim_hashes": nil},
+			bson.M{"$set": bson.M{"processed_claim_hashes": []string{}}},
+		)
 		filter["processed_claim_hashes"] = bson.M{"$ne": claimTxHash}
 	}
 	update := bson.M{"$set": setFields}
