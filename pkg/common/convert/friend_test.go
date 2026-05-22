@@ -25,13 +25,7 @@ func TestFriendsDB2Pb_missingUser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FriendsDB2Pb: %v", err)
 	}
-	if len(got) != 1 {
-		t.Fatalf("len: got %d", len(got))
-	}
-	if got[0].FriendUser.UserID != "missing-user" {
-		t.Fatalf("userID: got %q", got[0].FriendUser.UserID)
-	}
-	if got[0].FriendUser.Nickname != "备注" {
-		t.Fatalf("nickname: got %q", got[0].FriendUser.Nickname)
+	if len(got) != 0 {
+		t.Fatalf("len: got %d, want 0 for missing user", len(got))
 	}
 }
