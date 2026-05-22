@@ -43,6 +43,8 @@ func (s *groupServer) groupDB2PB(group *model.Group, ownerUserID string, memberC
 		AllowAddMember:         group.AllowAddMember,
 		AllowEditGroupInfo:     group.AllowEditGroupInfo,
 		AllowBurn:              group.AllowBurn,
+		MsgBurnDuration:        group.MsgBurnDuration,
+		EnableInviteLink:       group.EnableInviteLink,
 	}
 }
 

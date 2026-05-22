@@ -291,6 +291,19 @@ type Friend struct {
 	Prometheus Prometheus `mapstructure:"prometheus"`
 }
 
+// GroupInviteLinkConfig 群邀请链接的全局默认值和硬上限。
+// 生成链接时可以通过请求参数覆盖默认值，但不能超过对应的 Max 上限（0 表示无硬上限）。
+type GroupInviteLinkConfig struct {
+	// DefaultExpireSeconds 链接默认有效期（秒）；0=永不过期
+	DefaultExpireSeconds int `mapstructure:"defaultExpireSeconds"`
+	// DefaultMaxUseCount 链接默认最大使用次数；0=不限次数
+	DefaultMaxUseCount int `mapstructure:"defaultMaxUseCount"`
+	// MaxExpireSeconds 有效期硬上限（秒）；0=无硬上限
+	MaxExpireSeconds int `mapstructure:"maxExpireSeconds"`
+	// MaxUseCountCap 使用次数硬上限；0=无硬上限
+	MaxUseCountCap int `mapstructure:"maxUseCountCap"`
+}
+
 type Group struct {
 	RPC struct {
 		RegisterIP   string `mapstructure:"registerIP"`
@@ -298,9 +311,10 @@ type Group struct {
 		AutoSetPorts bool   `mapstructure:"autoSetPorts"`
 		Ports        []int  `mapstructure:"ports"`
 	} `mapstructure:"rpc"`
-	Prometheus                  Prometheus `mapstructure:"prometheus"`
-	EnableHistoryForNewMembers  bool       `mapstructure:"enableHistoryForNewMembers"`
-	CommonGroupsLimitWithFriend int        `mapstructure:"commonGroupsLimitWithFriend"`
+	Prometheus                  Prometheus            `mapstructure:"prometheus"`
+	EnableHistoryForNewMembers  bool                  `mapstructure:"enableHistoryForNewMembers"`
+	CommonGroupsLimitWithFriend int                   `mapstructure:"commonGroupsLimitWithFriend"`
+	InviteLink                  GroupInviteLinkConfig `mapstructure:"inviteLink"`
 }
 
 type Msg struct {

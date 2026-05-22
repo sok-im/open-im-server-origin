@@ -239,6 +239,7 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 		groupRouterGroup.POST("/set_group_info_ex", g.SetGroupInfoEx)
 		groupRouterGroup.POST("/set_send_message_setting", g.SetSendMessageSetting)
 		groupRouterGroup.POST("/set_invite_setting", g.SetInviteSetting)
+		groupRouterGroup.POST("/set_invite_link_setting", g.SetInviteLinkSetting)
 		groupRouterGroup.POST("/set_pin_setting", g.SetPinSetting)
 		groupRouterGroup.POST("/set_edit_setting", g.SetEditSetting)
 		groupRouterGroup.POST("/set_burn_setting", g.SetBurnSetting)
@@ -284,6 +285,13 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 		groupRouterGroup.POST("/get_mute", g.GetGroupMute)
 		groupRouterGroup.POST("/pin", g.PinGroup)
 		groupRouterGroup.POST("/unpin", g.UnpinGroup)
+
+		// 群邀请链接
+		groupRouterGroup.POST("/create_invite_link", g.CreateGroupInviteLink)
+		groupRouterGroup.POST("/get_invite_link", g.GetGroupInviteLink)
+		groupRouterGroup.POST("/join_by_invite_link", g.JoinGroupByInviteLink)
+		groupRouterGroup.POST("/revoke_invite_link", g.RevokeGroupInviteLink)
+		groupRouterGroup.POST("/list_invite_links", g.ListGroupInviteLinks)
 	}
 	// certificate
 	{
@@ -502,4 +510,5 @@ var Whitelist = []string{
 	"/auth/parse_token",
 	"/captcha",
 	"/phone/get_sn_info",
+	"/group/get_invite_link",
 }

@@ -68,6 +68,9 @@ func UpdateGroupInfoMap(ctx context.Context, group *sdkws.GroupInfoForSet) map[s
 	if group.AllowBurn != nil {
 		m["allow_burn"] = group.AllowBurn.Value
 	}
+	if group.EnableInviteLink != nil {
+		m["enable_invite_link"] = group.EnableInviteLink.Value
+	}
 	return m
 }
 
@@ -137,6 +140,10 @@ func UpdateGroupInfoExMap(ctx context.Context, group *pbgroup.SetGroupInfoExReq)
 	}
 	if group.AllowBurn != nil {
 		m["allow_burn"] = group.AllowBurn.Value
+		normalFlag = true
+	}
+	if group.EnableInviteLink != nil {
+		m["enable_invite_link"] = group.EnableInviteLink.Value
 		normalFlag = true
 	}
 

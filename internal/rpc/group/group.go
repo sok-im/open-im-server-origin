@@ -61,6 +61,7 @@ type groupServer struct {
 	pbgroup.UnimplementedGroupServer
 	db                 controller.GroupDatabase
 	groupMuteDB        controller.GroupMuteDatabase
+	inviteLinkDB       controller.GroupInviteLinkDatabase
 	notification       *NotificationSender
 	config             *Config
 	webhookClient      *webhook.Client
@@ -147,6 +148,13 @@ func Start(ctx context.Context, config *Config, client discovery.SvcDiscoveryReg
 	}
 	gs.db = controller.NewGroupDatabase(rdb, &config.LocalCacheConfig, groupDB, groupMemberDB, groupRequestDB, groupPinnedMsgDB, mgocli.GetTx(), grouphash.NewGroupHashFromGroupServer(&gs))
 	gs.groupMuteDB = controller.NewGroupMuteDatabase(groupMuteMongo)
+
+	groupInviteLinkMgo, err := mgo.NewGroupInviteLinkMongo(mgocli.GetDB())
+	if err != nil {
+		return err
+	}
+	gs.inviteLinkDB = controller.NewGroupInviteLinkDatabase(groupInviteLinkMgo)
+
 	gs.notification = NewNotificationSender(gs.db, config, gs.userClient, gs.relationClient, gs.msgClient, gs.conversationClient)
 	localcache.InitLocalCache(&config.LocalCacheConfig)
 	pbgroup.RegisterGroupServer(server, &gs)
@@ -1202,7 +1210,8 @@ func (s *groupServer) SetGroupInfo(ctx context.Context, req *pbgroup.SetGroupInf
 			req.GroupInfoForSet.AllowPinMsg != nil ||
 			req.GroupInfoForSet.AllowAddMember != nil ||
 			req.GroupInfoForSet.AllowEditGroupInfo != nil ||
-			req.GroupInfoForSet.AllowBurn != nil
+			req.GroupInfoForSet.AllowBurn != nil ||
+			req.GroupInfoForSet.EnableInviteLink != nil
 		if requestsPermField && !isOwnerOrAdmin {
 			return nil, errs.ErrNoPermission.WrapMsg("only owner or admin can change group permission settings")
 		}
@@ -1313,7 +1322,8 @@ func (s *groupServer) SetGroupInfoEx(ctx context.Context, req *pbgroup.SetGroupI
 			req.AllowPinMsg != nil ||
 			req.AllowAddMember != nil ||
 			req.AllowEditGroupInfo != nil ||
-			req.AllowBurn != nil
+			req.AllowBurn != nil ||
+			req.EnableInviteLink != nil
 		if requestsPermField && !isOwnerOrAdmin {
 			return nil, errs.ErrNoPermission.WrapMsg("only owner or admin can change group permission settings")
 		}

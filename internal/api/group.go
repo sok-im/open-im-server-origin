@@ -72,6 +72,35 @@ func (o *GroupApi) SetSendMessageSetting(c *gin.Context) {
 	apiresp.GinSuccess(c, resp)
 }
 
+// SetInviteLinkSetting 开启/关闭群邀请链接：enableInviteLink 0=关闭，1=开启（委托 SetGroupInfoEx；创建/通过链接入群时 RPC 已校验）。
+func (o *GroupApi) SetInviteLinkSetting(c *gin.Context) {
+	var req struct {
+		GroupID          string `json:"groupID"`
+		EnableInviteLink int32  `json:"enableInviteLink"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		apiresp.GinError(c, errs.ErrArgs.WrapMsg(err.Error()))
+		return
+	}
+	if req.GroupID == "" {
+		apiresp.GinError(c, errs.ErrArgs.WrapMsg("groupID is empty"))
+		return
+	}
+	if req.EnableInviteLink != 0 && req.EnableInviteLink != 1 {
+		apiresp.GinError(c, errs.ErrArgs.WrapMsg("enableInviteLink must be 0 or 1"))
+		return
+	}
+	resp, err := o.Client.SetGroupInfoEx(c, &group.SetGroupInfoExReq{
+		GroupID:          req.GroupID,
+		EnableInviteLink: wrapperspb.Int32(req.EnableInviteLink),
+	})
+	if err != nil {
+		apiresp.GinError(c, err)
+		return
+	}
+	apiresp.GinSuccess(c, resp)
+}
+
 // SetInviteSetting 设置群成员邀请他人入群权限：allowAddMember 0=全员可邀请/拉人，1=仅群主/管理员（委托 SetGroupInfoEx；邀请走 InviteUserToGroup 时 RPC 已校验）。
 func (o *GroupApi) SetInviteSetting(c *gin.Context) {
 	var req struct {
@@ -194,6 +223,7 @@ func (o *GroupApi) SetEditSetting(c *gin.Context) {
 // allowPinMsg：0=全员可置顶，1=仅群主/管理员。
 // allowEditGroupInfo：0=全员可编辑群资料，1=仅群主/管理员。
 // allowMemberBurn：是否允许群成员设置阅后即焚，0=不允许（仅群主，默认），1=允许。
+// enableInviteLink：0=关闭群邀请链接，1=开启。
 func (o *GroupApi) GetGroupSetting(c *gin.Context) {
 	var req struct {
 		GroupID string `json:"groupID"`
@@ -225,6 +255,7 @@ func (o *GroupApi) GetGroupSetting(c *gin.Context) {
 		AllowPinMsg        int32  `json:"allowPinMsg"`
 		AllowEditGroupInfo int32  `json:"allowEditGroupInfo"`
 		AllowMemberBurn    int32  `json:"allowMemberBurn"`
+		EnableInviteLink   int32  `json:"enableInviteLink"`
 	}{
 		GroupID:            gi.GroupID,
 		AllowSendMsg:       gi.GetAllowSendMsg(),
@@ -232,6 +263,7 @@ func (o *GroupApi) GetGroupSetting(c *gin.Context) {
 		AllowPinMsg:        gi.GetAllowPinMsg(),
 		AllowEditGroupInfo: gi.GetAllowEditGroupInfo(),
 		AllowMemberBurn:    gi.GetAllowBurn(),
+		EnableInviteLink:   gi.GetEnableInviteLink(),
 	})
 }
 
@@ -521,4 +553,29 @@ func (o *GroupApi) PinGroup(c *gin.Context) {
 
 func (o *GroupApi) UnpinGroup(c *gin.Context) {
 	a2r.Call(c, group.GroupClient.UnpinGroup, o.Client)
+}
+
+// CreateGroupInviteLink 生成群邀请链接（群主/管理员）。
+func (o *GroupApi) CreateGroupInviteLink(c *gin.Context) {
+	a2r.Call(c, group.GroupClient.CreateGroupInviteLink, o.Client)
+}
+
+// GetGroupInviteLink 查询邀请链接详情及群预览（可公开访问）。
+func (o *GroupApi) GetGroupInviteLink(c *gin.Context) {
+	a2r.Call(c, group.GroupClient.GetGroupInviteLink, o.Client)
+}
+
+// JoinGroupByInviteLink 通过邀请链接申请入群（需要已登录）。
+func (o *GroupApi) JoinGroupByInviteLink(c *gin.Context) {
+	a2r.Call(c, group.GroupClient.JoinGroupByInviteLink, o.Client)
+}
+
+// RevokeGroupInviteLink 吊销指定邀请链接（群主/管理员）。
+func (o *GroupApi) RevokeGroupInviteLink(c *gin.Context) {
+	a2r.Call(c, group.GroupClient.RevokeGroupInviteLink, o.Client)
+}
+
+// ListGroupInviteLinks 分页查询群内所有邀请链接（群主/管理员）。
+func (o *GroupApi) ListGroupInviteLinks(c *gin.Context) {
+	a2r.Call(c, group.GroupClient.ListGroupInviteLinks, o.Client)
 }

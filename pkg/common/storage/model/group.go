@@ -53,6 +53,8 @@ type Group struct {
 	MsgBurnDuration int32 `bson:"msg_burn_duration"`
 	// AllowBurn 0=仅群主可设置阅后即焚（默认） 1=全员可设置阅后即焚
 	AllowBurn int32 `bson:"allow_burn"`
+	// EnableInviteLink 0=关闭群邀请链接 1=开启群邀请链接
+	EnableInviteLink int32 `bson:"enable_invite_link"`
 }
 
 const (
@@ -60,4 +62,9 @@ const (
 	GroupAllowBurnOwnerOnly = int32(0)
 	// GroupAllowBurnAllMember 全员可设置群会话阅后即焚
 	GroupAllowBurnAllMember = int32(1)
+
+	// GroupEnableInviteLinkOff 关闭群邀请链接（默认）
+	GroupEnableInviteLinkOff = int32(0)
+	// GroupEnableInviteLinkOn 开启群邀请链接
+	GroupEnableInviteLinkOn = int32(1)
 )
