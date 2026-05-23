@@ -295,7 +295,7 @@ data:
       # List of ports that Prometheus listens on; these must match the number of rpc.ports to ensure correct monitoring setup
       ports: [ 12260 ]
 
-    enableHistoryForNewMembers: true
+    enableHistoryForNewMembers: false
 
   openim-rpc-msg.yml: |
     rpc:

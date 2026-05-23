@@ -17,7 +17,7 @@ prometheus:
   ports: [ 12260 ]
 
 
-enableHistoryForNewMembers: true
+enableHistoryForNewMembers: false
 commonGroupsLimitWithFriend: 3
 
 # 群邀请链接配置
