@@ -208,6 +208,9 @@ func (d *DeleteUserApi) deleteFriendsReferencingUser(ctx context.Context, delete
 // isGroupOwnerForDelete 判断用户是否为群主。优先用 GroupInfo.OwnerUserID；为空或不一致时回查成员角色，
 // 避免 OwnerUserID 未填充时误走 QuitGroup（群主不能退群）导致群未解散。
 func (d *DeleteUserApi) isGroupOwnerForDelete(c *gin.Context, groupID, userID, ownerUserID string) bool {
+
+	log.ZInfo(c, "DeleteUser: isGroupOwnerForDelete", "groupID", groupID, "userID", userID, "ownerUserID", ownerUserID)
+
 	if ownerUserID == userID {
 		return true
 	}
@@ -215,10 +218,13 @@ func (d *DeleteUserApi) isGroupOwnerForDelete(c *gin.Context, groupID, userID, o
 		GroupID: groupID,
 		UserIDs: []string{userID},
 	})
+
 	if err != nil {
 		log.ZWarn(c, "DeleteUser: GetGroupMembersInfo failed", err, "userID", userID, "groupID", groupID)
 		return false
 	}
+
+	log.ZInfo(c, "DeleteUser: GetGroupMembersInfo", "resp", resp)
 	if len(resp.Members) == 0 {
 		return false
 	}
