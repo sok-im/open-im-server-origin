@@ -68,3 +68,28 @@ func (s *groupServer) applyMemberDisplayNicknames(ctx context.Context, members [
 	}
 	return nil
 }
+
+// remarkMapForUser 返回 viewerUserID 对 userIDs 的好友备注映射（非好友无条目）。
+func (s *groupServer) remarkMapForUser(ctx context.Context, viewerUserID string, userIDs []string) (map[string]string, error) {
+	if viewerUserID == "" || len(userIDs) == 0 {
+		return map[string]string{}, nil
+	}
+	friendInfos, err := s.relationClient.GetFriendsInfo(ctx, viewerUserID, userIDs)
+	if err != nil {
+		return nil, err
+	}
+	return convert.RemarkMapFromFriendInfos(friendInfos), nil
+}
+
+// userInfoWithDisplayNickname 复制用户信息并将 Nickname 设为 remark > firstName+lastName > nickname。
+func userInfoWithDisplayNickname(user *sdkws.UserInfo, remarkMap map[string]string) *sdkws.UserInfo {
+	if user == nil {
+		return nil
+	}
+	if remarkMap == nil {
+		remarkMap = map[string]string{}
+	}
+	cp := *user
+	cp.Nickname = convert.DisplayNickname(remarkMap[user.UserID], user)
+	return &cp
+}

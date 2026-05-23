@@ -888,12 +888,16 @@ func (s *groupServer) GetGroupApplicationList(ctx context.Context, req *pbgroup.
 	ownerMap := datautil.SliceToMap(owners, func(e *model.GroupMember) string {
 		return e.GroupID
 	})
+	remarkMap, err := s.remarkMapForUser(ctx, req.FromUserID, userIDs)
+	if err != nil {
+		return nil, err
+	}
 	resp.GroupRequests = datautil.Slice(groupRequests, func(e *model.GroupRequest) *sdkws.GroupRequest {
 		var ownerUserID string
 		if owner, ok := ownerMap[e.GroupID]; ok {
 			ownerUserID = owner.UserID
 		}
-		return convert.Db2PbGroupRequest(e, userMap[e.UserID], convert.Db2PbGroupInfo(groupMap[e.GroupID], ownerUserID, groupMemberNumMap[e.GroupID]))
+		return convert.Db2PbGroupRequest(e, userInfoWithDisplayNickname(userMap[e.UserID], remarkMap), convert.Db2PbGroupInfo(groupMap[e.GroupID], ownerUserID, groupMemberNumMap[e.GroupID]))
 	})
 	return resp, nil
 }
