@@ -566,36 +566,6 @@ func (s *groupServer) InviteUserToGroup(ctx context.Context, req *pbgroup.Invite
 		return nil, err
 	}
 
-	if group.NeedVerification == constant.AllNeedVerification {
-		if !authverify.IsAppManagerUid(ctx, s.config.Share.IMAdminUserID) {
-			if !(groupMember.RoleLevel == constant.GroupOwner || groupMember.RoleLevel == constant.GroupAdmin) {
-				var requests []*model.GroupRequest
-				for _, userID := range req.InvitedUserIDs {
-					requests = append(requests, &model.GroupRequest{
-						UserID:        userID,
-						GroupID:       req.GroupID,
-						JoinSource:    constant.JoinByInvitation,
-						InviterUserID: opUserID,
-						ReqTime:       time.Now(),
-						HandledTime:   time.Unix(0, 0),
-					})
-				}
-				if err := s.db.CreateGroupRequest(ctx, requests); err != nil {
-					return nil, err
-				}
-				for _, request := range requests {
-					s.notification.JoinGroupApplicationNotification(ctx, &pbgroup.JoinGroupReq{
-						GroupID:       request.GroupID,
-						ReqMessage:    request.ReqMsg,
-						JoinSource:    request.JoinSource,
-						InviterUserID: request.InviterUserID,
-					}, request)
-				}
-				return &pbgroup.InviteUserToGroupResp{}, nil
-			}
-		}
-	}
-
 	var groupMembers []*model.GroupMember
 	for _, userID := range req.InvitedUserIDs {
 		member := &model.GroupMember{
@@ -1072,11 +1042,56 @@ func (s *groupServer) GroupApplicationResponse(ctx context.Context, req *pbgroup
 	return &pbgroup.GroupApplicationResponseResp{}, nil
 }
 
-func (s *groupServer) JoinGroup(ctx context.Context, req *pbgroup.JoinGroupReq) (*pbgroup.JoinGroupResp, error) {
+func (s *groupServer) joinGroupDirectly(ctx context.Context, group *model.Group, req *pbgroup.JoinGroupReq) error {
 	user, err := s.userClient.GetUserInfo(ctx, req.InviterUserID)
 	if err != nil {
-		return nil, err
+		return err
 	}
+	groupMember := &model.GroupMember{
+		GroupID:        group.GroupID,
+		UserID:         user.UserID,
+		RoleLevel:      constant.GroupOrdinaryUsers,
+		OperatorUserID: mcontext.GetOpUserID(ctx),
+		InviterUserID:  req.InviterUserID,
+		JoinSource:     req.JoinSource,
+		JoinTime:       time.Now(),
+		MuteEndTime:    time.UnixMilli(0),
+	}
+	if err := s.webhookBeforeMembersJoinGroup(ctx, &s.config.WebhooksConfig.BeforeMemberJoinGroup, []*model.GroupMember{groupMember}, group.GroupID, group.Ex); err != nil && err != servererrs.ErrCallbackContinue {
+		return err
+	}
+	if err := s.db.CreateGroup(ctx, nil, []*model.GroupMember{groupMember}); err != nil {
+		return err
+	}
+	if err = s.notification.MemberEnterNotification(ctx, req.GroupID, req.InviterUserID); err != nil {
+		return err
+	}
+	if err := s.setMemberJoinSeq(ctx, req.GroupID, []string{req.InviterUserID}); err != nil {
+		return err
+	}
+	s.webhookAfterJoinGroup(ctx, &s.config.WebhooksConfig.AfterJoinGroup, req)
+	return nil
+}
+
+func (s *groupServer) createJoinGroupApplication(ctx context.Context, req *pbgroup.JoinGroupReq) error {
+	groupRequest := model.GroupRequest{
+		UserID:      req.InviterUserID,
+		ReqMsg:      req.ReqMessage,
+		GroupID:     req.GroupID,
+		JoinSource:  req.JoinSource,
+		ReqTime:     time.Now(),
+		HandledTime: time.Unix(0, 0),
+		Ex:          req.Ex,
+	}
+	if err := s.db.CreateGroupRequest(ctx, []*model.GroupRequest{&groupRequest}); err != nil {
+		return err
+	}
+	s.notification.JoinGroupApplicationNotification(ctx, req, &groupRequest)
+	return nil
+}
+
+// JoinGroup 主动申请入群（搜索、扫码等）：直接入群，不创建入群申请；不受 needVerification 影响。
+func (s *groupServer) JoinGroup(ctx context.Context, req *pbgroup.JoinGroupReq) (*pbgroup.JoinGroupResp, error) {
 	group, err := s.db.TakeGroup(ctx, req.GroupID)
 	if err != nil {
 		return nil, err
@@ -1103,51 +1118,10 @@ func (s *groupServer) JoinGroup(ctx context.Context, req *pbgroup.JoinGroupReq) 
 	} else if !s.IsNotFound(err) && errs.Unwrap(err) != errs.ErrRecordNotFound {
 		return nil, err
 	}
-	log.ZDebug(ctx, "JoinGroup.groupInfo", "group", group, "eq", group.NeedVerification == constant.Directly)
-	if group.NeedVerification == constant.Directly {
-		groupMember := &model.GroupMember{
-			GroupID:        group.GroupID,
-			UserID:         user.UserID,
-			RoleLevel:      constant.GroupOrdinaryUsers,
-			OperatorUserID: mcontext.GetOpUserID(ctx),
-			InviterUserID:  req.InviterUserID,
-			JoinTime:       time.Now(),
-			MuteEndTime:    time.UnixMilli(0),
-		}
 
-		if err := s.webhookBeforeMembersJoinGroup(ctx, &s.config.WebhooksConfig.BeforeMemberJoinGroup, []*model.GroupMember{groupMember}, group.GroupID, group.Ex); err != nil && err != servererrs.ErrCallbackContinue {
-			return nil, err
-		}
-
-		if err := s.db.CreateGroup(ctx, nil, []*model.GroupMember{groupMember}); err != nil {
-			return nil, err
-		}
-
-		if err = s.notification.MemberEnterNotification(ctx, req.GroupID, req.InviterUserID); err != nil {
-			return nil, err
-		}
-		if err := s.setMemberJoinSeq(ctx, req.GroupID, []string{req.InviterUserID}); err != nil {
-			return nil, err
-		}
-		//s.cryptoClient.BumpGroupKeyVersion(ctx, req.GroupID, req.InviterUserID, "member_added")
-		s.webhookAfterJoinGroup(ctx, &s.config.WebhooksConfig.AfterJoinGroup, req)
-
-		return &pbgroup.JoinGroupResp{}, nil
-	}
-
-	groupRequest := model.GroupRequest{
-		UserID:      req.InviterUserID,
-		ReqMsg:      req.ReqMessage,
-		GroupID:     req.GroupID,
-		JoinSource:  req.JoinSource,
-		ReqTime:     time.Now(),
-		HandledTime: time.Unix(0, 0),
-		Ex:          req.Ex,
-	}
-	if err = s.db.CreateGroupRequest(ctx, []*model.GroupRequest{&groupRequest}); err != nil {
+	if err := s.joinGroupDirectly(ctx, group, req); err != nil {
 		return nil, err
 	}
-	s.notification.JoinGroupApplicationNotification(ctx, req, &groupRequest)
 	return &pbgroup.JoinGroupResp{}, nil
 }
 

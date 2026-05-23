@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/openimsdk/open-im-server/v3/pkg/authverify"
+	"github.com/openimsdk/open-im-server/v3/pkg/callbackstruct"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/servererrs"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/model"
 	"github.com/openimsdk/protocol/constant"
@@ -142,8 +143,8 @@ func (s *groupServer) GetGroupInviteLink(ctx context.Context, req *pbgroup.GetGr
 	return resp, nil
 }
 
-// JoinGroupByInviteLink 用户通过邀请链接申请入群（需要已登录）。
-// 入群是否需要审批由群的 needVerification 字段决定，与普通 JoinGroup 逻辑一致。
+// JoinGroupByInviteLink 用户通过群分享/邀请链接入群（需要已登录）。
+// 是否需审批仅由群的 needVerification 决定：Directly(2) 直接入群，0/1 创建入群申请。
 func (s *groupServer) JoinGroupByInviteLink(ctx context.Context, req *pbgroup.JoinGroupByInviteLinkReq) (*pbgroup.JoinGroupByInviteLinkResp, error) {
 	opUserID := mcontext.GetOpUserID(ctx)
 
@@ -180,15 +181,30 @@ func (s *groupServer) JoinGroupByInviteLink(ctx context.Context, req *pbgroup.Jo
 		return nil, err
 	}
 
-	// 复用 JoinGroup 核心逻辑：根据 needVerification 决定直接入群还是创建申请。
 	joinReq := &pbgroup.JoinGroupReq{
 		GroupID:       link.GroupID,
 		ReqMessage:    req.ReqMessage,
 		JoinSource:    constant.JoinByQRCode,
 		InviterUserID: opUserID,
 	}
-	if _, err := s.JoinGroup(ctx, joinReq); err != nil {
+	reqCall := &callbackstruct.CallbackJoinGroupReq{
+		GroupID:    joinReq.GroupID,
+		GroupType:  string(group.GroupType),
+		ApplyID:    joinReq.InviterUserID,
+		ReqMessage: joinReq.ReqMessage,
+		Ex:         joinReq.Ex,
+	}
+	if err := s.webhookBeforeApplyJoinGroup(ctx, &s.config.WebhooksConfig.BeforeApplyJoinGroup, reqCall); err != nil && err != servererrs.ErrCallbackContinue {
 		return nil, err
+	}
+	if group.NeedVerification == constant.Directly {
+		if err := s.joinGroupDirectly(ctx, group, joinReq); err != nil {
+			return nil, err
+		}
+	} else {
+		if err := s.createJoinGroupApplication(ctx, joinReq); err != nil {
+			return nil, err
+		}
 	}
 
 	return &pbgroup.JoinGroupByInviteLinkResp{}, nil
