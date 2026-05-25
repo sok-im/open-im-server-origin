@@ -516,7 +516,7 @@ func (m *WalletBindingMgo) GetActive(ctx context.Context, userID, chainType, wal
 	err := m.coll.FindOne(ctx, bson.M{
 		"user_id":        userID,
 		"chain_type":     chainType,
-		"wallet_address": walletAddress,
+		"wallet_address": bson.M{"$regex": "(?i)" + walletAddress},
 		"status":         "ACTIVE",
 	}).Decode(&b)
 	if err != nil {
