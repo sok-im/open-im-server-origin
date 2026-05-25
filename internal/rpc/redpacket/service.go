@@ -744,17 +744,15 @@ func validateClaimBase(rp *model.RedPacket, userID, claimer string) error {
 	// Check status first to give precise error messages for each terminal state.
 	switch rp.Status {
 	case "ACTIVE":
-		// ok, continue to expiry check
+		// if rp.ExpiryAt > 0 && rp.ExpiryAt <= time.Now().Unix() {
+		// 	return errs.ErrArgs.WrapMsg("packet has expired !")
+		// }
 	case "REFUNDED":
 		return errs.ErrArgs.WrapMsg("packet has been refunded")
 	case "EXPIRED":
 		return errs.ErrArgs.WrapMsg("packet has expired")
 	default:
 		return errs.ErrArgs.WrapMsg("packet is not claimable, current status: " + rp.Status)
-	}
-	// Guard against the race where status is still ACTIVE but expiry has passed.
-	if rp.ExpiryAt > 0 && rp.ExpiryAt <= time.Now().Unix() {
-		return errs.ErrArgs.WrapMsg("packet has expired")
 	}
 	return nil
 }
@@ -867,13 +865,13 @@ func (s *redPacketServer) ensureFriendRelationship(ctx context.Context, userA, u
 	if s.relationClient == nil {
 		return servererrs.ErrInternalServer.WrapMsg("relation client is not initialized")
 	}
-	//ok, err := s.relationClient.IsFriend(ctx, userA, userB)
-	//if err != nil {
+	// ok, err := s.relationClient.IsFriend(ctx, userA, userB)
+	// if err != nil {
 	//	return err
-	//}
-	//if !ok {
+	// }
+	// if !ok {
 	//	return errs.ErrNoPermission.WrapMsg("users are not friends", "userA", userA, "userB", userB)
-	//}
+	// }
 	return nil
 }
 
