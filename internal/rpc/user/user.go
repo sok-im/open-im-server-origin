@@ -201,9 +201,12 @@ func (s *userServer) applyPhoneVisibility(ctx context.Context, viewerID string, 
 			pb.Phone = ""
 			pb.AreaCode = ""
 		case tablerelation.PhoneVisibilityFriends:
-			// 仅好友可见：以资料所属用户的好友列表为准（单向）
+			if viewerID == "" {
+				pb.Phone = ""
+				pb.AreaCode = ""
+				continue
+			}
 			if viewerID == db.UserID {
-				// 本人始终可见
 				break
 			}
 			isFriend, err := s.relationClient.IsFriend(ctx, db.UserID, viewerID)
