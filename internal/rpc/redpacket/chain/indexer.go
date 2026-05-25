@@ -17,12 +17,12 @@ import (
 const defaultIndexerMaxBlocksPerPoll uint64 = 2000
 
 type Indexer struct {
-	client             *ChainClient
-	db                 controller.RedPacketDatabase
-	pollInterval       time.Duration
-	lastBlock          uint64
-	contractAddr       common.Address
-	maxBlocksPerPoll   uint64 // 0 => defaultIndexerMaxBlocksPerPoll
+	client           *ChainClient
+	db               controller.RedPacketDatabase
+	pollInterval     time.Duration
+	lastBlock        uint64
+	contractAddr     common.Address
+	maxBlocksPerPoll uint64 // 0 => defaultIndexerMaxBlocksPerPoll
 }
 
 func NewIndexer(client *ChainClient, db controller.RedPacketDatabase, pollInterval int, startBlock uint64, maxBlocksPerPoll int) *Indexer {
@@ -113,7 +113,7 @@ func (i *Indexer) compensate(ctx context.Context) error {
 		return fmt.Errorf("get expired packets failed: %w", err)
 	}
 	for _, rp := range packets {
-		if err := i.db.UpdateRedPacketStatus(ctx, rp.PacketID, "EXPIRED"); err != nil {
+		if err := i.db.UpdateRedPacketStatus(ctx, rp.ChainType, rp.PacketID, "EXPIRED"); err != nil {
 			log.ZWarn(ctx, "redpacket eth compensation mark expired failed", err, "packetID", rp.PacketID)
 			continue
 		}
@@ -203,6 +203,7 @@ func (i *Indexer) handlePacketClaimed(ctx context.Context, event *ParsedEvent) e
 	log.ZInfo(ctx, "PacketClaimed event", "packetID", packetID.String(), "claimer", claimer.Hex(), "amount", amount.String())
 
 	claim := &model.RedPacketClaim{
+		ChainType:     "EVM",
 		PacketID:      packetID.String(),
 		ClaimerWallet: claimer.Hex(),
 		AuthNonce:     authNonce.String(),
@@ -223,7 +224,7 @@ func (i *Indexer) handlePacketClaimed(ctx context.Context, event *ParsedEvent) e
 	// Pass "" for forced status; DB layer auto-derives COMPLETED/ACTIVE.
 	// TxHash is the idempotency key: prevents double-counting if ClaimResult RPC
 	// already processed this same transaction.
-	return i.db.UpdateRedPacketClaimProgress(ctx, packetID.String(), amount.String(), "", event.TxHash.Hex())
+	return i.db.UpdateRedPacketClaimProgress(ctx, "EVM", packetID.String(), amount.String(), "", event.TxHash.Hex())
 }
 
 func (i *Indexer) handlePacketRefunded(ctx context.Context, event *ParsedEvent) error {
@@ -234,6 +235,7 @@ func (i *Indexer) handlePacketRefunded(ctx context.Context, event *ParsedEvent) 
 	log.ZInfo(ctx, "PacketRefunded event", "packetID", packetID.String(), "refundTo", refundTo.Hex(), "amount", amount.String())
 
 	if err := i.db.SaveRefund(ctx, &model.RedPacketRefund{
+		ChainType: "EVM",
 		PacketID:  packetID.String(),
 		RefundTo:  refundTo.Hex(),
 		TxHash:    event.TxHash.Hex(),
@@ -243,5 +245,5 @@ func (i *Indexer) handlePacketRefunded(ctx context.Context, event *ParsedEvent) 
 		return err
 	}
 
-	return i.db.UpdateRedPacketStatus(ctx, packetID.String(), "REFUNDED")
+	return i.db.UpdateRedPacketStatus(ctx, "EVM", packetID.String(), "REFUNDED")
 }

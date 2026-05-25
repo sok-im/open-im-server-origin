@@ -27,7 +27,7 @@ func NewRedPacketMongo(db *mongo.Database) (database.RedPacket, error) {
 			Options: options.Index().SetUnique(true),
 		},
 		{
-			Keys: bson.D{{Key: "packet_id", Value: 1}},
+			Keys: bson.D{{Key: "chain_type", Value: 1}, {Key: "packet_id", Value: 1}},
 		},
 		{
 			Keys: bson.D{{Key: "group_id", Value: 1}},
@@ -56,12 +56,12 @@ func (m *RedPacketMgo) GetByBizID(ctx context.Context, bizID string) (*model.Red
 	return &rp, nil
 }
 
-func (m *RedPacketMgo) GetByPacketID(ctx context.Context, packetID string) (*model.RedPacket, error) {
+func (m *RedPacketMgo) GetByChainTypeAndPacketID(ctx context.Context, chainType, packetID string) (*model.RedPacket, error) {
 	var rp model.RedPacket
-	err := m.coll.FindOne(ctx, bson.M{"packet_id": packetID}).Decode(&rp)
+	err := m.coll.FindOne(ctx, bson.M{"chain_type": chainType, "packet_id": packetID}).Decode(&rp)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
-			return nil, errs.ErrRecordNotFound.WrapMsg("red packet not found", "packetID", packetID)
+			return nil, errs.ErrRecordNotFound.WrapMsg("red packet not found", "chainType", chainType, "packetID", packetID)
 		}
 		return nil, err
 	}
@@ -98,8 +98,8 @@ func (m *RedPacketMgo) UpdateCreated(ctx context.Context, rp *model.RedPacket) e
 	return nil
 }
 
-func (m *RedPacketMgo) UpdateStatus(ctx context.Context, packetID, status string) error {
-	res, err := m.coll.UpdateOne(ctx, bson.M{"packet_id": packetID},
+func (m *RedPacketMgo) UpdateStatus(ctx context.Context, chainType, packetID, status string) error {
+	res, err := m.coll.UpdateOne(ctx, bson.M{"chain_type": chainType, "packet_id": packetID},
 		bson.M{"$set": bson.M{"status": status, "updated_at": time.Now()}})
 	if err != nil {
 		return err
@@ -110,9 +110,9 @@ func (m *RedPacketMgo) UpdateStatus(ctx context.Context, packetID, status string
 	return nil
 }
 
-func (m *RedPacketMgo) UpdateClaimProgress(ctx context.Context, packetID, claimedAmount, status, claimTxHash string) error {
+func (m *RedPacketMgo) UpdateClaimProgress(ctx context.Context, chainType, packetID, claimedAmount, status, claimTxHash string) error {
 	var rp model.RedPacket
-	err := m.coll.FindOne(ctx, bson.M{"packet_id": packetID}).Decode(&rp)
+	err := m.coll.FindOne(ctx, bson.M{"chain_type": chainType, "packet_id": packetID}).Decode(&rp)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return errs.ErrRecordNotFound.WrapMsg("red packet not found", "packetID", packetID)
@@ -151,13 +151,13 @@ func (m *RedPacketMgo) UpdateClaimProgress(ctx context.Context, packetID, claime
 	// The $addToSet + $ne filter makes the whole update idempotent per claimTxHash:
 	// if two code paths (RPC handler and indexer) both attempt to process the same
 	// transaction, only the first UpdateOne will match and the second is a no-op.
-	filter := bson.M{"packet_id": packetID}
+	filter := bson.M{"chain_type": chainType, "packet_id": packetID}
 	if claimTxHash != "" {
 		// Backward compatibility: historical rows may have processed_claim_hashes=null.
 		// $addToSet only works on array fields, so initialize null/missing to [] first.
 		_, _ = m.coll.UpdateOne(
 			ctx,
-			bson.M{"packet_id": packetID, "processed_claim_hashes": nil},
+			bson.M{"chain_type": chainType, "packet_id": packetID, "processed_claim_hashes": nil},
 			bson.M{"$set": bson.M{"processed_claim_hashes": []string{}}},
 		)
 		filter["processed_claim_hashes"] = bson.M{"$ne": claimTxHash}
@@ -197,10 +197,10 @@ func NewRedPacketClaimMongo(db *mongo.Database) (database.RedPacketClaim, error)
 			Options: options.Index().SetUnique(true),
 		},
 		{
-			Keys: bson.D{{Key: "packet_id", Value: 1}, {Key: "user_id", Value: 1}},
+			Keys: bson.D{{Key: "chain_type", Value: 1}, {Key: "packet_id", Value: 1}, {Key: "user_id", Value: 1}},
 		},
 		{
-			Keys: bson.D{{Key: "packet_id", Value: 1}, {Key: "claimer_wallet", Value: 1}},
+			Keys: bson.D{{Key: "chain_type", Value: 1}, {Key: "packet_id", Value: 1}, {Key: "claimer_wallet", Value: 1}},
 		},
 	})
 	if err != nil {
@@ -213,8 +213,9 @@ func (m *RedPacketClaimMgo) Save(ctx context.Context, claim *model.RedPacketClai
 	if claim.UserID != "" {
 		var existing model.RedPacketClaim
 		err := m.coll.FindOne(ctx, bson.M{
-			"packet_id": claim.PacketID,
-			"user_id":   claim.UserID,
+			"chain_type": claim.ChainType,
+			"packet_id":  claim.PacketID,
+			"user_id":    claim.UserID,
 		}).Decode(&existing)
 		if err == nil {
 			updates := bson.M{
@@ -227,7 +228,7 @@ func (m *RedPacketClaimMgo) Save(ctx context.Context, claim *model.RedPacketClai
 				"updated_at":     claim.UpdatedAt,
 			}
 			_, err := m.coll.UpdateOne(ctx,
-				bson.M{"packet_id": claim.PacketID, "user_id": claim.UserID},
+				bson.M{"chain_type": claim.ChainType, "packet_id": claim.PacketID, "user_id": claim.UserID},
 				bson.M{"$set": updates})
 			return err
 		}
@@ -244,10 +245,10 @@ func (m *RedPacketClaimMgo) Save(ctx context.Context, claim *model.RedPacketClai
 	return err
 }
 
-func (m *RedPacketClaimMgo) GetByPacketIDAndClaimer(ctx context.Context, packetID, claimer string) (*model.RedPacketClaim, error) {
+func (m *RedPacketClaimMgo) GetByChainTypeAndPacketIDAndClaimer(ctx context.Context, chainType, packetID, claimer string) (*model.RedPacketClaim, error) {
 	var claim model.RedPacketClaim
 	err := m.coll.FindOne(ctx,
-		bson.M{"packet_id": packetID, "claimer_wallet": claimer},
+		bson.M{"chain_type": chainType, "packet_id": packetID, "claimer_wallet": claimer},
 		options.FindOne().SetSort(bson.D{{Key: "created_at", Value: -1}}),
 	).Decode(&claim)
 	if err != nil {
@@ -259,10 +260,10 @@ func (m *RedPacketClaimMgo) GetByPacketIDAndClaimer(ctx context.Context, packetI
 	return &claim, nil
 }
 
-func (m *RedPacketClaimMgo) GetByPacketIDAndUserID(ctx context.Context, packetID, userID string) (*model.RedPacketClaim, error) {
+func (m *RedPacketClaimMgo) GetByChainTypeAndPacketIDAndUserID(ctx context.Context, chainType, packetID, userID string) (*model.RedPacketClaim, error) {
 	var claim model.RedPacketClaim
 	err := m.coll.FindOne(ctx,
-		bson.M{"packet_id": packetID, "user_id": userID},
+		bson.M{"chain_type": chainType, "packet_id": packetID, "user_id": userID},
 		options.FindOne().SetSort(bson.D{{Key: "created_at", Value: -1}}),
 	).Decode(&claim)
 	if err != nil {
@@ -274,9 +275,9 @@ func (m *RedPacketClaimMgo) GetByPacketIDAndUserID(ctx context.Context, packetID
 	return &claim, nil
 }
 
-func (m *RedPacketClaimMgo) ListByPacketID(ctx context.Context, packetID string) ([]*model.RedPacketClaim, error) {
+func (m *RedPacketClaimMgo) ListByChainTypeAndPacketID(ctx context.Context, chainType, packetID string) ([]*model.RedPacketClaim, error) {
 	cursor, err := m.coll.Find(ctx,
-		bson.M{"packet_id": packetID},
+		bson.M{"chain_type": chainType, "packet_id": packetID},
 		options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}}),
 	)
 	if err != nil {
@@ -362,6 +363,12 @@ func NewRedPacketRefundMongo(db *mongo.Database) (database.RedPacketRefund, erro
 	if err != nil {
 		return nil, err
 	}
+	_, err = coll.Indexes().CreateOne(context.Background(), mongo.IndexModel{
+		Keys: bson.D{{Key: "chain_type", Value: 1}, {Key: "packet_id", Value: 1}},
+	})
+	if err != nil {
+		return nil, err
+	}
 	return &RedPacketRefundMgo{coll: coll}, nil
 }
 
@@ -374,9 +381,9 @@ func (m *RedPacketRefundMgo) Save(ctx context.Context, refund *model.RedPacketRe
 	return err
 }
 
-func (m *RedPacketRefundMgo) GetByPacketID(ctx context.Context, packetID string) (*model.RedPacketRefund, error) {
+func (m *RedPacketRefundMgo) GetByChainTypeAndPacketID(ctx context.Context, chainType, packetID string) (*model.RedPacketRefund, error) {
 	var r model.RedPacketRefund
-	err := m.coll.FindOne(ctx, bson.M{"packet_id": packetID}).Decode(&r)
+	err := m.coll.FindOne(ctx, bson.M{"chain_type": chainType, "packet_id": packetID}).Decode(&r)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return nil, errs.ErrRecordNotFound.WrapMsg("refund not found", "packetID", packetID)

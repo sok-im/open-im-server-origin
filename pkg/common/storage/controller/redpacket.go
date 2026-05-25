@@ -13,10 +13,10 @@ import (
 type RedPacketDatabase interface {
 	CreateRedPacket(ctx context.Context, rp *model.RedPacket) error
 	GetRedPacketByBizID(ctx context.Context, bizID string) (*model.RedPacket, error)
-	GetRedPacketByPacketID(ctx context.Context, packetID string) (*model.RedPacket, error)
+	GetRedPacketByChainTypeAndPacketID(ctx context.Context, chainType, packetID string) (*model.RedPacket, error)
 	UpdateRedPacketCreated(ctx context.Context, rp *model.RedPacket) error
-	UpdateRedPacketStatus(ctx context.Context, packetID, status string) error
-	UpdateRedPacketClaimProgress(ctx context.Context, packetID, claimedAmount, status, claimTxHash string) error
+	UpdateRedPacketStatus(ctx context.Context, chainType, packetID, status string) error
+	UpdateRedPacketClaimProgress(ctx context.Context, chainType, packetID, claimedAmount, status, claimTxHash string) error
 	GetExpiredPendingPackets(ctx context.Context, nowUnix int64) ([]*model.RedPacket, error)
 
 	CreateClaimAuth(ctx context.Context, auth *model.RedPacketClaimAuth) error
@@ -24,12 +24,12 @@ type RedPacketDatabase interface {
 	MarkClaimAuthUsed(ctx context.Context, authNonce string) error
 
 	SaveClaim(ctx context.Context, claim *model.RedPacketClaim) error
-	GetClaimByPacketIDAndClaimer(ctx context.Context, packetID, claimer string) (*model.RedPacketClaim, error)
-	GetClaimByPacketIDAndUserID(ctx context.Context, packetID, userID string) (*model.RedPacketClaim, error)
-	GetClaimsByPacketID(ctx context.Context, packetID string) ([]*model.RedPacketClaim, error)
+	GetClaimByChainTypeAndPacketIDAndClaimer(ctx context.Context, chainType, packetID, claimer string) (*model.RedPacketClaim, error)
+	GetClaimByChainTypeAndPacketIDAndUserID(ctx context.Context, chainType, packetID, userID string) (*model.RedPacketClaim, error)
+	GetClaimsByChainTypeAndPacketID(ctx context.Context, chainType, packetID string) ([]*model.RedPacketClaim, error)
 
 	SaveRefund(ctx context.Context, refund *model.RedPacketRefund) error
-	GetRefundByPacketID(ctx context.Context, packetID string) (*model.RedPacketRefund, error)
+	GetRefundByChainTypeAndPacketID(ctx context.Context, chainType, packetID string) (*model.RedPacketRefund, error)
 
 	CreateWalletBindingChallenge(ctx context.Context, challenge *model.WalletBindingChallenge) error
 	GetWalletBindingChallenge(ctx context.Context, challengeID string) (*model.WalletBindingChallenge, error)
@@ -79,20 +79,20 @@ func (d *redPacketDatabase) GetRedPacketByBizID(ctx context.Context, bizID strin
 	return d.rp.GetByBizID(ctx, bizID)
 }
 
-func (d *redPacketDatabase) GetRedPacketByPacketID(ctx context.Context, packetID string) (*model.RedPacket, error) {
-	return d.rp.GetByPacketID(ctx, packetID)
+func (d *redPacketDatabase) GetRedPacketByChainTypeAndPacketID(ctx context.Context, chainType, packetID string) (*model.RedPacket, error) {
+	return d.rp.GetByChainTypeAndPacketID(ctx, chainType, packetID)
 }
 
 func (d *redPacketDatabase) UpdateRedPacketCreated(ctx context.Context, rp *model.RedPacket) error {
 	return d.rp.UpdateCreated(ctx, rp)
 }
 
-func (d *redPacketDatabase) UpdateRedPacketStatus(ctx context.Context, packetID, status string) error {
-	return d.rp.UpdateStatus(ctx, packetID, status)
+func (d *redPacketDatabase) UpdateRedPacketStatus(ctx context.Context, chainType, packetID, status string) error {
+	return d.rp.UpdateStatus(ctx, chainType, packetID, status)
 }
 
-func (d *redPacketDatabase) UpdateRedPacketClaimProgress(ctx context.Context, packetID, claimedAmount, status, claimTxHash string) error {
-	return d.rp.UpdateClaimProgress(ctx, packetID, claimedAmount, status, claimTxHash)
+func (d *redPacketDatabase) UpdateRedPacketClaimProgress(ctx context.Context, chainType, packetID, claimedAmount, status, claimTxHash string) error {
+	return d.rp.UpdateClaimProgress(ctx, chainType, packetID, claimedAmount, status, claimTxHash)
 }
 
 func (d *redPacketDatabase) CreateClaimAuth(ctx context.Context, auth *model.RedPacketClaimAuth) error {
@@ -111,24 +111,24 @@ func (d *redPacketDatabase) SaveClaim(ctx context.Context, claim *model.RedPacke
 	return d.claim.Save(ctx, claim)
 }
 
-func (d *redPacketDatabase) GetClaimByPacketIDAndClaimer(ctx context.Context, packetID, claimer string) (*model.RedPacketClaim, error) {
-	return d.claim.GetByPacketIDAndClaimer(ctx, packetID, claimer)
+func (d *redPacketDatabase) GetClaimByChainTypeAndPacketIDAndClaimer(ctx context.Context, chainType, packetID, claimer string) (*model.RedPacketClaim, error) {
+	return d.claim.GetByChainTypeAndPacketIDAndClaimer(ctx, chainType, packetID, claimer)
 }
 
-func (d *redPacketDatabase) GetClaimByPacketIDAndUserID(ctx context.Context, packetID, userID string) (*model.RedPacketClaim, error) {
-	return d.claim.GetByPacketIDAndUserID(ctx, packetID, userID)
+func (d *redPacketDatabase) GetClaimByChainTypeAndPacketIDAndUserID(ctx context.Context, chainType, packetID, userID string) (*model.RedPacketClaim, error) {
+	return d.claim.GetByChainTypeAndPacketIDAndUserID(ctx, chainType, packetID, userID)
 }
 
-func (d *redPacketDatabase) GetClaimsByPacketID(ctx context.Context, packetID string) ([]*model.RedPacketClaim, error) {
-	return d.claim.ListByPacketID(ctx, packetID)
+func (d *redPacketDatabase) GetClaimsByChainTypeAndPacketID(ctx context.Context, chainType, packetID string) ([]*model.RedPacketClaim, error) {
+	return d.claim.ListByChainTypeAndPacketID(ctx, chainType, packetID)
 }
 
 func (d *redPacketDatabase) SaveRefund(ctx context.Context, refund *model.RedPacketRefund) error {
 	return d.refund.Save(ctx, refund)
 }
 
-func (d *redPacketDatabase) GetRefundByPacketID(ctx context.Context, packetID string) (*model.RedPacketRefund, error) {
-	return d.refund.GetByPacketID(ctx, packetID)
+func (d *redPacketDatabase) GetRefundByChainTypeAndPacketID(ctx context.Context, chainType, packetID string) (*model.RedPacketRefund, error) {
+	return d.refund.GetByChainTypeAndPacketID(ctx, chainType, packetID)
 }
 
 func (d *redPacketDatabase) GetExpiredPendingPackets(ctx context.Context, nowUnix int64) ([]*model.RedPacket, error) {

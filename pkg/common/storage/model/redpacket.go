@@ -7,32 +7,33 @@ import (
 )
 
 type RedPacket struct {
-	BizID           string    `bson:"biz_id"`
-	ChainType       string    `bson:"chain_type"`
-	PacketID        string    `bson:"packet_id"`
-	ChainID         int64     `bson:"chain_id"`
-	ContractAddress string    `bson:"contract_address"`
-	CreatorUserID   string    `bson:"creator_user_id"`
-	CreatorWallet   string    `bson:"creator_wallet"`
-	GroupID         string    `bson:"group_id"`
-	ScopeType       string    `bson:"scope_type"`
-	ReceiverUserID  string    `bson:"receiver_user_id"`
-	ReceiverUserIDs []string  `bson:"receiver_user_ids"`
-	PacketType      int32     `bson:"packet_type"`
-	Token           string    `bson:"token"`
-	TotalAmount     string    `bson:"total_amount"`
-	TotalShares     int32     `bson:"total_shares"`
-	ClaimedAmount        string   `bson:"claimed_amount"`
-	ClaimedShares        int32    `bson:"claimed_shares"`
-	ProcessedClaimHashes []string `bson:"processed_claim_hashes"`
-	ExpiryAt             int64    `bson:"expiry_at"`
-	TxHash          string    `bson:"tx_hash"`
-	Status          string    `bson:"status"`
-	CreatedAt       time.Time `bson:"created_at"`
-	UpdatedAt       time.Time `bson:"updated_at"`
+	BizID                string    `bson:"biz_id"`
+	ChainType            string    `bson:"chain_type"`
+	PacketID             string    `bson:"packet_id"`
+	ChainID              int64     `bson:"chain_id"`
+	ContractAddress      string    `bson:"contract_address"`
+	CreatorUserID        string    `bson:"creator_user_id"`
+	CreatorWallet        string    `bson:"creator_wallet"`
+	GroupID              string    `bson:"group_id"`
+	ScopeType            string    `bson:"scope_type"`
+	ReceiverUserID       string    `bson:"receiver_user_id"`
+	ReceiverUserIDs      []string  `bson:"receiver_user_ids"`
+	PacketType           int32     `bson:"packet_type"`
+	Token                string    `bson:"token"`
+	TotalAmount          string    `bson:"total_amount"`
+	TotalShares          int32     `bson:"total_shares"`
+	ClaimedAmount        string    `bson:"claimed_amount"`
+	ClaimedShares        int32     `bson:"claimed_shares"`
+	ProcessedClaimHashes []string  `bson:"processed_claim_hashes"`
+	ExpiryAt             int64     `bson:"expiry_at"`
+	TxHash               string    `bson:"tx_hash"`
+	Status               string    `bson:"status"`
+	CreatedAt            time.Time `bson:"created_at"`
+	UpdatedAt            time.Time `bson:"updated_at"`
 }
 
 type RedPacketClaim struct {
+	ChainType     string    `bson:"chain_type"`
 	PacketID      string    `bson:"packet_id"`
 	UserID        string    `bson:"user_id"`
 	ClaimerWallet string    `bson:"claimer_wallet"`
@@ -57,6 +58,7 @@ type RedPacketClaimAuth struct {
 }
 
 type RedPacketRefund struct {
+	ChainType string    `bson:"chain_type"`
 	PacketID  string    `bson:"packet_id"`
 	RefundTo  string    `bson:"refund_to"`
 	TxHash    string    `bson:"tx_hash"`
@@ -100,8 +102,8 @@ type AdminAuditLog struct {
 	ID         primitive.ObjectID `bson:"_id"`
 	OperatorID string             `bson:"operator_id"`
 	Action     string             `bson:"action"`
-	Params     string             `bson:"params"`   // JSON-encoded request
-	Result     string             `bson:"result"`   // "success" | "failed"
+	Params     string             `bson:"params"` // JSON-encoded request
+	Result     string             `bson:"result"` // "success" | "failed"
 	ErrMsg     string             `bson:"err_msg"`
 	CreatedAt  time.Time          `bson:"created_at"`
 }

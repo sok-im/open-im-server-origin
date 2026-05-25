@@ -146,12 +146,16 @@ func (s *redPacketServer) GetDetail(ctx context.Context, req *pbredpacket.GetDet
 	if strings.TrimSpace(req.PacketID) == "" {
 		return nil, errs.ErrArgs.WrapMsg("packet_id is required")
 	}
-
-	rp, err := s.db.GetRedPacketByPacketID(ctx, req.PacketID)
+	chainType, err := normalizeChainType(req.GetChainType())
 	if err != nil {
 		return nil, err
 	}
-	claims, err := s.db.GetClaimsByPacketID(ctx, req.PacketID)
+
+	rp, err := s.db.GetRedPacketByChainTypeAndPacketID(ctx, chainType, req.PacketID)
+	if err != nil {
+		return nil, err
+	}
+	claims, err := s.db.GetClaimsByChainTypeAndPacketID(ctx, chainType, req.PacketID)
 	if err != nil {
 		claims = nil
 	}
@@ -170,10 +174,14 @@ func (s *redPacketServer) IssueClaimSign(ctx context.Context, req *pbredpacket.I
 	if strings.TrimSpace(req.PacketID) == "" || strings.TrimSpace(req.Claimer) == "" {
 		return nil, errs.ErrArgs.WrapMsg("packet_id and claimer are required")
 	}
-	if err := s.canClaim(ctx, req.PacketID, req.Claimer, currentUserID); err != nil {
+	chainType, err := normalizeChainType(req.GetChainType())
+	if err != nil {
 		return nil, err
 	}
-	rp, err := s.db.GetRedPacketByPacketID(ctx, req.PacketID)
+	if err := s.canClaim(ctx, chainType, req.PacketID, req.Claimer, currentUserID); err != nil {
+		return nil, err
+	}
+	rp, err := s.db.GetRedPacketByChainTypeAndPacketID(ctx, chainType, req.PacketID)
 	if err != nil {
 		return nil, err
 	}
@@ -269,8 +277,12 @@ func (s *redPacketServer) ClaimResult(ctx context.Context, req *pbredpacket.Clai
 	if strings.TrimSpace(req.PacketID) == "" || strings.TrimSpace(req.Claimer) == "" || strings.TrimSpace(req.TxHash) == "" {
 		return nil, errs.ErrArgs.WrapMsg("packet_id, claimer and tx_hash are required")
 	}
+	chainType, err := normalizeChainType(req.GetChainType())
+	if err != nil {
+		return nil, err
+	}
 
-	rp, err := s.db.GetRedPacketByPacketID(ctx, req.PacketID)
+	rp, err := s.db.GetRedPacketByChainTypeAndPacketID(ctx, chainType, req.PacketID)
 	if err != nil {
 		return nil, err
 	}
@@ -280,6 +292,7 @@ func (s *redPacketServer) ClaimResult(ctx context.Context, req *pbredpacket.Clai
 	}
 
 	claim := &model.RedPacketClaim{
+		ChainType:     chainType,
 		PacketID:      req.PacketID,
 		UserID:        currentUserID,
 		ClaimerWallet: req.Claimer,
@@ -299,7 +312,7 @@ func (s *redPacketServer) ClaimResult(ctx context.Context, req *pbredpacket.Clai
 		return &pbredpacket.ClaimResultResp{}, nil
 	}
 	if !txSuccess {
-		if markErr := s.markClaimFailed(ctx, req.PacketID, currentUserID, req.Claimer, req.TxHash); markErr != nil {
+		if markErr := s.markClaimFailed(ctx, chainType, req.PacketID, currentUserID, req.Claimer, req.TxHash); markErr != nil {
 			log.ZWarn(ctx, "mark claim failed status failed", markErr, "txHash", req.TxHash)
 		}
 		return &pbredpacket.ClaimResultResp{}, nil
@@ -308,25 +321,26 @@ func (s *redPacketServer) ClaimResult(ctx context.Context, req *pbredpacket.Clai
 	claimedEvent, err := resolveClaimedEventFromParsedEvents(rp, events)
 	if err != nil {
 		log.ZWarn(ctx, "resolve claim event failed", err, "txHash", req.TxHash)
-		if markErr := s.markClaimFailed(ctx, req.PacketID, currentUserID, req.Claimer, req.TxHash); markErr != nil {
+		if markErr := s.markClaimFailed(ctx, chainType, req.PacketID, currentUserID, req.Claimer, req.TxHash); markErr != nil {
 			log.ZWarn(ctx, "mark claim failed status failed", markErr, "txHash", req.TxHash)
 		}
 		return &pbredpacket.ClaimResultResp{}, nil
 	}
 	if claimedEvent == nil {
-		if markErr := s.markClaimFailed(ctx, req.PacketID, currentUserID, req.Claimer, req.TxHash); markErr != nil {
+		if markErr := s.markClaimFailed(ctx, chainType, req.PacketID, currentUserID, req.Claimer, req.TxHash); markErr != nil {
 			log.ZWarn(ctx, "mark claim failed status failed", markErr, "txHash", req.TxHash)
 		}
 		return &pbredpacket.ClaimResultResp{}, nil
 	}
 	if !strings.EqualFold(claimedEvent.ClaimerWallet, req.Claimer) {
-		if markErr := s.markClaimFailed(ctx, req.PacketID, currentUserID, req.Claimer, req.TxHash); markErr != nil {
+		if markErr := s.markClaimFailed(ctx, chainType, req.PacketID, currentUserID, req.Claimer, req.TxHash); markErr != nil {
 			log.ZWarn(ctx, "mark claim failed status failed", markErr, "txHash", req.TxHash)
 		}
 		return nil, errs.ErrArgs.WrapMsg(fmt.Sprintf("claim event claimer mismatch: got %s want %s", claimedEvent.ClaimerWallet, req.Claimer))
 	}
 
 	confirmed := &model.RedPacketClaim{
+		ChainType:     chainType,
 		PacketID:      req.PacketID,
 		UserID:        currentUserID,
 		ClaimerWallet: claimedEvent.ClaimerWallet,
@@ -351,7 +365,7 @@ func (s *redPacketServer) ClaimResult(ctx context.Context, req *pbredpacket.Clai
 	// Pass "" for status so the DB layer auto-derives COMPLETED/ACTIVE.
 	// Pass req.TxHash as the idempotency key so concurrent indexer processing
 	// of the same transaction cannot double-count the claim.
-	if err := s.db.UpdateRedPacketClaimProgress(ctx, req.PacketID, claimedEvent.Amount, "", req.TxHash); err != nil {
+	if err := s.db.UpdateRedPacketClaimProgress(ctx, chainType, req.PacketID, claimedEvent.Amount, "", req.TxHash); err != nil {
 		return nil, err
 	}
 	return &pbredpacket.ClaimResultResp{}, nil
@@ -393,8 +407,9 @@ func (s *redPacketServer) parseChainReceiptWithStatus(ctx context.Context, rp *m
 	}
 }
 
-func (s *redPacketServer) markClaimFailed(ctx context.Context, packetID, userID, claimer, txHash string) error {
+func (s *redPacketServer) markClaimFailed(ctx context.Context, chainType, packetID, userID, claimer, txHash string) error {
 	return s.db.SaveClaim(ctx, &model.RedPacketClaim{
+		ChainType:     chainType,
 		PacketID:      packetID,
 		UserID:        userID,
 		ClaimerWallet: claimer,
@@ -405,8 +420,8 @@ func (s *redPacketServer) markClaimFailed(ctx context.Context, packetID, userID,
 }
 
 // canClaim runs the claim-eligibility check (formerly RedPacketService.CanClaim).
-func (s *redPacketServer) canClaim(ctx context.Context, packetID, claimer, userID string) error {
-	rp, err := s.db.GetRedPacketByPacketID(ctx, packetID)
+func (s *redPacketServer) canClaim(ctx context.Context, chainType, packetID, claimer, userID string) error {
+	rp, err := s.db.GetRedPacketByChainTypeAndPacketID(ctx, chainType, packetID)
 	if err != nil {
 		return err
 	}
@@ -761,7 +776,7 @@ func (s *redPacketServer) validateFixedPacketClaim(ctx context.Context, rp *mode
 	if strings.TrimSpace(rp.GroupID) == "" {
 		return errs.ErrArgs.WrapMsg("group_id is required for fixed packet claim")
 	}
-	if err := s.ensureNotClaimed(ctx, rp.PacketID, userID, claimer); err != nil {
+	if err := s.ensureNotClaimed(ctx, rp.ChainType, rp.PacketID, userID, claimer); err != nil {
 		return err
 	}
 	return s.ensureGroupEligibility(ctx, rp.GroupID, userID)
@@ -771,14 +786,14 @@ func (s *redPacketServer) validateRandomPacketClaim(ctx context.Context, rp *mod
 	if strings.TrimSpace(rp.GroupID) == "" {
 		return errs.ErrArgs.WrapMsg("group_id is required for random packet claim")
 	}
-	if err := s.ensureNotClaimed(ctx, rp.PacketID, userID, claimer); err != nil {
+	if err := s.ensureNotClaimed(ctx, rp.ChainType, rp.PacketID, userID, claimer); err != nil {
 		return err
 	}
 	return s.ensureGroupEligibility(ctx, rp.GroupID, userID)
 }
 
 func (s *redPacketServer) validateTransferPacketClaim(ctx context.Context, rp *model.RedPacket, userID, claimer string) error {
-	if err := s.ensureNotClaimed(ctx, rp.PacketID, userID, claimer); err != nil {
+	if err := s.ensureNotClaimed(ctx, rp.ChainType, rp.PacketID, userID, claimer); err != nil {
 		return err
 	}
 	if strings.TrimSpace(rp.ReceiverUserID) == "" {
@@ -790,9 +805,9 @@ func (s *redPacketServer) validateTransferPacketClaim(ctx context.Context, rp *m
 	return s.ensureFriendRelationship(ctx, rp.CreatorUserID, userID)
 }
 
-func (s *redPacketServer) ensureNotClaimed(ctx context.Context, packetID, userID, claimer string) error {
+func (s *redPacketServer) ensureNotClaimed(ctx context.Context, chainType, packetID, userID, claimer string) error {
 	if strings.TrimSpace(userID) != "" {
-		claim, err := s.db.GetClaimByPacketIDAndUserID(ctx, packetID, userID)
+		claim, err := s.db.GetClaimByChainTypeAndPacketIDAndUserID(ctx, chainType, packetID, userID)
 		if err == nil && claim != nil && claim.Status != "FAILED" {
 			return errs.ErrArgs.WrapMsg("user already claimed")
 		}
@@ -801,7 +816,7 @@ func (s *redPacketServer) ensureNotClaimed(ctx context.Context, packetID, userID
 		}
 	}
 
-	claim, err := s.db.GetClaimByPacketIDAndClaimer(ctx, packetID, claimer)
+	claim, err := s.db.GetClaimByChainTypeAndPacketIDAndClaimer(ctx, chainType, packetID, claimer)
 	if err == nil && claim != nil && claim.Status != "FAILED" {
 		return errs.ErrArgs.WrapMsg("already claimed")
 	}
@@ -1034,8 +1049,12 @@ func (s *redPacketServer) RequestRefund(ctx context.Context, req *pbredpacket.Re
 	if req.GetPacketID() == "" {
 		return nil, errs.ErrArgs.WrapMsg("packet_id is required")
 	}
+	chainType, err := normalizeChainType(req.GetChainType())
+	if err != nil {
+		return nil, err
+	}
 
-	rp, err := s.db.GetRedPacketByPacketID(ctx, req.GetPacketID())
+	rp, err := s.db.GetRedPacketByChainTypeAndPacketID(ctx, chainType, req.GetPacketID())
 	if err != nil {
 		return nil, err
 	}
@@ -1089,6 +1108,7 @@ func (s *redPacketServer) RequestRefund(ctx context.Context, req *pbredpacket.Re
 	}
 
 	if err := s.db.SaveRefund(ctx, &model.RedPacketRefund{
+		ChainType: rp.ChainType,
 		PacketID:  rp.PacketID,
 		RefundTo:  refundedEvent.RefundTo,
 		TxHash:    txHash,
@@ -1097,7 +1117,7 @@ func (s *redPacketServer) RequestRefund(ctx context.Context, req *pbredpacket.Re
 	}); err != nil {
 		return nil, err
 	}
-	if err := s.db.UpdateRedPacketStatus(ctx, rp.PacketID, "REFUNDED"); err != nil {
+	if err := s.db.UpdateRedPacketStatus(ctx, rp.ChainType, rp.PacketID, "REFUNDED"); err != nil {
 		return nil, err
 	}
 	return &pbredpacket.RequestRefundResp{TxHash: txHash, Status: "REFUNDED"}, nil
@@ -1107,7 +1127,11 @@ func (s *redPacketServer) GetRefund(ctx context.Context, req *pbredpacket.GetRef
 	if req.GetPacketID() == "" {
 		return nil, errs.ErrArgs.WrapMsg("packet_id is required")
 	}
-	refund, err := s.db.GetRefundByPacketID(ctx, req.GetPacketID())
+	chainType, err := normalizeChainType(req.GetChainType())
+	if err != nil {
+		return nil, err
+	}
+	refund, err := s.db.GetRefundByChainTypeAndPacketID(ctx, chainType, req.GetPacketID())
 	if err != nil {
 		return nil, err
 	}
