@@ -173,13 +173,20 @@ func (s *redPacketServer) IssueClaimSign(ctx context.Context, req *pbredpacket.I
 	if err := s.canClaim(ctx, req.PacketID, req.Claimer, currentUserID); err != nil {
 		return nil, err
 	}
+	rp, err := s.db.GetRedPacketByPacketID(ctx, req.PacketID)
+	if err != nil {
+		return nil, err
+	}
 
 	packetIDBig := new(big.Int)
 	if _, ok := packetIDBig.SetString(req.PacketID, 10); !ok {
 		return nil, errs.ErrArgs.WrapMsg("invalid packet_id", "packetID", req.PacketID)
 	}
 
-	claimerAddr := common.HexToAddress(req.Claimer)
+	claimerAddr, err := normalizeClaimerAddressByChain(req.Claimer, rp.ChainType)
+	if err != nil {
+		return nil, err
+	}
 	nonce := fmt.Sprintf("%d", time.Now().UnixNano())
 	authNonceBig := new(big.Int)
 	authNonceBig.SetString(nonce, 10)
@@ -195,8 +202,20 @@ func (s *redPacketServer) IssueClaimSign(ctx context.Context, req *pbredpacket.I
 	deadlineBig := big.NewInt(deadline)
 
 	var digest [32]byte
-	var err error
-	if s.chainClient != nil {
+	if rp.ChainType == "TRON" && s.tronClient != nil {
+		digestHex, digestErr := s.tronClient.GetSignMessageForTron(ctx, packetIDBig, claimerAddr, authNonceBig, randomSeedBig, deadlineBig)
+		if digestErr != nil {
+			return nil, errs.ErrInternalServer.WrapMsg("tron getSignMessage failed: " + digestErr.Error())
+		}
+		digestBytes, decodeErr := hex.DecodeString(strings.TrimPrefix(digestHex, "0x"))
+		if decodeErr != nil {
+			return nil, errs.ErrInternalServer.WrapMsg("decode tron getSignMessage failed: " + decodeErr.Error())
+		}
+		if len(digestBytes) != 32 {
+			return nil, errs.ErrInternalServer.WrapMsg(fmt.Sprintf("invalid tron digest length: %d", len(digestBytes)))
+		}
+		copy(digest[:], digestBytes)
+	} else if s.chainClient != nil {
 		digest, err = s.chainClient.GetSignMessage(ctx, packetIDBig, claimerAddr, authNonceBig, randomSeedBig, deadlineBig)
 		if err != nil {
 			return nil, errs.ErrInternalServer.WrapMsg("getSignMessage failed: " + err.Error())
@@ -336,6 +355,25 @@ func (s *redPacketServer) ClaimResult(ctx context.Context, req *pbredpacket.Clai
 		return nil, err
 	}
 	return &pbredpacket.ClaimResultResp{}, nil
+}
+
+func normalizeClaimerAddressByChain(claimer, chainType string) (common.Address, error) {
+	claimer = strings.TrimSpace(claimer)
+	switch strings.ToUpper(strings.TrimSpace(chainType)) {
+	case "TRON":
+		raw, err := decodeTRONAddress(claimer)
+		if err != nil {
+			return common.Address{}, errs.ErrArgs.WrapMsg("invalid TRON claimer address: " + err.Error())
+		}
+		return common.BytesToAddress(raw), nil
+	case "EVM", "":
+		if !common.IsHexAddress(claimer) {
+			return common.Address{}, errs.ErrArgs.WrapMsg("invalid EVM claimer address")
+		}
+		return common.HexToAddress(claimer), nil
+	default:
+		return common.Address{}, errs.ErrArgs.WrapMsg("unsupported chain_type: " + chainType)
+	}
 }
 
 func (s *redPacketServer) parseChainReceiptWithStatus(ctx context.Context, rp *model.RedPacket, txHash string) (bool, []*chain.ParsedEvent, error) {

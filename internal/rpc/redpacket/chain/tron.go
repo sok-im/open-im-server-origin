@@ -115,8 +115,37 @@ func (t *TronClient) SendAdminTransaction(ctx context.Context, methodName string
 	)
 }
 
-func (t *TronClient) GetSignMessageForTron(ctx context.Context, packetID *big.Int, claimer, authNonce, randomSeed, deadline string) (string, error) {
-	return "", fmt.Errorf("TRON getSignMessage not fully implemented yet - use ETH path for signing")
+func (t *TronClient) GetSignMessageForTron(
+	ctx context.Context,
+	packetID *big.Int,
+	claimer common.Address,
+	authNonce, randomSeed, deadline *big.Int,
+) (string, error) {
+	args := []interface{}{packetID, claimer, authNonce, randomSeed, deadline}
+	paramHex, err := encodeTronParams(t.abiJSON, "getSignMessage", args...)
+	if err != nil {
+		return "", fmt.Errorf("encode getSignMessage params failed: %w", err)
+	}
+
+	var resp struct {
+		Result struct {
+			Result bool `json:"result"`
+		} `json:"result"`
+		ConstantResult []string `json:"constant_result"`
+	}
+	if err := postJSON(ctx, t.fullNodeURL+"/wallet/triggerconstantcontract", map[string]interface{}{
+		"owner_address":     t.ownerBase58,
+		"contract_address":  t.contractBase58,
+		"function_selector": "getSignMessage(uint256,address,uint256,uint256,uint256)",
+		"parameter":         paramHex,
+		"visible":           true,
+	}, &resp); err != nil {
+		return "", fmt.Errorf("triggerconstantcontract getSignMessage failed: %w", err)
+	}
+	if len(resp.ConstantResult) == 0 {
+		return "", fmt.Errorf("getSignMessage returns empty constant_result")
+	}
+	return addHexPrefix(resp.ConstantResult[0]), nil
 }
 
 type tronTxInfoResp struct {
