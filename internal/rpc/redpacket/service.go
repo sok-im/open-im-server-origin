@@ -335,7 +335,7 @@ func (s *redPacketServer) ClaimResult(ctx context.Context, req *pbredpacket.Clai
 	}
 	matched, matchErr := claimerMatchesByChain(rp, claimedEvent.ClaimerWallet, req.Claimer)
 	if matchErr != nil {
-		if markErr := s.markClaimFailed(ctx, req.PacketID, currentUserID, req.Claimer, req.TxHash); markErr != nil {
+		if markErr := s.markClaimFailed(ctx, chainType, req.PacketID, currentUserID, req.Claimer, req.TxHash); markErr != nil {
 			log.ZWarn(ctx, "mark claim failed status failed", markErr, "txHash", req.TxHash)
 		}
 		return nil, matchErr
