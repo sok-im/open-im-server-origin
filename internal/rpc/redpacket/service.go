@@ -1,6 +1,7 @@
 package redpacket
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"fmt"
@@ -332,7 +333,14 @@ func (s *redPacketServer) ClaimResult(ctx context.Context, req *pbredpacket.Clai
 		}
 		return &pbredpacket.ClaimResultResp{}, nil
 	}
-	if !strings.EqualFold(claimedEvent.ClaimerWallet, req.Claimer) {
+	matched, matchErr := claimerMatchesByChain(rp, claimedEvent.ClaimerWallet, req.Claimer)
+	if matchErr != nil {
+		if markErr := s.markClaimFailed(ctx, req.PacketID, currentUserID, req.Claimer, req.TxHash); markErr != nil {
+			log.ZWarn(ctx, "mark claim failed status failed", markErr, "txHash", req.TxHash)
+		}
+		return nil, matchErr
+	}
+	if !matched {
 		if markErr := s.markClaimFailed(ctx, chainType, req.PacketID, currentUserID, req.Claimer, req.TxHash); markErr != nil {
 			log.ZWarn(ctx, "mark claim failed status failed", markErr, "txHash", req.TxHash)
 		}
@@ -343,7 +351,7 @@ func (s *redPacketServer) ClaimResult(ctx context.Context, req *pbredpacket.Clai
 		ChainType:     chainType,
 		PacketID:      req.PacketID,
 		UserID:        currentUserID,
-		ClaimerWallet: claimedEvent.ClaimerWallet,
+		ClaimerWallet: req.Claimer,
 		AuthNonce:     claimedEvent.AuthNonce,
 		ClaimTxHash:   req.TxHash,
 		ClaimedAmount: claimedEvent.Amount,
@@ -388,6 +396,15 @@ func normalizeClaimerAddressByChain(claimer, chainType string) (common.Address, 
 	default:
 		return common.Address{}, errs.ErrArgs.WrapMsg("unsupported chain_type: " + chainType)
 	}
+}
+
+func claimerMatchesByChain(rp *model.RedPacket, eventClaimerWallet, reqClaimerWallet string) (bool, error) {
+	reqAddr, err := normalizeClaimerAddressByChain(reqClaimerWallet, rp.ChainType)
+	if err != nil {
+		return false, err
+	}
+	eventAddr := common.HexToAddress(strings.TrimSpace(eventClaimerWallet))
+	return bytes.Equal(eventAddr.Bytes(), reqAddr.Bytes()), nil
 }
 
 func (s *redPacketServer) parseChainReceiptWithStatus(ctx context.Context, rp *model.RedPacket, txHash string) (bool, []*chain.ParsedEvent, error) {
