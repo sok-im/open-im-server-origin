@@ -14,6 +14,7 @@ serviceBinaries:
   openim-rpc-redpacket: 1
   openim-rpc-rtc: 1
   openim-rpc-third: 1
+  openim-rpc-virgilsecurity: 1
 toolBinaries:
   - check-free-memory
   - check-component

@@ -459,6 +459,7 @@ type RpcRegisterName struct {
 	Rtc            string `mapstructure:"rtc"`
 	Crypto         string `mapstructure:"crypto"`
 	RedPacket      string `mapstructure:"redPacket"`
+	VirgilSecurity string `mapstructure:"virgilSecurity"`
 }
 
 func (r *RpcRegisterName) GetServiceNames() []string {
@@ -476,6 +477,7 @@ func (r *RpcRegisterName) GetServiceNames() []string {
 		r.Rtc,
 		r.Crypto,
 		r.RedPacket,
+		r.VirgilSecurity,
 	}
 }
 
@@ -513,6 +515,28 @@ type VirgilConfig struct {
 	AppID    string `mapstructure:"appID"`
 	AppKey   string `mapstructure:"appKey"`
 	AppKeyID string `mapstructure:"appKeyID"`
+}
+
+// VirgilSecurity 是 openim-rpc-virgilsecurity 服务的配置。
+// 与 Crypto 区分：本服务严格按照 virgil-1v1-e2ee-design.md / OpenAPI 实现，
+// 持有 Virgil App Key 用于签发短时 JWT，并支持 cardId 设备目录与加密文件上传 URL。
+type VirgilSecurity struct {
+	RPC struct {
+		RegisterIP   string `mapstructure:"registerIP"`
+		ListenIP     string `mapstructure:"listenIP"`
+		AutoSetPorts bool   `mapstructure:"autoSetPorts"`
+		Ports        []int  `mapstructure:"ports"`
+	} `mapstructure:"rpc"`
+	Prometheus Prometheus   `mapstructure:"prometheus"`
+	Virgil     VirgilConfig `mapstructure:"virgil"`
+	// Object 复用 Third 服务的对象存储配置形态，支持 minio / cos / oss / kodo / aws / 空(disable)。
+	Object struct {
+		Enable string `mapstructure:"enable"`
+		Cos    Cos    `mapstructure:"cos"`
+		Oss    Oss    `mapstructure:"oss"`
+		Kodo   Kodo   `mapstructure:"kodo"`
+		Aws    Aws    `mapstructure:"aws"`
+	} `mapstructure:"object"`
 }
 
 type RedPacket struct {
@@ -763,6 +787,7 @@ var (
 	OpenIMRPCRtcCfgFileName          = "openim-rpc-rtc.yml"
 	OpenIMRPCCryptoCfgFileName       = "openim-rpc-crypto.yml"
 	OpenIMRPCRedPacketCfgFileName    = "openim-rpc-redpacket.yml"
+	OpenIMRPCVirgilSecurityCfgFileName = "openim-rpc-virgilsecurity.yml"
 	RedisConfigFileName              = "redis.yml"
 	ShareFileName                    = "share.yml"
 	WebhooksConfigFileName           = "webhooks.yml"
@@ -885,6 +910,10 @@ func (r *Rtc) GetConfigFileName() string {
 
 func (c *Crypto) GetConfigFileName() string {
 	return OpenIMRPCCryptoCfgFileName
+}
+
+func (vs *VirgilSecurity) GetConfigFileName() string {
+	return OpenIMRPCVirgilSecurityCfgFileName
 }
 
 func (rp *RedPacket) GetConfigFileName() string {
