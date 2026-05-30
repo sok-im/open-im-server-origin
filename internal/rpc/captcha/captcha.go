@@ -18,6 +18,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/wenlng/go-captcha/v2/base/option"
+	"github.com/wenlng/go-captcha/v2/click"
 	"github.com/wenlng/go-captcha/v2/slide"
 )
 
@@ -30,9 +31,11 @@ type Config struct {
 
 type server struct {
 	pbcaptcha.UnimplementedCaptchaServer
-	conf       config.Captcha
-	capt       slide.Captcha
-	collection *mongo.Collection
+	conf            config.Captcha
+	capt            slide.Captcha
+	clickCapt       click.Captcha
+	collection      *mongo.Collection
+	clickCollection *mongo.Collection
 }
 
 type captchaDoc struct {
@@ -51,6 +54,7 @@ func Start(ctx context.Context, cfg *Config, _ discovery.SvcDiscoveryRegistry, g
 		return err
 	}
 	collection := mongoClient.GetDB().Collection("captcha")
+	clickCollection := mongoClient.GetDB().Collection("click_captcha")
 	_, err = collection.Indexes().CreateMany(ctx, []mongo.IndexModel{
 		{
 			Keys:    bson.D{{Key: "captcha_id", Value: 1}},
@@ -65,6 +69,20 @@ func Start(ctx context.Context, cfg *Config, _ discovery.SvcDiscoveryRegistry, g
 		log.ZError(ctx, "captcha create mongodb indexes failed", err)
 		return err
 	}
+	_, err = clickCollection.Indexes().CreateMany(ctx, []mongo.IndexModel{
+		{
+			Keys:    bson.D{{Key: "captcha_id", Value: 1}},
+			Options: options.Index().SetUnique(true),
+		},
+		{
+			Keys:    bson.D{{Key: "expired_at", Value: 1}},
+			Options: options.Index().SetExpireAfterSeconds(0),
+		},
+	})
+	if err != nil {
+		log.ZError(ctx, "click captcha create mongodb indexes failed", err)
+		return err
+	}
 
 	resources, err := loadResources()
 	if err != nil {
@@ -74,10 +92,17 @@ func Start(ctx context.Context, cfg *Config, _ discovery.SvcDiscoveryRegistry, g
 
 	builder := slide.NewBuilder()
 	builder.SetResources(resources...)
+	clickCapt, err := newClickCaptcha()
+	if err != nil {
+		log.ZError(ctx, "click captcha init failed", err)
+		return err
+	}
 	s := &server{
-		conf:       cfg.RpcConfig,
-		capt:       builder.Make(),
-		collection: collection,
+		conf:            cfg.RpcConfig,
+		capt:            builder.Make(),
+		clickCapt:       clickCapt,
+		collection:      collection,
+		clickCollection: clickCollection,
 	}
 	if s.conf.ExpireSeconds <= 0 {
 		s.conf.ExpireSeconds = 120
