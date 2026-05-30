@@ -27,8 +27,9 @@ config/config.yaml
 config/notification.yaml
 start-config.yml
 
-### 部署生成物 ###
+### 部署生成物 / Helm 模板（重复 YAML，低索引价值）###
 deployments/openim-server/charts/
+deployments/charts/
 
 ### 本地笔记 ###
 .idea.md
@@ -39,13 +40,25 @@ deployments/openim-server/charts/
 protocol/**/*.pb.go
 protocol/**/*_grpc.pb.go
 
+### E2EE / OpenMLS / Virgil 设计文档（长文，以实现与 .proto 为准）###
+e2ee-*.md
+virgil*.md
+virgil*-e2ee-*.yaml
+docs/virgil-e2ee-*.md
+
+### 其它设计/API 参考文档 ###
+docs/redpacket-api.md
+docs/mongo-collections.md
+cmd/openim-rpc/**/*-design.md
+cmd/openim-rpc/**/backend-api.md
+cmd/openim-rpc/**/client-integration-guide.md
+cmd/openim-rpc/**/*-integration*.md
+
 ### 文档与资源（保留 docs/contrib、根 README；忽略多语言 readme 与静态资源）###
 docs/readme/
 docs/.generated_docs
 docs/contributing/
 assets/
-virgil_chat_server_design.md
-docs/virgil-e2ee-*.md
 
 ### 测试与脚本输出 ###
 test/e2e/output/
@@ -80,9 +93,7 @@ scripts/**/*.log
 *.test
 *.out
 vendor/
-go.work
 go.work.sum
-go.sum
 
 ### JetBrains / IDE ###
 .idea/

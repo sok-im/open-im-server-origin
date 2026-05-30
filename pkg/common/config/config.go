@@ -460,6 +460,7 @@ type RpcRegisterName struct {
 	Crypto         string `mapstructure:"crypto"`
 	RedPacket      string `mapstructure:"redPacket"`
 	VirgilSecurity string `mapstructure:"virgilSecurity"`
+	OpenMLS        string `mapstructure:"openMLS"`
 }
 
 func (r *RpcRegisterName) GetServiceNames() []string {
@@ -478,6 +479,7 @@ func (r *RpcRegisterName) GetServiceNames() []string {
 		r.Crypto,
 		r.RedPacket,
 		r.VirgilSecurity,
+		r.OpenMLS,
 	}
 }
 
@@ -537,6 +539,24 @@ type VirgilSecurity struct {
 		Kodo   Kodo   `mapstructure:"kodo"`
 		Aws    Aws    `mapstructure:"aws"`
 	} `mapstructure:"object"`
+}
+
+// OpenMLS 是 openim-rpc-openmls MLS Delivery Service 的配置。
+type OpenMLS struct {
+	RPC struct {
+		RegisterIP   string `mapstructure:"registerIP"`
+		ListenIP     string `mapstructure:"listenIP"`
+		AutoSetPorts bool   `mapstructure:"autoSetPorts"`
+		Ports        []int  `mapstructure:"ports"`
+	} `mapstructure:"rpc"`
+	Prometheus Prometheus `mapstructure:"prometheus"`
+	// Ed25519 根签名密钥，用于颁发 MLS Credential。空表示禁用 Credential 颁发。
+	SigningKey struct {
+		PrivateKey string `mapstructure:"privateKey"` // base64(Ed25519 私钥, 64字节)
+		KeyID      string `mapstructure:"keyID"`
+		Issuer     string `mapstructure:"issuer"`
+	} `mapstructure:"signingKey"`
+	MaxKeyPackagesPerDevice int `mapstructure:"maxKeyPackagesPerDevice"`
 }
 
 type RedPacket struct {
@@ -788,7 +808,8 @@ var (
 	OpenIMRPCCryptoCfgFileName       = "openim-rpc-crypto.yml"
 	OpenIMRPCRedPacketCfgFileName    = "openim-rpc-redpacket.yml"
 	OpenIMRPCVirgilSecurityCfgFileName = "openim-rpc-virgilsecurity.yml"
-	RedisConfigFileName              = "redis.yml"
+	OpenIMRPCOpenMLSCfgFileName        = "openim-rpc-openmls.yml"
+	RedisConfigFileName                = "redis.yml"
 	ShareFileName                    = "share.yml"
 	WebhooksConfigFileName           = "webhooks.yml"
 )
@@ -914,6 +935,10 @@ func (c *Crypto) GetConfigFileName() string {
 
 func (vs *VirgilSecurity) GetConfigFileName() string {
 	return OpenIMRPCVirgilSecurityCfgFileName
+}
+
+func (o *OpenMLS) GetConfigFileName() string {
+	return OpenIMRPCOpenMLSCfgFileName
 }
 
 func (rp *RedPacket) GetConfigFileName() string {

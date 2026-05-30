@@ -17,7 +17,7 @@
 ### 安全边界
 - TLS 保护链路
 - E2EE 保护消息正文 + 文件密钥
-- 服务端可见：`senderUid / receiverUid / conversationId / 时间戳 / 长度`
+- 服务端可见：`senderUid / receiverUid / OpenIM conversationID（沿用现有 IM）/ 时间戳 / 长度`
 - 服务端不可见：消息明文、附件明文、用户私钥
 
 ---
@@ -29,7 +29,7 @@
 - **VirgilCard**：Virgil 公钥卡（绑定 `userId + deviceId`）
 - **VirgilJWT**：由后端签发的访问 Virgil 服务的短时令牌
 - **CipherEnvelope**：1v1 消息密文信封（多设备分别加密）
-- **Conversation**：1v1 会话 `conversationId`
+- **OpenIM Conversation**：1v1 会话标识使用现有 IM 的 `conversationID`（`conversationManager.getOneConversation`，**不单独建 E2EE 会话接口**）
 
 建议消息载荷结构（逻辑）：
 
@@ -74,7 +74,7 @@ flowchart LR
       S2[Virgil JWT 签发服务]
       S3[设备/Card 目录服务]
       S4[复用现有 IM 消息服务<br/>sendMessage/pull/ack]
-      S5[推送/离线队列]
+      S5[IM 消息离线/推送]
       S6[审计与风控]
     end
 
@@ -187,8 +187,7 @@ sequenceDiagram
     BE->>BE: 标记设备 revoked, 停止下发
     BE-->>App: 200
 
-    BE-->>App: 广播 device_changed 事件
-    Note over App: 客户端刷新设备缓存,<br/>后续不再加密给 deviceX
+    Note over App: 联系人下次发消息前<br/>GET /e2ee/devices 将不再包含 deviceX
 ```
 
 ### 4.5 离线消息
@@ -229,9 +228,10 @@ sequenceDiagram
 - 服务端将 E2EE 消息视为 `custom` 消息透传与存储（仅密文 + 必要元数据）。
 - 保持现有顺序、离线队列、ACK、重试、幂等能力。
 
-### 4) 设备变更事件广播
-- 设备新增/撤销后下发 `device_changed`。
-- 推动客户端刷新设备缓存。
+### 4) 发送前拉取对端活跃设备（无推送）
+- **不做**设备变更 WebSocket/CustomBusiness 推送。
+- 客户端在**每次发送 E2EE 消息前**调用 `GET /e2ee/devices?userId={peerUserId}`，以服务端返回的活跃设备列表为准加密。
+- 设备 `register` / `revoke` 仅更新目录；联系人侧在下次发送时自然拿到最新列表。
 
 ### 5) 附件支持（可选）
 - 提供对象存储上传/下载签名 URL。
@@ -259,10 +259,10 @@ sequenceDiagram
 - `e2ee_message_codec.dart`
 - `e2ee_session_manager.dart`
 
-### 3) 联系人设备缓存
-- 带 TTL 缓存设备列表和 card。
-- 收到 `device_changed` 强制刷新。
-- 发送前若缓存过期自动刷新。
+### 3) 发送前设备拉取（核心）
+- **每次**发送 E2EE 消息前：`GET /e2ee/devices?userId={对端}` → 拉取 Card 公钥 → 加密 → `sendMessage`。
+- Virgil Card 公钥可短 TTL 内存缓存（如 30s）以降低重复请求；**不以推送失效缓存**，以发送前强制拉取为准。
+- 若对端无活跃设备：提示用户，不发送明文。
 
 ### 4) 消息状态机改造
 - 发送：`plaintext -> encrypting -> encrypted -> sending -> sent`
@@ -353,7 +353,7 @@ sequenceDiagram
 ---
 
 ### 3. `GET /v1/e2ee/devices`
-**功能**：查询用户活跃设备和 Card。
+**功能**：查询用户活跃设备和 Card。**发送 E2EE 消息前必调**（每次发送拉取对端最新活跃设备，不依赖推送）。
 
 **Query**
 - `userId`（必填）
@@ -386,7 +386,7 @@ sequenceDiagram
 ---
 
 ### 4. `POST /v1/e2ee/devices/revoke`
-**功能**：撤销设备并触发设备变更广播。
+**功能**：撤销设备；联系人侧在下次发送前拉取设备列表时不再包含该设备。
 
 **Request**
 ```json
@@ -407,29 +407,11 @@ sequenceDiagram
 
 **语义**
 - 撤销后该设备写请求返回 `403 FORBIDDEN_DEVICE_REVOKED`。
-- 广播 `device_changed` 事件。
+- 不推送变更事件；发送方在下次 `GET /e2ee/devices` 时自动排除已撤销设备。
 
 ---
 
-### 5. `POST /v1/e2ee/conversations/ensure-1v1`
-**功能**：获取或创建稳定的 1v1 `conversationId`。
-
-**Request**
-```json
-{ "peerUserId": "u2001" }
-```
-
-**Response 200**
-```json
-{
-  "conversationId": "c_1v1_u1001_u2001",
-  "createdAt": "2026-05-20T10:00:00Z"
-}
-```
-
----
-
-### 6. 复用现有 IM `sendMessage`（不新增消息发送接口）
+### 5. 复用现有 IM `sendMessage`（不新增消息发送接口）
 **功能**：E2EE 发送完全复用现有 IM 发送链路，客户端将密文信封封装进 custom 消息体。
 
 **发送约定**
@@ -461,44 +443,64 @@ sequenceDiagram
 
 ---
 
-### 7. 复用现有 IM 拉取消息与 ACK 接口
+### 6. 复用现有 IM 拉取消息与 ACK 接口
 **功能**：接收端仍通过现有消息拉取接口拿消息，通过现有 ACK 接口确认消费。
 
 **接收约定**
 - 若 `contentType=custom` 且 `customElem.description=e2ee:v1`，进入 E2EE 解密流程。
 - 使用本设备私钥从 `recipients` 中选择自己的 `encKey` 解出会话密钥，再解密 `ciphertext`。
-- 解密失败（缺设备密钥/设备已撤销）时，触发设备列表刷新并重试。
+- 解密失败（缺设备密钥/设备已撤销）时，可重新 `GET /e2ee/devices` 后提示用户重发（接收侧不重试自动解密）。
 
 ---
 
-### 8. `GET /v1/e2ee/events/subscribe`（建议 WS/长轮询）
-**功能**：推送设备变更事件，触发客户端刷新设备缓存。
+### 7. 发送前拉取对端活跃设备（策略说明，无推送接口）
 
-**事件示例**
-```json
-{
-  "type": "device_changed",
-  "userId": "u2001",
-  "version": 18,
-  "changes": [
-    { "deviceId": "android_b1", "status": "revoked" }
-  ]
-}
-```
+**原则**：不做设备变更推送；以**发送前实时查询**保证 `recipients` 与对端当前活跃设备一致。
+
+**客户端发送流程（每次发 E2EE 消息）**
+1. `GET /v1/e2ee/devices?userId={peerUserId}`（`includeRevoked=false`）
+2. 若 `devices` 为空 → 中止发送并提示
+3. 按返回的 `cardId` 拉取 Virgil Card 公钥（可短 TTL 缓存）
+4. 构造 `CipherEnvelope.recipients`（覆盖对端全部活跃设备 + 己方其它活跃设备，若需多端同步）
+5. 加密 → `sendMessage`（custom 密文）
+
+**多设备（发送方自己）**
+- 发送前额外 `GET /v1/e2ee/devices?userId={self}`，为自身其它活跃设备加密一份，便于多端同步已发消息。
+
+**服务端**
+- `GET /e2ee/devices` 仅返回 `status=active` 设备（除非 `includeRevoked=true`）。
+- `revoke` 后立即生效；无需向联系人推送。
+- 响应中的 `version` 可选，用于客户端调试或短缓存校验，**不可替代发送前拉取**。
+
+**性能建议**
+- Card 公钥可内存缓存 30~60s；**设备列表建议每次发送都拉**（或仅在同一会话连续发送时复用上一帧结果，间隔小于 5s）。
+- 可对 `GET /e2ee/devices` 做按 `userId` 的网关限流，防刷。
 
 ---
 
-### 9. `POST /v1/e2ee/files/upload-url`（可选）
-**功能**：返回对象存储上传下载签名 URL，上传内容为已加密文件。
+### 8. `POST /v1/e2ee/files/upload-url`（可选）
+**功能**：返回对象存储上传/下载签名 URL；客户端上传**已加密**文件密文，`fileKey` 仍通过 E2EE 消息通道分发。
+
+**会话标识（不调用 ensure-1v1）**
+- 客户端先调 OpenIM：`conversationManager.getOneConversation(sourceID: peerUserId, sessionType: 1)` 取得 `conversationID`。
+- 本接口使用该 `openIMConversationID` 做对象路径/鉴权隔离；`peerUserId` 用于校验与当前 1v1 对端一致。
 
 **Request**
 ```json
 {
   "size": 102400,
   "contentType": "application/octet-stream",
-  "conversationId": "c_1v1_u1001_u2001"
+  "openIMConversationID": "si_userA_userB",
+  "peerUserId": "u2001"
 }
 ```
+
+| 字段 | 必填 | 说明 |
+|------|------|------|
+| `size` | 是 | 加密后文件字节数 |
+| `contentType` | 是 | 建议 `application/octet-stream` |
+| `openIMConversationID` | 是 | OpenIM 单聊 `conversationID`，非 E2EE 自建 ID |
+| `peerUserId` | 是 | 1v1 对端 `userId`，服务端校验归属 |
 
 **Response 200**
 ```json
@@ -509,6 +511,10 @@ sequenceDiagram
   "expiresAt": "2026-05-28T09:40:00Z"
 }
 ```
+
+**错误码（补充）**
+- `400 INVALID_ARGUMENT`（`peerUserId` 与会话不匹配）
+- `404 NOT_FOUND`（`openIMConversationID` 不存在或无权访问）
 
 ---
 
@@ -528,18 +534,17 @@ sequenceDiagram
 
 - `e2ee_devices(user_id, device_id, card_id, status, platform, last_seen_at, version)`
 - `e2ee_device_card_history(...)`
-- `e2ee_conversations(conversation_id, user_a, user_b, created_at)`
-- `e2ee_messages(msg_id, conversation_id, sender_uid, sender_device, server_seq, payload_blob, created_at)`
-- `e2ee_message_recipients(msg_id, recipient_device_id, enc_key_blob)`
-- `e2ee_pull_cursor(user_id, device_id, cursor)`
+- `e2ee_file_refs(file_ref_id, openim_conversation_id, peer_user_id, owner_user_id, size, created_at)`（可选，仅附件签名场景）
 - `idempotency_records(...)`
+
+> 消息密文走 OpenIM 现有消息表，E2EE 服务不再维护独立 `e2ee_conversations` / `e2ee_messages` 表。
 
 ---
 
 ## 十、上线节奏建议
 
 - Phase 1：单聊文本 + 单设备
-- Phase 2：多设备同步 + 设备撤销 + device_changed 广播
+- Phase 2：多设备同步 + 设备撤销 + 发送前拉取设备
 - Phase 3：附件 fileKey E2EE 分发
 - Phase 4：审计/风控/灰度/异常恢复
 
@@ -549,7 +554,7 @@ sequenceDiagram
 
 - **Flutter + Virgil SDK 可用性风险**：先做 iOS/Android 双端 PoC，验证 Card、加解密、签名链路。
 - **多设备一致性风险**：发送前必须以服务端权威设备列表为准，本地缓存仅优化。
-- **撤销时延风险**：撤销后必须广播 `device_changed`，并在服务端立即阻断 revoked 设备写入。
+- **撤销窗口风险**：撤销后至对方下次发送前拉取设备前，已发出的密文对方仍可解；服务端须立即阻断 revoked 设备写入。发送方依赖每次 `GET /e2ee/devices` 获取最新列表。
 - **服务端越权风险**：复用现有拉取消息接口时，服务端必须限制当前设备仅能获取自己可见消息数据，禁止泄漏其它设备的密钥材料。
 - **离线兼容风险**：长离线后设备变更导致部分历史不可解需有客户端提示与重试策略。
 

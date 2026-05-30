@@ -5,7 +5,9 @@ info:
   description: |
     OpenAPI spec for VirgilSecurity-based 1v1 end-to-end encryption.
     Service only stores and routes ciphertext; plaintext and private keys are client-side only.
-    Message send/pull/ack are reused from existing OpenIM IM APIs, so they are not redefined in this spec.
+    Message send/pull/ack and 1v1 conversationID are reused from existing OpenIM IM APIs
+    (getOneConversation). Device lists are fetched via GET /v1/e2ee/devices before each send;
+    no device-change push is used.
 
 servers:
   - url: /api/im-e2ee
@@ -16,10 +18,6 @@ tags:
     description: Virgil JWT related APIs
   - name: Devices
     description: Device and card management APIs
-  - name: Conversations
-    description: 1v1 conversation APIs
-  - name: Events
-    description: Subscription/event APIs
   - name: Files
     description: Encrypted file upload helper APIs
 
@@ -104,7 +102,11 @@ paths:
   /v1/e2ee/devices:
     get:
       tags: [Devices]
-      summary: Query device list for a user
+      summary: Query active devices for a user (call before every E2EE send)
+      description: |
+        Authoritative source for peer active devices. Client MUST call this before encrypting
+        and sending each E2EE message (no device-change WebSocket push). Returns only active
+        devices when includeRevoked=false.
       security:
         - bearerAuth: []
       parameters:
@@ -171,65 +173,14 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
-  /v1/e2ee/conversations/ensure-1v1:
-    post:
-      tags: [Conversations]
-      summary: Ensure/get stable 1v1 conversation
-      security:
-        - bearerAuth: []
-      parameters:
-        - $ref: '#/components/parameters/XDeviceId'
-        - $ref: '#/components/parameters/XRequestId'
-        - $ref: '#/components/parameters/IdempotencyKey'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/EnsureConversationRequest'
-      responses:
-        '200':
-          description: Conversation ensured
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/EnsureConversationResponse'
-        '400':
-          $ref: '#/components/responses/InvalidArgument'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalError'
-
-  /v1/e2ee/events/subscribe:
-    get:
-      tags: [Events]
-      summary: Subscribe to e2ee events (WS/long-poll semantics)
-      description: |
-        Placeholder endpoint for event subscription. Real implementation can be WebSocket or long polling.
-      security:
-        - bearerAuth: []
-      parameters:
-        - $ref: '#/components/parameters/XDeviceId'
-        - $ref: '#/components/parameters/XRequestId'
-      responses:
-        '200':
-          description: Event stream ready / long-poll response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/EventEnvelope'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalError'
-
   /v1/e2ee/files/upload-url:
     post:
       tags: [Files]
       summary: Get signed URL for encrypted file upload
+      description: |
+        Client obtains OpenIM 1v1 conversationID via existing IM API
+        (conversationManager.getOneConversation) before calling this endpoint.
+        Upload body must be ciphertext only; fileKey is distributed via E2EE custom message.
       security:
         - bearerAuth: []
       parameters:
@@ -501,23 +452,6 @@ components:
           type: string
           format: date-time
 
-    EnsureConversationRequest:
-      type: object
-      required: [peerUserId]
-      properties:
-        peerUserId:
-          type: string
-
-    EnsureConversationResponse:
-      type: object
-      required: [conversationId, createdAt]
-      properties:
-        conversationId:
-          type: string
-        createdAt:
-          type: string
-          format: date-time
-
     RecipientEncKey:
       type: object
       required: [deviceId, encKey]
@@ -560,46 +494,27 @@ components:
           type: string
           enum: [text, file_meta, image_meta, custom]
 
-    DeviceChange:
-      type: object
-      required: [deviceId, status]
-      properties:
-        deviceId:
-          type: string
-        status:
-          type: string
-          enum: [active, revoked]
-
-    EventEnvelope:
-      type: object
-      required: [type, userId, version, changes]
-      properties:
-        type:
-          type: string
-          enum: [device_changed]
-        userId:
-          type: string
-        version:
-          type: integer
-          format: int64
-        changes:
-          type: array
-          items:
-            $ref: '#/components/schemas/DeviceChange'
-
     CreateUploadUrlRequest:
       type: object
-      required: [size, contentType, conversationId]
+      required: [size, contentType, openIMConversationID, peerUserId]
       properties:
         size:
           type: integer
           format: int64
           minimum: 1
+          description: Encrypted file size in bytes
         contentType:
           type: string
           example: application/octet-stream
-        conversationId:
+          description: MIME type of ciphertext blob
+        openIMConversationID:
           type: string
+          description: |
+            OpenIM single-chat conversationID from getOneConversation(sourceID, sessionType=1).
+            Not an E2EE-specific conversation id.
+        peerUserId:
+          type: string
+          description: 1v1 peer userId; server validates it matches the conversation
 
     CreateUploadUrlResponse:
       type: object
