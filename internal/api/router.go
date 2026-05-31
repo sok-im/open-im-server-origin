@@ -379,6 +379,8 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 		captchaGroup := r.Group("/captcha")
 		captchaGroup.POST("/generate", cp.GenerateCaptcha)
 		captchaGroup.POST("/verify", cp.VerifyCaptcha)
+		captchaGroup.POST("/click_generate", cp.GenerateClickCaptcha)
+		captchaGroup.POST("/click_verify", cp.VerifyClickCaptcha)
 	}
 
 	{

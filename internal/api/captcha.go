@@ -47,3 +47,35 @@ func (c *CaptchaApi) VerifyCaptcha(ctx *gin.Context) {
 	}
 	apiresp.GinSuccess(ctx, resp)
 }
+
+func (c *CaptchaApi) GenerateClickCaptcha(ctx *gin.Context) {
+	req, err := a2r.ParseRequestNotCheck[pbcaptcha.GenerateClickCaptchaReq](ctx)
+	if err != nil {
+		log.ZError(ctx, "click captcha generate request parse failed", err)
+		apiresp.GinError(ctx, err)
+		return
+	}
+	resp, err := c.Client.GenerateClickCaptcha(ctx, req)
+	if err != nil {
+		log.ZError(ctx, "click captcha generate rpc failed", err)
+		apiresp.GinError(ctx, err)
+		return
+	}
+	apiresp.GinSuccess(ctx, resp)
+}
+
+func (c *CaptchaApi) VerifyClickCaptcha(ctx *gin.Context) {
+	req, err := a2r.ParseRequestNotCheck[pbcaptcha.VerifyClickCaptchaReq](ctx)
+	if err != nil {
+		log.ZError(ctx, "click captcha verify request parse failed", err)
+		apiresp.GinError(ctx, err)
+		return
+	}
+	resp, err := c.Client.VerifyClickCaptcha(ctx, req)
+	if err != nil {
+		log.ZError(ctx, "click captcha verify rpc failed", err, "captchaID", req.GetCaptchaID(), "dotCount", len(req.GetDots()))
+		apiresp.GinError(ctx, err)
+		return
+	}
+	apiresp.GinSuccess(ctx, resp)
+}
