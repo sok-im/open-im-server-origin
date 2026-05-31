@@ -17,6 +17,8 @@ import (
 	"github.com/openimsdk/protocol/rtc"
 	"github.com/openimsdk/protocol/third"
 	"github.com/openimsdk/protocol/user"
+	pbopenmls "github.com/openimsdk/protocol/openmls"
+	pbvirgil "github.com/openimsdk/protocol/virgilsecurity"
 
 	"github.com/openimsdk/open-im-server/v3/internal/api/jssdk"
 
@@ -123,6 +125,14 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 		return nil, err
 	}
 	redpacketConn, err := client.GetConn(ctx, config.Share.RpcRegisterName.RedPacket)
+	if err != nil {
+		return nil, err
+	}
+	virgilSecurityConn, err := client.GetConn(ctx, config.Share.RpcRegisterName.VirgilSecurity)
+	if err != nil {
+		return nil, err
+	}
+	openMLSConn, err := client.GetConn(ctx, config.Share.RpcRegisterName.OpenMLS)
 	if err != nil {
 		return nil, err
 	}
@@ -414,6 +424,39 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 		cryptoGroup.POST("/get_group_key_events", cr.GetGroupKeyEvents)
 		cryptoGroup.POST("/security_precheck", cr.SecurityPrecheck)
 		cryptoGroup.POST("/integrity_report", cr.IntegrityReport)
+	}
+
+	// VirgilSecurity 1v1 E2EE (按 virgil-1v1-e2ee-openapi.yaml 暴露 /api/im-e2ee/v1/* 路径)
+	{
+		vs := NewVirgilSecurityApi(pbvirgil.NewVirgilSecurityServiceClient(virgilSecurityConn))
+		e2ee := r.Group("/im-e2ee/v1")
+		e2ee.POST("/virgil/jwt", vs.IssueVirgilJWT)
+		e2ee.POST("/e2ee/devices/register", vs.RegisterDevice)
+		e2ee.POST("/e2ee/devices", vs.GetDevices)
+		e2ee.POST("/e2ee/devices/revoke", vs.RevokeDevice)
+		e2ee.POST("/e2ee/conversations/ensure-1v1", vs.EnsureConversation)
+		e2ee.POST("/e2ee/events/subscribe", vs.SubscribeEvents)
+		e2ee.POST("/e2ee/files/upload-url", vs.CreateUploadURL)
+	}
+
+	// OpenMLS E2EE — MLS Delivery Service (e2ee-openmls-design.md §5)
+	{
+		omls := NewOpenMLSApi(pbopenmls.NewOpenMLSServiceClient(openMLSConn))
+		mlsGroup := r.Group("/mls/v1")
+		mlsGroup.POST("/key_packages/upload", omls.UploadKeyPackage)
+		mlsGroup.POST("/key_packages/fetch", omls.GetKeyPackages)
+		mlsGroup.POST("/key_packages/count", omls.GetKeyPackageCount)
+		mlsGroup.POST("/key_packages/refresh", omls.RefreshKeyPackages)
+		mlsGroup.POST("/groups/commit", omls.SubmitCommit)
+		mlsGroup.POST("/groups/commits", omls.GetCommits)
+		mlsGroup.POST("/groups/welcome", omls.SendWelcome)
+		mlsGroup.POST("/groups/state", omls.GetGroupState)
+		mlsGroup.POST("/groups/delete", omls.DeleteGroup)
+
+		cryptoMLS := r.Group("/crypto/v1")
+		cryptoMLS.POST("/credential/issue", omls.IssueCredential)
+		cryptoMLS.POST("/credential/verify", omls.VerifyCredential)
+		cryptoMLS.POST("/root_public_key", omls.GetRootPublicKey)
 	}
 
 	// RedPacket

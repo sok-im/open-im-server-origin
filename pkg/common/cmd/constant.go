@@ -45,8 +45,10 @@ var (
 	OpenIMRPCUserCfgFileName         string
 	OpenIMRPCRtcCfgFileName          string
 	OpenIMRPCCryptoCfgFileName       string
-	OpenIMRPCRedPacketCfgFileName    string
-	DiscoveryConfigFilename          string
+	OpenIMRPCRedPacketCfgFileName      string
+	OpenIMRPCVirgilSecurityCfgFileName string
+	OpenIMRPCOpenMLSCfgFileName        string
+	DiscoveryConfigFilename            string
 )
 
 var ConfigEnvPrefixMap map[string]string
@@ -79,7 +81,9 @@ func init() {
 	OpenIMRPCRtcCfgFileName = "openim-rpc-rtc.yml"
 	OpenIMRPCCryptoCfgFileName = "openim-rpc-crypto.yml"
 	OpenIMRPCRedPacketCfgFileName = "openim-rpc-redpacket.yml"
-	DiscoveryConfigFilename = "discovery.yml"
+	OpenIMRPCVirgilSecurityCfgFileName = "openim-rpc-virgilsecurity.yml"
+	OpenIMRPCOpenMLSCfgFileName        = "openim-rpc-openmls.yml"
+	DiscoveryConfigFilename            = "discovery.yml"
 
 	ConfigEnvPrefixMap = make(map[string]string)
 	fileNames := []string{
@@ -90,7 +94,8 @@ func init() {
 		OpenIMMsgTransferCfgFileName, OpenIMPushCfgFileName, OpenIMCaptchaCfgFileName, OpenIMRPCAuthCfgFileName, OpenIMRPCCaptchaCfgFileName,
 		OpenIMRPCConversationCfgFileName, OpenIMRPCFriendCfgFileName, OpenIMRPCGroupCfgFileName,
 		OpenIMRPCMsgCfgFileName, OpenIMRPCThirdCfgFileName, OpenIMRPCUserCfgFileName, OpenIMRPCRtcCfgFileName, OpenIMRPCCryptoCfgFileName,
-		OpenIMRPCRedPacketCfgFileName, DiscoveryConfigFilename,
+		OpenIMRPCRedPacketCfgFileName, OpenIMRPCVirgilSecurityCfgFileName,
+		OpenIMRPCOpenMLSCfgFileName, DiscoveryConfigFilename,
 	}
 
 	for _, fileName := range fileNames {

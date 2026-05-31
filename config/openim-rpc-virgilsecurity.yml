@@ -1,0 +1,51 @@
+rpc:
+  registerIP: ''
+  listenIP: 0.0.0.0
+  autoSetPorts: true
+  ports:
+    - 10200
+prometheus:
+  enable: true
+  ports:
+    - 20200
+
+# Virgil App credentials used to sign short-lived JWTs (5~15 min).
+# 必须由 Virgil Dashboard 提前签发并安全分发到本服务。
+virgil:
+  appID: ''
+  appKey: ''
+  appKeyID: ''
+
+# 加密文件上传/下载签名 URL 的对象存储后端。
+# enable 可选 "" / minio / cos / oss / kodo / aws；空字符串表示未启用文件能力，CreateUploadURL 会返回未配置错误。
+object:
+  enable: ''
+  cos:
+    bucketURL: ''
+    secretID: ''
+    secretKey: ''
+    sessionToken: ''
+    publicRead: false
+  oss:
+    endpoint: ''
+    bucket: ''
+    bucketURL: ''
+    accessKeyID: ''
+    accessKeySecret: ''
+    sessionToken: ''
+    publicRead: false
+  kodo:
+    endpoint: ''
+    bucket: ''
+    bucketURL: ''
+    accessKeyID: ''
+    accessKeySecret: ''
+    sessionToken: ''
+    publicRead: false
+  aws:
+    endpoint: ''
+    region: ''
+    bucket: ''
+    accessKeyID: ''
+    secretAccessKey: ''
+    sessionToken: ''

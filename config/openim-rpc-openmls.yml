@@ -1,0 +1,21 @@
+rpc:
+  registerIP: ''
+  listenIP: 0.0.0.0
+  autoSetPorts: true
+  ports:
+    - 10210
+prometheus:
+  enable: true
+  ports:
+    - 20210
+
+# Ed25519 根签名密钥，用于颁发 MLS Credential。
+# 生成方式: openssl genpkey -algorithm ed25519 | openssl pkcs8 -topk8 -nocrypt -outform DER | base64
+# 空字符串表示禁用 Credential 颁发，IssueCredential 接口将返回未配置错误。
+signingKey:
+  privateKey: ''
+  keyID: 'v1'
+  issuer: 'openim-auth.example.com'
+
+# 每个设备允许存储的最大 KeyPackage 数量（防止 KP 堆积）
+maxKeyPackagesPerDevice: 20

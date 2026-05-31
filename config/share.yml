@@ -13,6 +13,8 @@ rpcRegisterName:
   rtc: rtc
   crypto: crypto
   redPacket: redPacket
+  virgilSecurity: virgilSecurity
+  openMLS: openMLS
 
 imAdminUserID: [ imAdmin ]
 
