@@ -12,12 +12,12 @@ import (
 	pbcrypto "github.com/openimsdk/protocol/crypto"
 	"github.com/openimsdk/protocol/group"
 	"github.com/openimsdk/protocol/msg"
+	pbopenmls "github.com/openimsdk/protocol/openmls"
 	pbredpacket "github.com/openimsdk/protocol/redpacket"
 	"github.com/openimsdk/protocol/relation"
 	"github.com/openimsdk/protocol/rtc"
 	"github.com/openimsdk/protocol/third"
 	"github.com/openimsdk/protocol/user"
-	pbopenmls "github.com/openimsdk/protocol/openmls"
 	pbvirgil "github.com/openimsdk/protocol/virgilsecurity"
 
 	"github.com/openimsdk/open-im-server/v3/internal/api/jssdk"
@@ -429,20 +429,20 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 	// VirgilSecurity 1v1 E2EE (按 virgil-1v1-e2ee-openapi.yaml 暴露 /api/im-e2ee/v1/* 路径)
 	{
 		vs := NewVirgilSecurityApi(pbvirgil.NewVirgilSecurityServiceClient(virgilSecurityConn))
-		e2ee := r.Group("/im-e2ee/v1")
-		e2ee.POST("/virgil/jwt", vs.IssueVirgilJWT)
-		e2ee.POST("/e2ee/devices/register", vs.RegisterDevice)
-		e2ee.POST("/e2ee/devices", vs.GetDevices)
-		e2ee.POST("/e2ee/devices/revoke", vs.RevokeDevice)
-		e2ee.POST("/e2ee/conversations/ensure-1v1", vs.EnsureConversation)
-		e2ee.POST("/e2ee/events/subscribe", vs.SubscribeEvents)
-		e2ee.POST("/e2ee/files/upload-url", vs.CreateUploadURL)
+		e2ee := r.Group("/virgil/v1")
+		e2ee.POST("/jwt", vs.IssueVirgilJWT)
+		e2ee.POST("/devices/register", vs.RegisterDevice)
+		e2ee.POST("/devices", vs.GetDevices)
+		e2ee.POST("/devices/revoke", vs.RevokeDevice)
+		e2ee.POST("/conversations/ensure-1v1", vs.EnsureConversation)
+		e2ee.POST("/events/subscribe", vs.SubscribeEvents)
+		e2ee.POST("/files/upload-url", vs.CreateUploadURL)
 	}
 
 	// OpenMLS E2EE — MLS Delivery Service (e2ee-openmls-design.md §5)
 	{
 		omls := NewOpenMLSApi(pbopenmls.NewOpenMLSServiceClient(openMLSConn))
-		mlsGroup := r.Group("/mls/v1")
+		mlsGroup := r.Group("/openmls/v1")
 		mlsGroup.POST("/key_packages/upload", omls.UploadKeyPackage)
 		mlsGroup.POST("/key_packages/fetch", omls.GetKeyPackages)
 		mlsGroup.POST("/key_packages/count", omls.GetKeyPackageCount)
