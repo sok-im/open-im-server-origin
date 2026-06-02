@@ -33,8 +33,8 @@ func newClickCaptcha() (click.Captcha, error) {
 		return nil, err
 	}
 	builder := click.NewBuilder(
-		click.WithRangeLen(option.RangeVal{Min: 4, Max: 6}),
-		click.WithRangeVerifyLen(option.RangeVal{Min: 2, Max: 4}),
+		click.WithRangeLen(option.RangeVal{Min: 6, Max: 6}),
+		click.WithRangeVerifyLen(option.RangeVal{Min: 4, Max: 4}),
 	)
 	builder.SetResources(resources...)
 	return builder.Make(), nil
