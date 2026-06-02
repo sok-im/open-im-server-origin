@@ -41,20 +41,20 @@ type SignalInvitation struct {
 
 // SignalRecord stores a completed call record used for history queries.
 type SignalRecord struct {
-	SID                  string   `bson:"sid"`
-	RoomID               string   `bson:"room_id"`
-	FileName             string   `bson:"file_name"`
-	MediaType            string   `bson:"media_type"`
-	SessionType          int32    `bson:"session_type"`
-	InviterUserID        string   `bson:"inviter_user_id"`
-	InviterUserNickname  string   `bson:"inviter_user_nickname"`
-	GroupID              string   `bson:"group_id"`
-	GroupName            string   `bson:"group_name"`
-	InviterUserIDList    []string `bson:"inviter_user_id_list"`
-	SendID               string   `bson:"send_id"`
-	RecvID               string   `bson:"recv_id"`
-	CreateTime           int64    `bson:"create_time"`
-	EndTime              int64    `bson:"end_time"`
-	FileSize             string   `bson:"file_size"`
-	FileURL              string   `bson:"file_url"`
+	SID                 string   `bson:"sid"`
+	RoomID              string   `bson:"room_id"`
+	FileName            string   `bson:"file_name"`
+	MediaType           string   `bson:"media_type"`
+	SessionType         int32    `bson:"session_type"`
+	InviterUserID       string   `bson:"inviter_user_id"`
+	InviterUserNickname string   `bson:"inviter_user_nickname"`
+	GroupID             string   `bson:"group_id"`
+	GroupName           string   `bson:"group_name"`
+	InviterUserIDList   []string `bson:"inviter_user_id_list"`
+	SendID              string   `bson:"send_id"`
+	RecvID              string   `bson:"recv_id"`
+	CreateTime          int64    `bson:"create_time"`
+	EndTime             int64    `bson:"end_time"`
+	FileSize            string   `bson:"file_size"`
+	FileURL             string   `bson:"file_url"`
 }

@@ -77,6 +77,10 @@ func (s *rtcServer) SignalMessageAssemble(ctx context.Context, req *rtc.SignalMe
 		r, err := s.handleGetTokenByRoomID(ctx, payload.GetTokenByRoomID)
 		resp.Payload = &rtc.SignalResp_GetTokenByRoomID{GetTokenByRoomID: r}
 		respErr = err
+	case *rtc.SignalReq_Timeout:
+		r, err := s.handleTimeout(ctx, payload.Timeout, req.SignalReq)
+		resp.Payload = &rtc.SignalResp_Timeout{Timeout: r}
+		respErr = err
 	default:
 		return nil, errs.ErrArgs.WrapMsg("unknown signal payload type")
 	}
@@ -183,6 +187,11 @@ func (s *rtcServer) handleInvite(ctx context.Context, req *rtc.SignalInviteReq, 
 		}
 		if _, busy := busySet[inviteeID]; busy {
 			log.ZInfo(ctx, "handleInvite: skip busy invitee", "inviteeID", inviteeID)
+			if len(inv.InviteeUserIDList) == 1 {
+				if err := s.sendCallEventChatMessage(ctx, req.UserID, inviteeID, int32(constant.SingleChatType), "", "对方正在通话中"); err != nil {
+					log.ZWarn(ctx, "send busy status chat msg failed", err, "inviteeID", inviteeID)
+				}
+			}
 			continue
 		}
 		log.ZInfo(ctx, "sendSignalingNotification to invitee", "sendID", req.UserID, "recvID", inviteeID)
@@ -402,6 +411,15 @@ func (s *rtcServer) handleAccept(ctx context.Context, req *rtc.SignalAcceptReq, 
 	if err := s.sendSignalingNotification(ctx, req.UserID, dbInv.InviterUserID, sessionType, dbInv.GroupID, req.OfflinePushInfo, content); err != nil {
 		log.ZWarn(ctx, "sendSignalingNotification accept to inviter failed", err, "inviterID", dbInv.InviterUserID)
 	}
+	if req.OpUserPlatformID > 0 {
+		if sessionType == int32(constant.SingleChatType) {
+			if err := s.sendCallEventChatMessage(ctx, req.UserID, dbInv.InviterUserID, sessionType, "", "已在其他设备接听"); err != nil {
+				log.ZWarn(ctx, "send accept status chat msg failed", err, "inviterID", dbInv.InviterUserID)
+			}
+		} else if err := s.sendCallEventChatMessage(ctx, req.UserID, "", sessionType, dbInv.GroupID, "已在其他设备接听"); err != nil {
+			log.ZWarn(ctx, "send group accept status chat msg failed", err, "groupID", dbInv.GroupID)
+		}
+	}
 
 	// 接受邀请后不删除 invitation：通话仍在进行，双方应被标记为忙线（BusyLineUserIDList）。
 	// invitation 的清理由以下路径负责：
@@ -441,6 +459,17 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 	}
 	if err := s.sendSignalingNotification(ctx, req.UserID, dbInv.InviterUserID, sessionType, dbInv.GroupID, req.OfflinePushInfo, content); err != nil {
 		log.ZWarn(ctx, "sendSignalingNotification reject to inviter failed", err, "inviterID", dbInv.InviterUserID)
+	}
+	rejectStatus := "已拒绝"
+	if req.OpUserPlatformID > 0 {
+		rejectStatus = "已在其他设备拒接"
+	}
+	if sessionType == int32(constant.SingleChatType) {
+		if err := s.sendCallEventChatMessage(ctx, req.UserID, dbInv.InviterUserID, sessionType, "", rejectStatus); err != nil {
+			log.ZWarn(ctx, "send reject status chat msg failed", err, "inviterID", dbInv.InviterUserID)
+		}
+	} else if err := s.sendCallEventChatMessage(ctx, req.UserID, "", sessionType, dbInv.GroupID, rejectStatus); err != nil {
+		log.ZWarn(ctx, "send group reject status chat msg failed", err, "groupID", dbInv.GroupID)
 	}
 
 	if dbInv.GroupID != "" {
@@ -483,6 +512,15 @@ func (s *rtcServer) handleCancel(ctx context.Context, req *rtc.SignalCancelReq, 
 			log.ZWarn(ctx, "sendSignalingNotification cancel to invitee failed", err, "inviteeID", inviteeID)
 		}
 	}
+	if sessionType == int32(constant.SingleChatType) {
+		for _, inviteeID := range dbInv.InviteeUserIDList {
+			if err := s.sendCallEventChatMessage(ctx, req.UserID, inviteeID, sessionType, "", "已取消"); err != nil {
+				log.ZWarn(ctx, "send cancel status chat msg failed", err, "inviteeID", inviteeID)
+			}
+		}
+	} else if err := s.sendCallEventChatMessage(ctx, req.UserID, "", sessionType, dbInv.GroupID, "已取消"); err != nil {
+		log.ZWarn(ctx, "send group cancel status chat msg failed", err, "groupID", dbInv.GroupID)
+	}
 
 	if err := s.db.DeleteInvitation(ctx, dbInv.RoomID); err != nil {
 		log.ZWarn(ctx, "DeleteInvitation failed", err, "roomID", dbInv.RoomID)
@@ -514,9 +552,23 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 		return nil, err
 	}
 	// 使用 DB 中的参与者列表，不信任客户端传入的 InviteeUserIDList
+	hangStatus := "挂断"
+	if callDurationSeconds(dbInv.InitiateTime) == 0 {
+		hangStatus = "通话中断"
+	}
 	for _, peerID := range hungUpPeerIDsFromDB(dbInv, req.UserID) {
 		if err := s.sendSignalingNotification(ctx, req.UserID, peerID, sessionType, dbInv.GroupID, req.OfflinePushInfo, content); err != nil {
 			log.ZWarn(ctx, "sendSignalingNotification hungUp to peer failed", err, "peerID", peerID)
+		}
+		if sessionType == int32(constant.SingleChatType) {
+			if err := s.sendCallEventChatMessage(ctx, req.UserID, peerID, sessionType, "", hangStatus); err != nil {
+				log.ZWarn(ctx, "send hungup status chat msg failed", err, "peerID", peerID, "roomID", dbInv.RoomID)
+			}
+		}
+	}
+	if sessionType == int32(constant.ReadGroupChatType) {
+		if err := s.sendCallEventChatMessage(ctx, req.UserID, "", sessionType, dbInv.GroupID, hangStatus); err != nil {
+			log.ZWarn(ctx, "send group hungup status chat msg failed", err, "groupID", dbInv.GroupID, "roomID", dbInv.RoomID)
 		}
 	}
 
@@ -530,6 +582,94 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 	}
 
 	return &rtc.SignalHungUpResp{}, nil
+}
+
+func (s *rtcServer) handleTimeout(ctx context.Context, req *rtc.SignalTimeoutReq, signalReq *rtc.SignalReq) (*rtc.SignalTimeoutResp, error) {
+	if req.Invitation == nil {
+		return nil, errs.ErrArgs.WrapMsg("invitation is nil")
+	}
+
+	dbInv, err := s.db.GetInvitationByRoomID(ctx, req.Invitation.RoomID)
+	if err != nil {
+		return nil, errs.WrapMsg(err, "invitation not found or expired", "roomID", req.Invitation.RoomID)
+	}
+	if req.UserID != dbInv.InviterUserID {
+		return nil, errs.ErrNoPermission.WrapMsg("only the inviter can timeout", "userID", req.UserID, "inviterUserID", dbInv.InviterUserID)
+	}
+
+	sessionType := int32(constant.SingleChatType)
+	if dbInv.GroupID != "" {
+		sessionType = int32(constant.ReadGroupChatType)
+	}
+	content, err := marshalSignalReq(signalReq)
+	if err != nil {
+		return nil, err
+	}
+	for _, inviteeID := range dbInv.InviteeUserIDList {
+		if err := s.sendSignalingNotification(ctx, req.UserID, inviteeID, sessionType, dbInv.GroupID, req.OfflinePushInfo, content); err != nil {
+			log.ZWarn(ctx, "sendSignalingNotification timeout to invitee failed", err, "inviteeID", inviteeID)
+		}
+	}
+	if sessionType == int32(constant.SingleChatType) {
+		for _, inviteeID := range dbInv.InviteeUserIDList {
+			if err := s.sendCallEventChatMessage(ctx, req.UserID, inviteeID, sessionType, "", "未应答"); err != nil {
+				log.ZWarn(ctx, "send timeout status chat msg failed", err, "inviteeID", inviteeID)
+			}
+		}
+	} else if err := s.sendCallEventChatMessage(ctx, req.UserID, "", sessionType, dbInv.GroupID, "未应答"); err != nil {
+		log.ZWarn(ctx, "send group timeout status chat msg failed", err, "groupID", dbInv.GroupID)
+	}
+
+	if err := s.db.DeleteInvitation(ctx, dbInv.RoomID); err != nil {
+		log.ZWarn(ctx, "DeleteInvitation failed", err, "roomID", dbInv.RoomID)
+	}
+	return &rtc.SignalTimeoutResp{}, nil
+}
+
+func callEventMsgOptions() map[string]bool {
+	opts := make(map[string]bool, 9)
+	datautil.SetSwitchFromOptions(opts, constant.IsNotNotification, true)
+	datautil.SetSwitchFromOptions(opts, constant.IsHistory, true)
+	datautil.SetSwitchFromOptions(opts, constant.IsPersistent, true)
+	datautil.SetSwitchFromOptions(opts, constant.IsOfflinePush, false)
+	datautil.SetSwitchFromOptions(opts, constant.IsUnreadCount, false)
+	datautil.SetSwitchFromOptions(opts, constant.IsConversationUpdate, true)
+	datautil.SetSwitchFromOptions(opts, constant.IsSenderConversationUpdate, true)
+	datautil.SetSwitchFromOptions(opts, constant.IsSenderSync, true)
+	datautil.SetSwitchFromOptions(opts, constant.IsSendMsg, false)
+	return opts
+}
+
+func callDurationSeconds(initiateTime int64) int64 {
+	if initiateTime <= 0 {
+		return 0
+	}
+	seconds := (time.Now().UnixMilli() - initiateTime) / 1000
+	if seconds < 0 {
+		seconds = 0
+	}
+	return seconds
+}
+
+func (s *rtcServer) sendCallEventChatMessage(ctx context.Context, sendID, recvID string, sessionType int32, groupID string, eventText string) error {
+	now := time.Now().UnixMilli()
+	content := []byte(eventText)
+	msgData := &sdkws.MsgData{
+		SendID:      sendID,
+		RecvID:      recvID,
+		GroupID:     groupID,
+		SessionType: sessionType,
+		ContentType: int32(constant.Text),
+		MsgFrom:     int32(constant.SysMsgType),
+		Content:     content,
+		CreateTime:  now,
+		SendTime:    now,
+		ServerMsgID: uuid.New().String(),
+		ClientMsgID: uuid.New().String(),
+		Options:     callEventMsgOptions(),
+	}
+	_, err := s.msgClient.MsgClient.SendMsg(ctx, &pbmsg.SendMsgReq{MsgData: msgData})
+	return err
 }
 
 // handleGetTokenByRoomID returns a LiveKit token for an existing room.
@@ -776,19 +916,8 @@ func (s *rtcServer) genToken(roomID, userID string) (string, error) {
 	return at.ToJWT()
 }
 
-// signalingMsgOptions 返回信令通知消息应设置的 Options。
-//
-// Fix P2+P2(安全): 原代码传 make(map[string]bool) 空 map，导致：
-//  1. IsNotificationByMsg 将信令消息误判为普通聊天消息，触发黑名单/好友关系等权限拦截
-//  2. IsHistory/IsPersistent 默认为 true，信令消息被写入历史记录占用存储
-//  3. IsUnreadCount/IsConversationUpdate 默认 true，污染未读数和会话列表
-//
-// 信令消息应走 Notification 通道（对话 ID 前缀 "n_"），绕过聊天消息权限校验，
-// 且不写历史、不计未读、不更新会话。离线推送根据 offlinePushInfo 控制，此处不强制关闭。
 func signalingMsgOptions() map[string]bool {
 	opts := make(map[string]bool, 8)
-	// IsNotNotification=false 表示"这是通知消息"，让 IsNotificationByMsg 返回 true
-	// 从而跳过 modifyMessageByUserMessageReceiveOpt 中的黑名单/好友关系等校验
 	datautil.SetSwitchFromOptions(opts, constant.IsNotNotification, false)
 	datautil.SetSwitchFromOptions(opts, constant.IsSendMsg, false)
 	datautil.SetSwitchFromOptions(opts, constant.IsHistory, false)
