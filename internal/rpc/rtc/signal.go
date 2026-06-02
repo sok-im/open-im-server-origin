@@ -77,6 +77,10 @@ func (s *rtcServer) SignalMessageAssemble(ctx context.Context, req *rtc.SignalMe
 		r, err := s.handleGetTokenByRoomID(ctx, payload.GetTokenByRoomID)
 		resp.Payload = &rtc.SignalResp_GetTokenByRoomID{GetTokenByRoomID: r}
 		respErr = err
+	case *rtc.SignalReq_Timeout:
+		r, err := s.handleTimeout(ctx, payload.Timeout, req.SignalReq)
+		resp.Payload = &rtc.SignalResp_Timeout{Timeout: r}
+		respErr = err
 	default:
 		return nil, errs.ErrArgs.WrapMsg("unknown signal payload type")
 	}
@@ -447,10 +451,12 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 		if err := s.db.RemoveInvitee(ctx, dbInv.RoomID, req.UserID); err != nil {
 			log.ZWarn(ctx, "RemoveInvitee failed", err, "roomID", dbInv.RoomID, "userID", req.UserID)
 		}
+		// 群聊中单人拒绝不代表通话结束（其他被叫可能接听），不写通话记录。
 	} else {
 		if err := s.db.DeleteInvitation(ctx, dbInv.RoomID); err != nil {
 			log.ZWarn(ctx, "DeleteInvitation failed", err, "roomID", dbInv.RoomID)
 		}
+		s.sendCallRecordChatMsg(ctx, dbInv, callStatusRejected, 0)
 	}
 
 	return &rtc.SignalRejectResp{}, nil
@@ -487,6 +493,8 @@ func (s *rtcServer) handleCancel(ctx context.Context, req *rtc.SignalCancelReq, 
 	if err := s.db.DeleteInvitation(ctx, dbInv.RoomID); err != nil {
 		log.ZWarn(ctx, "DeleteInvitation failed", err, "roomID", dbInv.RoomID)
 	}
+
+	s.sendCallRecordChatMsg(ctx, dbInv, callStatusCancelled, 0)
 
 	return &rtc.SignalCancelResp{}, nil
 }
@@ -528,6 +536,14 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 	if err := s.db.DeleteInvitation(ctx, dbInv.RoomID); err != nil {
 		log.ZWarn(ctx, "DeleteInvitation failed", err, "roomID", dbInv.RoomID)
 	}
+
+	duration := int64(0)
+	if dbInv.InitiateTime > 0 {
+		if nowMs := time.Now().UnixMilli(); nowMs > dbInv.InitiateTime {
+			duration = (nowMs - dbInv.InitiateTime) / 1000
+		}
+	}
+	s.sendCallRecordChatMsg(ctx, dbInv, callStatusAnswered, duration)
 
 	return &rtc.SignalHungUpResp{}, nil
 }
@@ -911,6 +927,167 @@ func modelToInvitationInfo(m *model.SignalInvitation) *rtc.InvitationInfo {
 		InitiateTime:       m.InitiateTime,
 		BusyLineUserIDList: m.BusyLineUserIDList,
 	}
+}
+
+// ---- call record chat message ----
+
+const (
+	callStatusAnswered     = "answered"
+	callStatusCancelled    = "cancelled"
+	callStatusRejected     = "rejected"
+	callStatusNotConnected = "not_connected"
+)
+
+// callRecordData is the JSON payload embedded in a Custom (110) chat message
+// representing a completed call event in the conversation timeline.
+// Clients render this as a call bubble, e.g. "[语音通话] 2分05秒".
+type callRecordData struct {
+	CustomType        string   `json:"customType"`        // always "rtcCallRecord"
+	MediaType         string   `json:"mediaType"`         // "audio" | "video"
+	Status            string   `json:"status"`            // answered / cancelled / rejected / not_connected
+	Duration          int64    `json:"duration"`          // seconds; 0 for unanswered calls
+	InviterUserID     string   `json:"inviterUserID"`
+	InviteeUserIDList []string `json:"inviteeUserIDList"`
+	RoomID            string   `json:"roomID"`
+}
+
+// callRecordMsgOptions returns message Options for a persisted call-record chat message.
+// Unlike signalingMsgOptions (n_ notification conversation), these options route the
+// message into the si_/sg_ chat conversation and persist it to history.
+func callRecordMsgOptions() map[string]bool {
+	opts := make(map[string]bool, 7)
+	datautil.SetSwitchFromOptions(opts, constant.IsNotNotification, true)          // → si_/sg_ chat conversation
+	datautil.SetSwitchFromOptions(opts, constant.IsHistory, true)                  // → write to history
+	datautil.SetSwitchFromOptions(opts, constant.IsPersistent, true)               // → persist to storage
+	datautil.SetSwitchFromOptions(opts, constant.IsUnreadCount, true)              // → increment unread count
+	datautil.SetSwitchFromOptions(opts, constant.IsConversationUpdate, true)       // → update conv last message
+	datautil.SetSwitchFromOptions(opts, constant.IsSenderConversationUpdate, true) // → update inviter's conv too
+	datautil.SetSwitchFromOptions(opts, constant.IsSenderSync, true)               // → sync to inviter's other devices
+	return opts
+}
+
+// callRecordDescription builds a human-readable description used as CustomElem.description.
+func callRecordDescription(mediaType, status string, duration int64) string {
+	prefix := "[语音通话]"
+	if mediaType == "video" {
+		prefix = "[视频通话]"
+	}
+	switch status {
+	case callStatusAnswered:
+		mins := duration / 60
+		secs := duration % 60
+		if mins > 0 {
+			return fmt.Sprintf("%s %d分%02d秒", prefix, mins, secs)
+		}
+		return fmt.Sprintf("%s %d秒", prefix, secs)
+	case callStatusCancelled:
+		return prefix + " 已取消"
+	case callStatusRejected:
+		return prefix + " 已拒绝"
+	default:
+		return prefix + " 未接通"
+	}
+}
+
+// sendCallRecordChatMsg sends a Custom (110) chat message to the si_/sg_ conversation
+// representing a completed call. Errors are non-fatal and only logged.
+//
+// For 1v1: SendID=inviterUserID, RecvID=inviteeUserID, SessionType=SingleChatType.
+// For group: SendID=inviterUserID, GroupID=groupID, SessionType=ReadGroupChatType.
+func (s *rtcServer) sendCallRecordChatMsg(ctx context.Context, inv *model.SignalInvitation, status string, duration int64) {
+	inner, err := json.Marshal(callRecordData{
+		CustomType:        "rtcCallRecord",
+		MediaType:         inv.MediaType,
+		Status:            status,
+		Duration:          duration,
+		InviterUserID:     inv.InviterUserID,
+		InviteeUserIDList: inv.InviteeUserIDList,
+		RoomID:            inv.RoomID,
+	})
+	if err != nil {
+		log.ZWarn(ctx, "sendCallRecordChatMsg: marshal inner failed", err)
+		return
+	}
+	content, err := json.Marshal(map[string]string{
+		"data":        string(inner),
+		"description": callRecordDescription(inv.MediaType, status, duration),
+		"extension":   "",
+	})
+	if err != nil {
+		log.ZWarn(ctx, "sendCallRecordChatMsg: marshal content failed", err)
+		return
+	}
+
+	now := time.Now().UnixMilli()
+	sessionType := int32(constant.SingleChatType)
+	recvID := ""
+	groupID := ""
+	if inv.GroupID != "" {
+		sessionType = int32(constant.ReadGroupChatType)
+		groupID = inv.GroupID
+	} else if len(inv.InviteeUserIDList) > 0 {
+		recvID = inv.InviteeUserIDList[0]
+	}
+
+	msgData := &sdkws.MsgData{
+		SendID:      inv.InviterUserID,
+		RecvID:      recvID,
+		GroupID:     groupID,
+		SessionType: sessionType,
+		ContentType: int32(constant.Custom),
+		MsgFrom:     int32(constant.SysMsgType),
+		Content:     content,
+		CreateTime:  now,
+		SendTime:    now,
+		ServerMsgID: uuid.New().String(),
+		ClientMsgID: uuid.New().String(),
+		Options:     callRecordMsgOptions(),
+	}
+	if _, err := s.msgClient.MsgClient.SendMsg(ctx, &pbmsg.SendMsgReq{MsgData: msgData}); err != nil {
+		log.ZWarn(ctx, "sendCallRecordChatMsg: SendMsg failed", err, "roomID", inv.RoomID, "status", status)
+	}
+}
+
+// handleTimeout processes a call timeout (no invitee answered within Timeout seconds).
+// The inviter's client sends this signal; the server notifies invitees of the missed call,
+// tears down the LiveKit room, and writes a "not_connected" call-record to chat history.
+func (s *rtcServer) handleTimeout(ctx context.Context, req *rtc.SignalTimeoutReq, signalReq *rtc.SignalReq) (*rtc.SignalTimeoutResp, error) {
+	if req.Invitation == nil {
+		return nil, errs.ErrArgs.WrapMsg("invitation is nil")
+	}
+
+	dbInv, err := s.db.GetInvitationByRoomID(ctx, req.Invitation.RoomID)
+	if err != nil {
+		return nil, errs.WrapMsg(err, "invitation not found or expired", "roomID", req.Invitation.RoomID)
+	}
+	if req.UserID != dbInv.InviterUserID {
+		return nil, errs.ErrNoPermission.WrapMsg("only the inviter can report timeout",
+			"userID", req.UserID, "inviterUserID", dbInv.InviterUserID)
+	}
+
+	sessionType := int32(constant.SingleChatType)
+	if dbInv.GroupID != "" {
+		sessionType = int32(constant.ReadGroupChatType)
+	}
+	content, err := marshalSignalReq(signalReq)
+	if err != nil {
+		return nil, err
+	}
+	for _, inviteeID := range dbInv.InviteeUserIDList {
+		if err := s.sendSignalingNotification(ctx, req.UserID, inviteeID, sessionType, dbInv.GroupID, req.OfflinePushInfo, content); err != nil {
+			log.ZWarn(ctx, "handleTimeout: sendSignalingNotification to invitee failed", err, "inviteeID", inviteeID)
+		}
+	}
+
+	if _, err := s.roomClient.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: dbInv.RoomID}); err != nil {
+		log.ZWarn(ctx, "handleTimeout: LiveKit DeleteRoom failed", err, "roomID", dbInv.RoomID)
+	}
+	if err := s.db.DeleteInvitation(ctx, dbInv.RoomID); err != nil {
+		log.ZWarn(ctx, "handleTimeout: DeleteInvitation failed", err, "roomID", dbInv.RoomID)
+	}
+
+	s.sendCallRecordChatMsg(ctx, dbInv, callStatusNotConnected, 0)
+	return &rtc.SignalTimeoutResp{}, nil
 }
 
 // hungUpPeerIDsFromDB returns IDs that should receive hang-up notification, based on authoritative DB data.
