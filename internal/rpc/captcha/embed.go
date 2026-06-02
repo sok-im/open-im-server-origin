@@ -9,5 +9,5 @@ import "embed"
 //   shadow.png   → GraphImage.ShadowImage
 //   mask.png     → GraphImage.MaskImage
 //
-//go:embed resources/images/*.jpg resources/tiles/*/*.png
+//go:embed resources/images/*.jpg resources/click_images/*.png resources/tiles/*/*.png
 var resourceFS embed.FS

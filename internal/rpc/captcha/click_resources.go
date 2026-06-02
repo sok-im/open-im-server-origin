@@ -2,6 +2,7 @@ package captcha
 
 import (
 	"fmt"
+	"image"
 
 	"github.com/golang/freetype/truetype"
 	"github.com/wenlng/go-captcha-assets/bindata/chars"
@@ -15,12 +16,12 @@ func loadClickResources() ([]click.Resource, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load click captcha font: %w", err)
 	}
-	backgrounds, err := loadBackgrounds()
+	backgrounds, err := loadClickBackgrounds()
 	if err != nil {
 		return nil, fmt.Errorf("load click captcha backgrounds: %w", err)
 	}
 	return []click.Resource{
-		click.WithChars(chars.GetChineseChars()),
+		click.WithChars(chars.GetAlphaChars()),
 		click.WithFonts([]*truetype.Font{font}),
 		click.WithBackgrounds(backgrounds),
 	}, nil
@@ -37,4 +38,12 @@ func newClickCaptcha() (click.Captcha, error) {
 	)
 	builder.SetResources(resources...)
 	return builder.Make(), nil
+}
+
+func loadClickBackgrounds() ([]image.Image, error) {
+	img, err := decodeEmbedImage("resources/click_images/background-1.png")
+	if err != nil {
+		return nil, err
+	}
+	return []image.Image{img}, nil
 }

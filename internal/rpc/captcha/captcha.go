@@ -105,7 +105,7 @@ func Start(ctx context.Context, cfg *Config, _ discovery.SvcDiscoveryRegistry, g
 		clickCollection: clickCollection,
 	}
 	if s.conf.ExpireSeconds <= 0 {
-		s.conf.ExpireSeconds = 120
+		s.conf.ExpireSeconds = 300
 	}
 	if s.conf.VerifyPadding <= 0 {
 		s.conf.VerifyPadding = 8
