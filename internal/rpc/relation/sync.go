@@ -15,22 +15,26 @@ import (
 )
 
 func (s *friendServer) NotificationUserInfoUpdate(ctx context.Context, req *relation.NotificationUserInfoUpdateReq) (*relation.NotificationUserInfoUpdateResp, error) {
-
-	userIDs, err := s.db.FindFriendUserIDs(ctx, req.UserID)
+	// Find all users who have req.UserID in their own friend list (reverse lookup).
+	// These are the users whose friend card for req.UserID needs to be refreshed.
+	ownerUserIDs, err := s.db.FindFriendUserID(ctx, req.UserID)
 	if err != nil {
 		return nil, err
 	}
-	if len(userIDs) > 0 {
+
+	log.ZInfo(ctx, "NotificationUserInfoUpdate", "ownerUserIDs", ownerUserIDs, "user", req)
+
+	if len(ownerUserIDs) > 0 {
 		friendUserIDs := []string{req.UserID}
 		noCancelCtx := context.WithoutCancel(ctx)
 		err := s.queue.PushCtx(ctx, func() {
-			for _, userID := range userIDs {
-				if err := s.db.OwnerIncrVersion(noCancelCtx, userID, friendUserIDs, model.VersionStateUpdate); err != nil {
-					log.ZError(ctx, "OwnerIncrVersion", err, "userID", userID, "friendUserIDs", friendUserIDs)
+			for _, ownerUserID := range ownerUserIDs {
+				if err := s.db.OwnerIncrVersion(noCancelCtx, ownerUserID, friendUserIDs, model.VersionStateUpdate); err != nil {
+					log.ZError(ctx, "OwnerIncrVersion", err, "ownerUserID", ownerUserID, "friendUserIDs", friendUserIDs)
 				}
 			}
-			for _, userID := range userIDs {
-				s.notificationSender.FriendInfoUpdatedNotification(noCancelCtx, req.UserID, userID)
+			for _, ownerUserID := range ownerUserIDs {
+				s.notificationSender.FriendInfoUpdatedNotification(noCancelCtx, req.UserID, ownerUserID)
 			}
 		})
 		if err != nil {
