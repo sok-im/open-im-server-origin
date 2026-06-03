@@ -510,6 +510,12 @@ func (s *rtcServer) handleCancel(ctx context.Context, req *rtc.SignalCancelReq, 
 }
 
 // handleHungUp processes a call hang-up.
+//
+// For 1:1 calls the hang-up always terminates the call immediately.
+// For group calls the call only ends when the LiveKit room has no remaining
+// participants after this user disconnects; if others are still present the
+// server only removes this user from the DB participant list and returns,
+// leaving the room alive.
 func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, signalReq *rtc.SignalReq) (*rtc.SignalHungUpResp, error) {
 	if req.Invitation == nil {
 		return nil, errs.ErrArgs.WrapMsg("invitation is nil")
@@ -531,14 +537,45 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 	if err != nil {
 		return nil, err
 	}
-	// 使用 DB 中的参与者列表，不信任客户端传入的 InviteeUserIDList
+	// Notify peers using the authoritative DB participant list.
 	for _, peerID := range hungUpPeerIDsFromDB(dbInv, req.UserID) {
 		if err := s.sendSignalingNotification(ctx, req.UserID, peerID, sessionType, dbInv.GroupID, req.OfflinePushInfo, content); err != nil {
 			log.ZWarn(ctx, "sendSignalingNotification hungUp to peer failed", err, "peerID", peerID)
 		}
 	}
 
-	// Terminate the LiveKit room
+	if dbInv.GroupID != "" {
+		// Group call: the client disconnects from LiveKit before sending HungUp,
+		// so ListParticipants already reflects the post-hangup state.
+		// Count participants excluding the user who just hung up (covers the
+		// rare race where the client hasn't fully left the LiveKit room yet).
+		lp, listErr := s.roomClient.ListParticipants(ctx, &livekit.ListParticipantsRequest{Room: dbInv.RoomID})
+		remaining := 0
+		if listErr != nil {
+			log.ZWarn(ctx, "handleHungUp: ListParticipants failed, assuming call ended", listErr, "roomID", dbInv.RoomID)
+		} else {
+			for _, p := range lp.Participants {
+				if p.GetIdentity() != req.UserID {
+					remaining++
+				}
+			}
+		}
+
+		if remaining > 0 {
+			// Other participants are still in the call; just remove this user
+			// from the DB invitee list so they are no longer tracked as busy.
+			if datautil.Contain(req.UserID, dbInv.InviteeUserIDList...) {
+				if err := s.db.RemoveInvitee(ctx, dbInv.RoomID, req.UserID); err != nil {
+					log.ZWarn(ctx, "handleHungUp: RemoveInvitee failed", err, "roomID", dbInv.RoomID, "userID", req.UserID)
+				}
+			}
+			log.ZInfo(ctx, "handleHungUp: group call continues", "roomID", dbInv.RoomID, "remaining", remaining)
+			return &rtc.SignalHungUpResp{}, nil
+		}
+		// remaining == 0: fall through to tear-down logic below.
+	}
+
+	// Terminate the LiveKit room (1:1 always; group only when last participant left).
 	if _, err := s.roomClient.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: dbInv.RoomID}); err != nil {
 		log.ZWarn(ctx, "LiveKit DeleteRoom failed", err, "roomID", dbInv.RoomID)
 	}
@@ -547,8 +584,7 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 		log.ZWarn(ctx, "DeleteInvitation failed", err, "roomID", dbInv.RoomID)
 	}
 
-	// For group calls, notify non-invited members that the call has ended
-	// so they can dismiss the "call in progress" banner.
+	// Notify non-invited group members that the call has ended so they dismiss the banner.
 	if dbInv.GroupID != "" {
 		go s.broadcastGroupCallStatusToNonInvited(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
 	}
@@ -1179,10 +1215,31 @@ func (s *rtcServer) handleTimeout(ctx context.Context, req *rtc.SignalTimeoutReq
 	return &rtc.SignalTimeoutResp{}, nil
 }
 
-// hungUpPeerIDsFromDB returns IDs that should receive hang-up notification, based on authoritative DB data.
+// hungUpPeerIDsFromDB returns the IDs that should receive the hang-up signal,
+// based on the authoritative DB invitation data.
+//
+// For 1:1 calls the logic is simple: notify the other party.
+// For group calls every participant except the caller is notified so that all
+// remaining members can update their UI (e.g. remove the leaving member's
+// avatar from the call banner).
 func hungUpPeerIDsFromDB(inv *model.SignalInvitation, callerID string) []string {
-	if callerID == inv.InviterUserID {
-		return inv.InviteeUserIDList
+	if inv.GroupID == "" {
+		// 1:1 call
+		if callerID == inv.InviterUserID {
+			return inv.InviteeUserIDList
+		}
+		return []string{inv.InviterUserID}
 	}
-	return []string{inv.InviterUserID}
+
+	// Group call: collect all participants except the caller.
+	all := make([]string, 0, len(inv.InviteeUserIDList)+1)
+	if inv.InviterUserID != callerID {
+		all = append(all, inv.InviterUserID)
+	}
+	for _, uid := range inv.InviteeUserIDList {
+		if uid != callerID {
+			all = append(all, uid)
+		}
+	}
+	return all
 }
