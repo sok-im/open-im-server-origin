@@ -461,6 +461,7 @@ type RpcRegisterName struct {
 	RedPacket      string `mapstructure:"redPacket"`
 	VirgilSecurity string `mapstructure:"virgilSecurity"`
 	OpenMLS        string `mapstructure:"openMLS"`
+	Totp           string `mapstructure:"totp"`
 }
 
 func (r *RpcRegisterName) GetServiceNames() []string {
@@ -480,6 +481,7 @@ func (r *RpcRegisterName) GetServiceNames() []string {
 		r.RedPacket,
 		r.VirgilSecurity,
 		r.OpenMLS,
+		r.Totp,
 	}
 }
 
@@ -557,6 +559,18 @@ type OpenMLS struct {
 		Issuer     string `mapstructure:"issuer"`
 	} `mapstructure:"signingKey"`
 	MaxKeyPackagesPerDevice int `mapstructure:"maxKeyPackagesPerDevice"`
+}
+
+type Totp struct {
+	RPC struct {
+		RegisterIP   string `mapstructure:"registerIP"`
+		ListenIP     string `mapstructure:"listenIP"`
+		AutoSetPorts bool   `mapstructure:"autoSetPorts"`
+		Ports        []int  `mapstructure:"ports"`
+	} `mapstructure:"rpc"`
+	Prometheus Prometheus `mapstructure:"prometheus"`
+	// Issuer is the service name shown in the Authenticator app (e.g. "SOK-IM").
+	Issuer string `mapstructure:"issuer"`
 }
 
 type RedPacket struct {
@@ -809,6 +823,7 @@ var (
 	OpenIMRPCRedPacketCfgFileName    = "openim-rpc-redpacket.yml"
 	OpenIMRPCVirgilSecurityCfgFileName = "openim-rpc-virgilsecurity.yml"
 	OpenIMRPCOpenMLSCfgFileName        = "openim-rpc-openmls.yml"
+	OpenIMRPCTotpCfgFileName           = "openim-rpc-totp.yml"
 	RedisConfigFileName                = "redis.yml"
 	ShareFileName                    = "share.yml"
 	WebhooksConfigFileName           = "webhooks.yml"
@@ -943,6 +958,10 @@ func (o *OpenMLS) GetConfigFileName() string {
 
 func (rp *RedPacket) GetConfigFileName() string {
 	return OpenIMRPCRedPacketCfgFileName
+}
+
+func (t *Totp) GetConfigFileName() string {
+	return OpenIMRPCTotpCfgFileName
 }
 
 func (r *Redis) GetConfigFileName() string {

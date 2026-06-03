@@ -18,6 +18,7 @@ import (
 	"github.com/openimsdk/protocol/rtc"
 	"github.com/openimsdk/protocol/third"
 	"github.com/openimsdk/protocol/user"
+	pbtotp "github.com/openimsdk/protocol/totp"
 	pbvirgil "github.com/openimsdk/protocol/virgilsecurity"
 
 	"github.com/openimsdk/open-im-server/v3/internal/api/jssdk"
@@ -133,6 +134,10 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 		return nil, err
 	}
 	openMLSConn, err := client.GetConn(ctx, config.Share.RpcRegisterName.OpenMLS)
+	if err != nil {
+		return nil, err
+	}
+	totpConn, err := client.GetConn(ctx, config.Share.RpcRegisterName.Totp)
 	if err != nil {
 		return nil, err
 	}
@@ -393,6 +398,19 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 		captchaGroup.POST("/click_verify", cp.VerifyClickCaptcha)
 	}
 
+	// TOTP / MFA
+	{
+		tp := NewTotpApi(pbtotp.NewTotpClient(totpConn))
+		totpGroup := r.Group("/totp")
+		// Endpoints below require a valid login token; userID is injected from the token.
+		totpGroup.POST("/secret", tp.GetSecret)
+		totpGroup.POST("/bind", tp.BindTotp)
+		totpGroup.POST("/status", tp.GetStatus)
+		totpGroup.POST("/unbind", tp.UnbindTotp)
+		// /totp/verify is token-free: user is mid-login and authenticates via mfaToken.
+		totpGroup.POST("/verify", tp.VerifyTotp)
+	}
+
 	{
 		phoneGroup := r.Group("/phone")
 		phoneGroup.POST("/get_sn_info", phoneSN.GetSNInfo)
@@ -556,4 +574,5 @@ var Whitelist = []string{
 	"/captcha",
 	"/phone/get_sn_info",
 	"/group/get_invite_link",
+	"/totp/verify", // second-factor login step; user authenticates via mfaToken, not a login token
 }

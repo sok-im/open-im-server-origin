@@ -49,6 +49,7 @@ func Start(ctx context.Context, index int, cfg *Config) error {
 		cfg.Share.RpcRegisterName.MessageGateway,
 		cfg.Share.RpcRegisterName.Captcha,
 		cfg.Share.RpcRegisterName.RedPacket,
+		cfg.Share.RpcRegisterName.Totp,
 	})
 	if err != nil {
 		return errs.WrapMsg(err, "failed to register discovery service")
