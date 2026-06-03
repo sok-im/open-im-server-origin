@@ -129,6 +129,11 @@ func validateClickDots(clicks []*pbcaptcha.ClickPoint, expected []clickDot, padd
 	for i, dot := range expected {
 		clickPoint := clicks[i]
 		if !click.Validate(int(clickPoint.GetX()), int(clickPoint.GetY()), dot.X, dot.Y, dot.Width, dot.Height, padding) {
+			log.ZWarn(context.Background(), "click captcha validate failed", nil,
+				"dotIndex", i, "clickX", clickPoint.GetX(), "clickY", clickPoint.GetY(),
+				"expectedX", dot.X, "expectedY", dot.Y,
+				"expectedWidth", dot.Width, "expectedHeight", dot.Height,
+				"padding", padding)
 			return false
 		}
 	}
