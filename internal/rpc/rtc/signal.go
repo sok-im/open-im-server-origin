@@ -456,7 +456,43 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 		if err := s.db.RemoveInvitee(ctx, dbInv.RoomID, req.UserID); err != nil {
 			log.ZWarn(ctx, "RemoveInvitee failed", err, "roomID", dbInv.RoomID, "userID", req.UserID)
 		}
-		// 群聊中单人拒绝不代表通话结束（其他被叫可能接听），不写通话记录。
+
+		// Check whether any participant other than the inviter has actually
+		// joined the LiveKit room.  Rejecters never enter LiveKit, so a
+		// participant count > 0 (excluding the inviter who waits in the room)
+		// means at least one invitee accepted and the call is ongoing.
+		// If nobody joined yet (all pending invitees rejected), tear the call
+		// down so non-invited members' banners are dismissed promptly instead
+		// of waiting for the MongoDB TTL to expire.
+		lp, listErr := s.roomClient.ListParticipants(ctx, &livekit.ListParticipantsRequest{Room: dbInv.RoomID})
+		joinedCount := 0
+		if listErr != nil {
+			log.ZWarn(ctx, "handleReject: ListParticipants failed", listErr, "roomID", dbInv.RoomID)
+		} else {
+			for _, p := range lp.Participants {
+				if p.GetIdentity() != dbInv.InviterUserID {
+					joinedCount++
+				}
+			}
+		}
+
+		if joinedCount > 0 {
+			// At least one invitee has already joined; the call continues.
+			log.ZInfo(ctx, "handleReject: group call continues", "roomID", dbInv.RoomID, "joinedCount", joinedCount)
+			return &rtc.SignalRejectResp{}, nil
+		}
+
+		// No one else is in the room — all reachable invitees have rejected.
+		// Terminate the call so the "in progress" banner is dismissed for
+		// non-invited members.
+		if _, err := s.roomClient.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: dbInv.RoomID}); err != nil {
+			log.ZWarn(ctx, "handleReject: DeleteRoom failed", err, "roomID", dbInv.RoomID)
+		}
+		if err := s.db.DeleteInvitation(ctx, dbInv.RoomID); err != nil {
+			log.ZWarn(ctx, "handleReject: DeleteInvitation failed", err, "roomID", dbInv.RoomID)
+		}
+		go s.broadcastGroupCallStatusToNonInvited(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
+		s.sendCallRecordChatMsg(ctx, dbInv, callStatusRejected, 0)
 	} else {
 		if err := s.db.DeleteInvitation(ctx, dbInv.RoomID); err != nil {
 			log.ZWarn(ctx, "DeleteInvitation failed", err, "roomID", dbInv.RoomID)
