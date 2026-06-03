@@ -43,6 +43,8 @@ type MLSGroupDatabase interface {
 	// IncrEpoch 乐观锁推进 epoch：仅当当前 epoch == fromEpoch 时才成功，
 	// 返回新 epoch；若 epoch 不匹配则返回 errs.ErrRecordNotFound。
 	IncrEpoch(ctx context.Context, groupID string, fromEpoch uint64) (uint64, error)
+	// UpdateMemberCount 更新 Group 成员数量（在 Commit 后同步真实成员数）。
+	UpdateMemberCount(ctx context.Context, groupID string, memberCount int32) error
 }
 
 // MLSCommitDatabase 追加和查询 Commit 历史。

@@ -19,12 +19,17 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/openimsdk/open-im-server/v3/pkg/authverify"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/model"
+	"github.com/openimsdk/protocol/constant"
 	pbopenmls "github.com/openimsdk/protocol/openmls"
 	"github.com/openimsdk/tools/errs"
+	"github.com/openimsdk/tools/log"
 	"github.com/openimsdk/tools/mcontext"
 )
 
@@ -59,8 +64,20 @@ func (s *openMLSServer) UploadKeyPackage(ctx context.Context, req *pbopenmls.Upl
 	if req.KeyPackage == "" {
 		return nil, errs.ErrArgs.WrapMsg("keyPackage is required")
 	}
-	if _, err := base64.StdEncoding.DecodeString(req.KeyPackage); err != nil {
+	kpBytes, err := base64.StdEncoding.DecodeString(req.KeyPackage)
+	if err != nil {
 		return nil, errs.ErrArgs.WrapMsg("keyPackage must be valid base64")
+	}
+	// Verify the credential embedded in the KeyPackage was issued by this server
+	// and is bound to this user/device (no-op when credential issuing is disabled).
+	meta, err := s.verifyKeyPackageCredential(kpBytes, req.UserID, req.DeviceID)
+	if err != nil {
+		return nil, err
+	}
+	// If credential verification is active, the platform field is authoritative;
+	// otherwise fall back to whatever the client sent.
+	if meta.Platform != "" {
+		req.Platform = meta.Platform
 	}
 
 	// Check per-device limit
@@ -111,6 +128,10 @@ func (s *openMLSServer) UploadKeyPackage(ctx context.Context, req *pbopenmls.Upl
 func (s *openMLSServer) GetKeyPackages(ctx context.Context, req *pbopenmls.GetKeyPackagesReq) (*pbopenmls.GetKeyPackagesResp, error) {
 	if req.UserID == "" {
 		return nil, errs.ErrArgs.WrapMsg("userID is required")
+	}
+	// Require an authenticated caller; anonymous KP consumption is forbidden.
+	if mcontext.GetOpUserID(ctx) == "" {
+		return nil, errs.ErrNoPermission.WrapMsg("missing opUserID")
 	}
 
 	countPerDevice := int(req.CountPerDevice)
@@ -204,13 +225,20 @@ func (s *openMLSServer) RefreshKeyPackages(ctx context.Context, req *pbopenmls.R
 	now := time.Now()
 	expiresAt := now.Add(30 * 24 * time.Hour)
 	for i, kpB64 := range toInsert {
-		if _, err := base64.StdEncoding.DecodeString(kpB64); err != nil {
-			return nil, errs.ErrArgs.WrapMsg("keyPackages[" + string(rune(i+'0')) + "] must be valid base64")
+		kpBytes, err := base64.StdEncoding.DecodeString(kpB64)
+		if err != nil {
+			return nil, errs.ErrArgs.WrapMsg("keyPackages[" + strconv.Itoa(i) + "] must be valid base64")
+		}
+		meta, err := s.verifyKeyPackageCredential(kpBytes, req.UserID, req.DeviceID)
+		if err != nil {
+			return nil, err
 		}
 		kps[i] = &model.MLSKeyPackage{
 			KpID:        uuid.New().String(),
 			UserID:      req.UserID,
 			DeviceID:    req.DeviceID,
+			Platform:    meta.Platform,
+			Ciphersuite: meta.Ciphersuite,
 			KeyPackage:  kpB64,
 			Consumed:    false,
 			CreatedAt:   now,
@@ -239,11 +267,19 @@ func (s *openMLSServer) SubmitCommit(ctx context.Context, req *pbopenmls.SubmitC
 	if req.GroupID == "" {
 		return nil, errs.ErrArgs.WrapMsg("groupID is required")
 	}
+	if req.SenderUserID == "" || req.SenderDeviceID == "" {
+		return nil, errs.ErrArgs.WrapMsg("senderUserID and senderDeviceID are required")
+	}
 	if req.CommitMessage == "" {
 		return nil, errs.ErrArgs.WrapMsg("commitMessage is required")
 	}
 	if _, err := base64.StdEncoding.DecodeString(req.CommitMessage); err != nil {
 		return nil, errs.ErrArgs.WrapMsg("commitMessage must be valid base64")
+	}
+	// The commit sender must be the authenticated user (or an IM admin); a token
+	// holder must not be able to forge commits on behalf of another user.
+	if err := authverify.CheckAccessV3(ctx, req.SenderUserID, s.config.Share.IMAdminUserID); err != nil {
+		return nil, err
 	}
 
 	// Ensure group state exists (create if first commit)
@@ -273,8 +309,10 @@ func (s *openMLSServer) SubmitCommit(ctx context.Context, req *pbopenmls.SubmitC
 		return nil, err
 	}
 
-	// Persist commit record
-	seqNum := time.Now().UnixMilli()
+	// Persist commit record.
+	// Use the epoch as the sequence number — it is already strictly monotonic per
+	// group and avoids the non-monotonic behaviour of wall-clock UnixMilli().
+	seqNum := int64(newEpoch)
 	commit := &model.MLSCommit{
 		ID:             uuid.New().String(),
 		GroupID:        req.GroupID,
@@ -289,10 +327,71 @@ func (s *openMLSServer) SubmitCommit(ctx context.Context, req *pbopenmls.SubmitC
 		return nil, err
 	}
 
+	// ---------- Broadcast the commit to all current group members ----------
+	//
+	// Strategy: use the OpenIM group service to resolve member IDs, then send a
+	// single ReadGroupChatType CustomMessage so the msg pipeline fans it out to
+	// every member via the existing push infrastructure. If the MLS group_id
+	// does not correspond to a real OpenIM group (e.g. 1:1 sessions), the
+	// lookup returns nothing and we skip the broadcast — clients fall back to
+	// polling GetCommits.
+	var broadcastCount int32
+	memberIDs, err := s.groupClient.GetGroupMemberUserIDs(ctx, req.GroupID)
+	if err != nil {
+		log.ZWarn(ctx, "SubmitCommit: GetGroupMemberUserIDs failed, skipping commit broadcast",
+			err, "groupID", req.GroupID)
+	} else if len(memberIDs) > 0 {
+		// Sync the authoritative member count into the MLS group state so that
+		// GetGroupState returns a useful value.
+		if err := s.db.UpdateMemberCount(ctx, req.GroupID, int32(len(memberIDs))); err != nil {
+			log.ZWarn(ctx, "SubmitCommit: UpdateMemberCount failed", err,
+				"groupID", req.GroupID, "memberCount", len(memberIDs))
+		}
+		// One group-channel send; the msg service fans out to all members.
+		if err := s.sendMLSMsg(ctx,
+			req.SenderUserID,
+			req.GroupID,
+			req.GroupID,
+			constant.ReadGroupChatType,
+			req.CommitMessage,
+			"[MLS Commit]",
+		); err != nil {
+			log.ZWarn(ctx, "SubmitCommit: commit broadcast failed", err,
+				"groupID", req.GroupID, "epoch", newEpoch)
+		} else {
+			broadcastCount = int32(len(memberIDs))
+		}
+	}
+
+	// ---------- Deliver Welcome to newly added members (if any) ----------
+	//
+	// welcomeMessages carries per-device Welcome blobs for members being added
+	// in this Commit. Deliver each point-to-point so the new member can
+	// initialise their MLS group state without being in the group yet.
+	for _, w := range req.WelcomeMessages {
+		if w.RecipientUserID == "" || w.WelcomeMessage == "" {
+			continue
+		}
+		if err := s.sendMLSMsg(ctx,
+			req.SenderUserID,
+			w.RecipientUserID,
+			"",
+			constant.SingleChatType,
+			w.WelcomeMessage,
+			"[MLS Welcome]",
+		); err != nil {
+			log.ZWarn(ctx, "SubmitCommit: welcome delivery failed", err,
+				"groupID", req.GroupID,
+				"recipientUserID", w.RecipientUserID,
+				"recipientDeviceID", w.RecipientDeviceID,
+			)
+		}
+	}
+
 	return &pbopenmls.SubmitCommitResp{
 		NewEpoch:       newEpoch,
 		SequenceNumber: seqNum,
-		BroadcastCount: 0,
+		BroadcastCount: broadcastCount,
 	}, nil
 }
 
@@ -347,9 +446,42 @@ func (s *openMLSServer) SendWelcome(ctx context.Context, req *pbopenmls.SendWelc
 	if len(req.Recipients) == 0 {
 		return nil, errs.ErrArgs.WrapMsg("recipients must not be empty")
 	}
-	// v1: record count only; Welcome is delivered by caller via msg_gateway directly
+	if req.SenderUserID == "" {
+		return nil, errs.ErrArgs.WrapMsg("senderUserID is required")
+	}
+	// Only the authenticated user (or an IM admin) may send Welcome messages on
+	// behalf of a given sender identity.
+	if err := authverify.CheckAccessV3(ctx, req.SenderUserID, s.config.Share.IMAdminUserID); err != nil {
+		return nil, err
+	}
+
+	var delivered int32
+	for _, r := range req.Recipients {
+		if r.RecipientUserID == "" || r.WelcomeMessage == "" {
+			continue
+		}
+		err := s.sendMLSMsg(ctx,
+			req.SenderUserID,
+			r.RecipientUserID,
+			"",                            // Welcome is point-to-point; no OpenIM group yet
+			constant.SingleChatType,
+			r.WelcomeMessage,
+			"[MLS Welcome]",
+		)
+		if err != nil {
+			// Best-effort: log and continue so partial delivery is possible.
+			log.ZWarn(ctx, "SendWelcome: failed to deliver to recipient", err,
+				"groupID", req.GroupID,
+				"recipientUserID", r.RecipientUserID,
+				"recipientDeviceID", r.RecipientDeviceID,
+			)
+			continue
+		}
+		delivered++
+	}
+
 	return &pbopenmls.SendWelcomeResp{
-		DeliveredCount: int32(len(req.Recipients)),
+		DeliveredCount: delivered,
 	}, nil
 }
 
@@ -376,11 +508,16 @@ func (s *openMLSServer) DeleteGroup(ctx context.Context, req *pbopenmls.DeleteGr
 	if req.GroupID == "" {
 		return nil, errs.ErrArgs.WrapMsg("groupID is required")
 	}
-
-	if err := s.db.DeleteGroup(ctx, req.GroupID); err != nil {
+	// Group dissolution is a privileged, server-side triggered operation; only IM
+	// admins may purge a group's MLS state and commit history.
+	if err := authverify.CheckAdmin(ctx, s.config.Share.IMAdminUserID); err != nil {
 		return nil, err
 	}
-	if err := s.db.DeleteByGroupID(ctx, req.GroupID); err != nil {
+
+	// DeleteGroupAll wraps both the mls_group_state and mls_commit deletions in
+	// a single MongoDB transaction so that a partial failure cannot leave orphan
+	// commit records.
+	if err := s.db.DeleteGroupAll(ctx, req.GroupID); err != nil {
 		return nil, err
 	}
 
@@ -455,36 +592,8 @@ func (s *openMLSServer) VerifyCredential(ctx context.Context, req *pbopenmls.Ver
 		return nil, errs.ErrArgs.WrapMsg("credential is required")
 	}
 
-	envelopeBytes, err := base64.StdEncoding.DecodeString(req.Credential)
-	if err != nil {
-		return &pbopenmls.VerifyCredentialResp{Valid: false}, nil
-	}
-
-	var envelope credentialEnvelope
-	if err := json.Unmarshal(envelopeBytes, &envelope); err != nil {
-		return &pbopenmls.VerifyCredentialResp{Valid: false}, nil
-	}
-
-	payloadBytes, err := base64.StdEncoding.DecodeString(envelope.Payload)
-	if err != nil {
-		return &pbopenmls.VerifyCredentialResp{Valid: false}, nil
-	}
-	sig, err := base64.StdEncoding.DecodeString(envelope.Sig)
-	if err != nil {
-		return &pbopenmls.VerifyCredentialResp{Valid: false}, nil
-	}
-
-	pubKey := s.signingKey.Public().(ed25519.PublicKey)
-	if !ed25519.Verify(pubKey, payloadBytes, sig) {
-		return &pbopenmls.VerifyCredentialResp{Valid: false}, nil
-	}
-
-	var payload credentialPayload
-	if err := json.Unmarshal(payloadBytes, &payload); err != nil {
-		return &pbopenmls.VerifyCredentialResp{Valid: false}, nil
-	}
-
-	if time.Now().Unix() > payload.ExpiresAt {
+	payload, ok := s.verifyCredentialEnvelope(req.Credential)
+	if !ok {
 		return &pbopenmls.VerifyCredentialResp{Valid: false}, nil
 	}
 
@@ -501,6 +610,89 @@ func (s *openMLSServer) VerifyCredential(ctx context.Context, req *pbopenmls.Ver
 		UserID:    userID,
 		DeviceID:  deviceID,
 		ExpiresAt: payload.ExpiresAt,
+	}, nil
+}
+
+// verifyCredentialEnvelope decodes a base64 credential envelope, verifies its
+// Ed25519 signature against the root signing key, and checks expiry. It returns
+// the decoded payload and true only when the credential is authentic and valid.
+func (s *openMLSServer) verifyCredentialEnvelope(credentialB64 string) (*credentialPayload, bool) {
+	if s.signingKey == nil || credentialB64 == "" {
+		return nil, false
+	}
+	envelopeBytes, err := base64.StdEncoding.DecodeString(credentialB64)
+	if err != nil {
+		return nil, false
+	}
+	var envelope credentialEnvelope
+	if err := json.Unmarshal(envelopeBytes, &envelope); err != nil {
+		return nil, false
+	}
+	payloadBytes, err := base64.StdEncoding.DecodeString(envelope.Payload)
+	if err != nil {
+		return nil, false
+	}
+	sig, err := base64.StdEncoding.DecodeString(envelope.Sig)
+	if err != nil {
+		return nil, false
+	}
+	pubKey := s.signingKey.Public().(ed25519.PublicKey)
+	if !ed25519.Verify(pubKey, payloadBytes, sig) {
+		return nil, false
+	}
+	var payload credentialPayload
+	if err := json.Unmarshal(payloadBytes, &payload); err != nil {
+		return nil, false
+	}
+	if time.Now().Unix() > payload.ExpiresAt {
+		return nil, false
+	}
+	return &payload, true
+}
+
+// mlsKPMeta holds metadata extracted from a KeyPackage during credential
+// verification. Used to populate storage fields without re-parsing.
+type mlsKPMeta struct {
+	Platform    string // from credential identity (userID:deviceID:platform)
+	Ciphersuite string // hex of the 2-byte RFC 9420 ciphersuite, e.g. "0x0001"
+}
+
+// verifyKeyPackageCredential decodes the credential embedded in a KeyPackage and
+// verifies that it was issued by this server, is bound to the KeyPackage's own
+// leaf signature key, and matches the claimed userID/deviceID. It returns the
+// extracted metadata (Platform, Ciphersuite) for use by callers.
+//
+// When credential issuing is disabled (no signing key) verification is skipped
+// and an empty mlsKPMeta is returned.
+//
+// Contract: the client MUST place the exact `credential` string returned by
+// IssueCredential into the KeyPackage's BasicCredential.identity field.
+func (s *openMLSServer) verifyKeyPackageCredential(kpBytes []byte, userID, deviceID string) (mlsKPMeta, error) {
+	if s.signingKey == nil {
+		return mlsKPMeta{}, nil
+	}
+	cs, signatureKey, credentialIdentity, err := extractLeafCredential(kpBytes)
+	if err != nil {
+		return mlsKPMeta{}, errs.ErrArgs.WrapMsg("invalid keyPackage structure: " + err.Error())
+	}
+	payload, ok := s.verifyCredentialEnvelope(string(credentialIdentity))
+	if !ok {
+		return mlsKPMeta{}, errs.ErrNoPermission.WrapMsg("credential signature verification failed or expired")
+	}
+	if payload.LeafPubKey != base64.StdEncoding.EncodeToString(signatureKey) {
+		return mlsKPMeta{}, errs.ErrNoPermission.WrapMsg("credential is not bound to this keyPackage leaf key")
+	}
+	parts := splitIdentity(payload.Identity)
+	if len(parts) < 2 || parts[0] != userID || parts[1] != deviceID {
+		return mlsKPMeta{}, errs.ErrNoPermission.WrapMsg("credential identity does not match userID/deviceID")
+	}
+	var platform string
+	if len(parts) >= 3 {
+		platform = parts[2]
+	}
+	return mlsKPMeta{
+		Platform:    platform,
+		Ciphersuite: fmt.Sprintf("0x%04x", cs),
 	}, nil
 }
 

@@ -70,6 +70,7 @@ type groupServer struct {
 	conversationClient *rpcli.ConversationClient
 	cryptoClient       *rpcli.CryptoClient
 	relationClient     *rpcli.RelationClient
+	openMLSClient      *rpcli.OpenMLSClient
 }
 
 type Config struct {
@@ -137,6 +138,10 @@ func Start(ctx context.Context, config *Config, client discovery.SvcDiscoveryReg
 	//if err != nil {
 	//	return err
 	//}
+	openMLSConn, err := client.GetConn(ctx, config.Share.RpcRegisterName.OpenMLS)
+	if err != nil {
+		return err
+	}
 	gs := groupServer{
 		config:             config,
 		webhookClient:      webhook.NewWebhookClient(config.WebhooksConfig.URL),
@@ -145,6 +150,7 @@ func Start(ctx context.Context, config *Config, client discovery.SvcDiscoveryReg
 		conversationClient: rpcli.NewConversationClient(conversationConn),
 		relationClient:     rpcli.NewRelationClient(friendConn),
 		//cryptoClient:       rpcli.NewCryptoClient(cryptoConn),
+		openMLSClient: rpcli.NewOpenMLSClient(openMLSConn),
 	}
 	gs.db = controller.NewGroupDatabase(rdb, &config.LocalCacheConfig, groupDB, groupMemberDB, groupRequestDB, groupPinnedMsgDB, mgocli.GetTx(), grouphash.NewGroupHashFromGroupServer(&gs))
 	gs.groupMuteDB = controller.NewGroupMuteDatabase(groupMuteMongo)
@@ -1649,6 +1655,10 @@ func (s *groupServer) DismissGroup(ctx context.Context, req *pbgroup.DismissGrou
 
 	s.webhookAfterDismissGroup(ctx, &s.config.WebhooksConfig.AfterDismissGroup, cbReq)
 	//s.cryptoClient.BumpGroupKeyVersion(ctx, req.GroupID, mcontext.GetOpUserID(ctx), "group_dismissed")
+
+	// Purge MLS group state and commit history.  Fire-and-return: MLS cleanup
+	// must not block or fail the group dissolution operation.
+	s.openMLSClient.DeleteGroup(ctx, req.GroupID)
 
 	return &pbgroup.DismissGroupResp{}, nil
 }
