@@ -10,7 +10,6 @@ import (
 	pbcaptcha "github.com/openimsdk/protocol/captcha"
 	"github.com/openimsdk/tools/log"
 	"github.com/wenlng/go-captcha/v2/base/option"
-	"github.com/wenlng/go-captcha/v2/click"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -128,9 +127,10 @@ func validateClickDots(clicks []*pbcaptcha.ClickPoint, expected []clickDot, padd
 	}
 	for i, dot := range expected {
 		clickPoint := clicks[i]
-		if !click.Validate(int(clickPoint.GetX()), int(clickPoint.GetY()), dot.X, dot.Y, dot.Width, dot.Height, padding) {
+		sx, sy := int(clickPoint.GetX()), int(clickPoint.GetY())
+		if !validateClickPoint(sx, sy, dot.X, dot.Y, dot.Width, dot.Height, padding) {
 			log.ZWarn(context.Background(), "click captcha validate failed", nil,
-				"dotIndex", i, "clickX", clickPoint.GetX(), "clickY", clickPoint.GetY(),
+				"dotIndex", i, "clickX", sx, "clickY", sy,
 				"expectedX", dot.X, "expectedY", dot.Y,
 				"expectedWidth", dot.Width, "expectedHeight", dot.Height,
 				"padding", padding)
@@ -138,4 +138,14 @@ func validateClickDots(clicks []*pbcaptcha.ClickPoint, expected []clickDot, padd
 		}
 	}
 	return true
+}
+
+// validateClickPoint checks click against target rect with symmetric padding on all sides.
+// go-captcha's click.Validate only extends left/up when dx/dy < padding (math.Max(dx, dx-padding)),
+// so a click a few pixels left of the box can fail even with large verifyPadding.
+func validateClickPoint(sx, sy, dx, dy, width, height, padding int) bool {
+	return sx >= dx-padding &&
+		sx <= dx+width+padding &&
+		sy >= dy-padding &&
+		sy <= dy+height+padding
 }
