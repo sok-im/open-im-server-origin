@@ -1097,7 +1097,8 @@ func (s *userServer) NotificationUserInfoUpdate(ctx context.Context, userID stri
 	if err != nil {
 		return err
 	}
-	if user.Nickname == oldUser.Nickname && user.FaceURL == oldUser.FaceURL {
+	if user.Nickname == oldUser.Nickname && user.FaceURL == oldUser.FaceURL &&
+		user.FirstName == oldUser.FirstName && user.LastName == oldUser.LastName {
 		return nil
 	}
 	oldUserInfo := convert.UserDB2Pb(oldUser)
