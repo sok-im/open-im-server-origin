@@ -19,6 +19,7 @@ import (
 
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/database"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/model"
+	"github.com/openimsdk/tools/db/tx"
 )
 
 // OpenMLSDatabase 聚合 MLS Delivery Service 所需的全部存储操作。
@@ -26,20 +27,28 @@ type OpenMLSDatabase interface {
 	database.MLSKeyPackageDatabase
 	database.MLSGroupDatabase
 	database.MLSCommitDatabase
+
+	// DeleteGroupAll atomically deletes the group state and all its commit history
+	// inside a single MongoDB transaction.  Use this instead of calling
+	// DeleteGroup + DeleteByGroupID separately to avoid orphan commit records when
+	// the second operation fails.
+	DeleteGroupAll(ctx context.Context, groupID string) error
 }
 
 type openMLSDatabase struct {
 	kp     database.MLSKeyPackageDatabase
 	group  database.MLSGroupDatabase
 	commit database.MLSCommitDatabase
+	tx     tx.Tx
 }
 
 func NewOpenMLSDatabase(
 	kp database.MLSKeyPackageDatabase,
 	group database.MLSGroupDatabase,
 	commit database.MLSCommitDatabase,
+	mongoTx tx.Tx,
 ) OpenMLSDatabase {
-	return &openMLSDatabase{kp: kp, group: group, commit: commit}
+	return &openMLSDatabase{kp: kp, group: group, commit: commit, tx: mongoTx}
 }
 
 // --- MLSKeyPackageDatabase ---
@@ -82,6 +91,10 @@ func (d *openMLSDatabase) IncrEpoch(ctx context.Context, groupID string, fromEpo
 	return d.group.IncrEpoch(ctx, groupID, fromEpoch)
 }
 
+func (d *openMLSDatabase) UpdateMemberCount(ctx context.Context, groupID string, memberCount int32) error {
+	return d.group.UpdateMemberCount(ctx, groupID, memberCount)
+}
+
 // --- MLSCommitDatabase ---
 
 func (d *openMLSDatabase) AppendCommit(ctx context.Context, c *model.MLSCommit) error {
@@ -94,4 +107,20 @@ func (d *openMLSDatabase) FindSinceEpoch(ctx context.Context, groupID string, si
 
 func (d *openMLSDatabase) DeleteByGroupID(ctx context.Context, groupID string) error {
 	return d.commit.DeleteByGroupID(ctx, groupID)
+}
+
+// --- Combined transactional operations ---
+
+// DeleteGroupAll deletes mls_group_state and all mls_commit records for the
+// given group in a single atomic MongoDB transaction.  On a non-replica-set
+// deployment the tx wrapper falls back to a plain sequential call, which is
+// acceptable since single-node MongoDB does not support multi-document
+// transactions.
+func (d *openMLSDatabase) DeleteGroupAll(ctx context.Context, groupID string) error {
+	return d.tx.Transaction(ctx, func(ctx context.Context) error {
+		if err := d.group.DeleteGroup(ctx, groupID); err != nil {
+			return err
+		}
+		return d.commit.DeleteByGroupID(ctx, groupID)
+	})
 }

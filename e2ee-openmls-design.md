@@ -1,7 +1,7 @@
 # OpenMLS 端到端加密详细方案设计
 
-> **文档版本**：v1.0  
-> **日期**：2026-05-30  
+> **文档版本**：v1.2  
+> **日期**：2026-06-01（v1.2：统一时序图/路线图与 v1.1 架构，消除 Go SDK 承担 MLS 逻辑的旧描述）  
 > **项目**：OpenIM Flutter Enterprise  
 > **协议基础**：[MLS RFC 9420](https://www.rfc-editor.org/rfc/rfc9420)  
 > **参考实现**：[OpenMLS](https://github.com/openmls/openmls)（Rust，经第三方安全审计）
@@ -111,19 +111,25 @@ epoch_secret
 │  │  ChatLogic   │───▶│   MLSController     │───▶│  MLSKeyStore     │   │
 │  │ (chat_logic) │    │ (Dart FFI wrapper)  │    │(secure_storage)  │   │
 │  └──────┬───────┘    └──────────┬──────────┘    └──────────────────┘   │
-│         │                       │ FFI / MethodChannel                   │
-└─────────┼───────────────────────┼─────────────────────────────────────-┘
-          │                       │
-┌─────────┼───────────────────────┼──────────────────────────────────────┐
+│         │                       │                                        │
+│         │ sendCustomMsg          │ Dart FFI (dart:ffi)                   │
+│         │ (extension="e2ee")     ▼                                        │
+│         │             ┌──────────────────┐                               │
+│         │             │  libopenmls.so / │                               │
+│         │             │  openmls.xcfwk   │  ← OpenMLS Rust 编译产物      │
+│         │             └──────────────────┘                               │
+└─────────┼───────────────────────────────────────────────────────────────┘
+          │ OpenIM SDK (Go → dart bridge)
+┌─────────┼──────────────────────────────────────────────────────────────┐
 │         │   Go SDK Core (openim-sdk-core)                               │
-│  ┌──────▼───────┐    ┌──────────▼──────────┐    ┌──────────────────┐  │
-│  │MessageManager│    │  MLS Session Mgr    │    │  MLSKeyStore     │  │
-│  │ (send/recv)  │    │  (internal/mls/)    │    │  (SQLite 加密)   │  │
-│  └──────┬───────┘    └──────────┬──────────┘    └──────────────────┘  │
-│         │                       │ CGO → Rust OpenMLS                   │
-└─────────┼───────────────────────┼──────────────────────────────────────┘
-          │ WebSocket             │ HTTPS
-┌─────────▼───────────────────────▼──────────────────────────────────────┐
+│  ┌──────▼───────┐    ┌──────────────────┐    ┌──────────────────────┐  │
+│  │MessageManager│    │  ConversationMgr  │    │   LocalDB (SQLite)   │  │
+│  │ (send/recv)  │    │  (不变)           │    │   (消息持久化)        │  │
+│  └──────┬───────┘    └──────────────────┘    └──────────────────────┘  │
+│         │  WebSocket SendMsg / RecvMsg（CustomElem 透传，不解析密文）     │
+└─────────┼──────────────────────────────────────────────────────────────┘
+          │ WebSocket / HTTPS
+┌─────────▼──────────────────────────────────────────────────────────────┐
 │                         Server Layer                                     │
 │                                                                          │
 │  ┌───────────────┐  ┌──────────────────┐  ┌──────────────────────────┐ │
@@ -138,9 +144,12 @@ epoch_secret
 ```
 
 **核心原则：**
-- `msg_gateway` 只看到 base64 密文 blob，零感知消息内容
+- **MLS 加密/解密在 Flutter 层**：`MLSController` 通过 `dart:ffi` 直接调用编译好的 OpenMLS Rust 静态库，
+- 发送加密消息使用 **`sendCustomMsg`**，`CustomElem.extension = "e2ee"`，密文放入 `CustomElem.data`
+- Go SDK Core 的 `MessageManager` 透传 `CustomElem`，**不感知也不处理**密文内容
+- `msg_gateway` 只看到 CustomMessage 密文 blob，零感知消息内容
 - MLS DS 是唯一新增服务，负责 KeyPackage 分发和 Commit 有序广播
-- 现有 OpenIM REST、WebSocket 协议字段**不变**，仅 `MsgData.content` 改为密文
+- 现有 OpenIM REST、WebSocket 协议字段**不变**，仅 `CustomElem.data` 改为密文
 
 ---
 
@@ -151,29 +160,33 @@ epoch_secret
 ```mermaid
 sequenceDiagram
     participant App as Flutter App
+    participant MLS as MLSController (Dart FFI)
     participant SDK as Go SDK Core
     participant Auth as Auth Server
     participant DS as MLS DS
 
     App->>SDK: initSDK() + login(userID, token)
-    SDK->>SDK: 检查本地是否已有 KeyPackage 私钥
+    SDK-->>App: 登录成功回调
+    App->>MLS: MLSController.initialize()
+    MLS->>MLS: 检查 MLSKeyStore 是否已有 leaf_key
     alt 首次登录或密钥不存在
-        SDK->>SDK: generate init_key (X25519 HPKE)
-        SDK->>SDK: generate leaf_key (Ed25519 签名密钥对)
-        SDK->>Auth: POST /crypto/credential\n{userID, deviceID, leaf_pub_key}
-        Auth->>Auth: 验证 token，签发 MLS Credential\n(userID + deviceID + leaf_pub_key + 有效期)
-        Auth-->>SDK: {credential: base64(signed_credential)}
-        SDK->>SDK: 组装 KeyPackage\n{init_key, leaf_key, credential, ciphersuite, extensions}
-        SDK->>SDK: 存储 (init_key_priv, leaf_key_priv) 到加密 KeyStore
-        SDK->>DS: POST /mls/key_packages/upload\n{userID, deviceID, key_package: TLS序列化}
-        DS->>DS: 验证 Credential 签名\n存储 KeyPackage（与 userID 关联）
-        DS-->>SDK: {status: "ok", kp_id: "uuid"}
-        SDK->>SDK: 存储 kp_id 到本地
+        MLS->>MLS: FFI: generate init_key (X25519 HPKE)\nFFI: generate leaf_key (Ed25519)
+        App->>Auth: POST /crypto/credential\n{userID, deviceID, leaf_pub_key}\n(MLSApi 直连 或 Go bridge)
+        Auth->>Auth: 验证 token，签发 MLS Credential
+        Auth-->>App: {credential: base64(signed_credential)}
+        MLS->>MLS: FFI: 组装 KeyPackage TLS 序列化
+        MLS->>MLS: MLSKeyStore 存储 init_key_priv / leaf_key_priv
+        App->>DS: POST /mls/key_packages/upload\n(MLSApi 直连 或 Go bridge)
+        DS->>DS: 验证 Credential，存储 KeyPackage
+        DS-->>App: {status: "ok", kp_id: "uuid"}
+        MLS->>MLS: 记录 kp_id
     end
-    SDK-->>App: 登录成功，E2EE 就绪
+    Note over App,MLS: E2EE 就绪；密钥生成与 MLS 逻辑均在 Flutter，Go SDK 仅 login/透传消息
 ```
 
 **说明：**
+- **密钥生成、KeyPackage 组装、私钥存储均在 Flutter 层**（`MLSController` + `MLSKeyStore`），不在 openim-sdk-core 内实现
+- MLS DS / Auth 的 HTTP 可由 Flutter `MLSApi` 直连，或复用 openim-sdk-core `internal/crypto` 的 Go bridge（见 §7.1）
 - 每个设备每次登录后检查 KeyPackage 是否仍有效（未被消费），若已被消费则重新上传
 - Credential 有效期建议 30 天，到期前 App 自动续签
 - 每个用户应上传至少 `max_devices * 5` 份 KeyPackage（防止消费耗尽）
@@ -202,12 +215,13 @@ sequenceDiagram
     Alice->>DS: POST /mls/groups/{groupID}/commit\n{commit_msg, epoch: 0}
     DS-->>Alice: {status: "ok", new_epoch: 1}
 
-    Alice->>GW: POST sendMsg\n{contentType: MLS_HANDSHAKE, content: Welcome_for_bob_d1,\n recvID: bob_d1_userID}
-    Alice->>GW: POST sendMsg\n{contentType: MLS_HANDSHAKE, content: Welcome_for_bob_d2,\n recvID: bob_d2_userID}
+    Alice->>GW: sendCustomMsg(extension="mls_handshake",\n  data=Welcome_json, recvID=bob_d1)
+    Alice->>GW: sendCustomMsg(extension="mls_handshake",\n  data=Welcome_json, recvID=bob_d2)
+    Note over Alice,GW: contentType=200, CustomElem 透传（Go SDK 不解析）
 
-    GW-->>Bob: 推送 MLS_HANDSHAKE 消息 (Welcome)
-    Bob->>Bob: MlsGroup::new_from_welcome(welcome)\n初始化本地 MLS Group，进入 Epoch 1
-    Bob->>Bob: 存储 GroupState 到加密 SQLite
+    GW-->>Bob: 推送 CustomMessage (extension=mls_handshake)
+    Bob->>Bob: MLSController.processHandshake()\nFFI: mls_group_from_welcome()
+    Bob->>Bob: 存储 GroupState 到 Flutter MLS SQLite
 
     Note over Alice,Bob: 握手完成，双方均处于 Epoch 1，可互相加密通信
 ```
@@ -219,32 +233,39 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant UI as ChatLogic (Flutter)
-    participant MLS as MLSController
+    participant MLS as MLSController (Dart)
+    participant FFI as OpenMLS (Rust FFI)
     participant SDK as Go SDK / MessageManager
     participant GW as msg_gateway
     participant DB as 本地 SQLite
 
-    UI->>UI: 用户输入消息，触发 _sendMessage()
-    UI->>MLS: encrypt(conversationID, plaintext_bytes)
+    UI->>UI: 用户触发 sendTextMsg() / sendPicture() 等
+    UI->>UI: 检查 MLSController.isE2EEEnabled(conversationID)
+    UI->>MLS: encrypt(groupId: conversationID, plaintext: msgPayloadBytes)
     MLS->>MLS: 查找本地 GroupState (by conversationID)
-    MLS->>MLS: group.create_message(plaintext)\n→ PrivateMessage {epoch, sender_data_ciphertext,\n   content_ciphertext, auth_tag}
-    MLS->>MLS: 序列化 MLSMessage → base64
-    MLS-->>UI: encrypted_content (base64)
+    MLS->>FFI: mls_group_create_message(group_ptr, plaintext_bytes)
+    FFI->>FFI: group.create_message(plaintext)\n→ PrivateMessage {epoch, sender_data_ciphertext,\n   content_ciphertext, auth_tag}
+    FFI-->>MLS: mls_message_bytes (TLS 序列化)
+    MLS->>MLS: 构造 E2eeCustomData\n{v:1, cs:"...", gid:conversationID,\n epoch:N, mls_msg: base64(mls_message_bytes)}
+    MLS-->>UI: e2eeJson (JSON string)
 
-    UI->>SDK: sendMessage({contentType: 1001, content: encrypted_content, ...})
-    SDK->>DB: INSERT 本地消息记录（密文，status=sending）
-    SDK->>GW: WebSocket SendMsg\n{MsgData: {contentType:1001, content: base64_ciphertext}}
+    UI->>SDK: sendCustomMsg(\n  data: e2eeJson,\n  extension: "e2ee",\n  description: "[加密消息]"\n)
+    Note over UI,SDK: createCustomMessage() → CustomElem{data, extension, description}
+    SDK->>DB: INSERT 本地消息记录（CustomElem 密文，status=sending）
+    SDK->>GW: WebSocket SendMsg\n{MsgData: {contentType:200,\n  customElem:{data:e2eeJson, extension:"e2ee"}}}
 
-    GW->>GW: 验证 token，转发（不解密）
+    GW->>GW: 验证 token，转发（不感知 CustomElem 内容）
     GW-->>SDK: SendMsgResp {serverMsgID, sendTime}
-    SDK->>DB: UPDATE status=succeeded, 填充 serverMsgID/sendTime
+    SDK->>DB: UPDATE status=succeeded
     SDK-->>UI: onMsgSendSuccess callback
-    UI->>UI: 更新消息气泡状态（已发送）
+    UI->>UI: 更新消息气泡状态（已发送，显示"[加密消息]"占位）
 ```
 
 **要点：**
-- `contentType = 1001 (ENCRYPTED)` 标识这是 MLS 加密消息
-- `content` 字段存储 base64 编码的 TLS 序列化 `MLSMessage`
+- 使用 **`sendCustomMsg`** 而非 `sendMessage`：OpenIM SDK 的 `CustomMessage`（contentType=200）透传 `CustomElem`，Go SDK Core **不解析也不修改** `CustomElem.data` 内容
+- `CustomElem.extension = "e2ee"` 作为 E2EE 消息的唯一标识，接收方通过此字段识别并路由到 `MLSController.decrypt()`
+- `CustomElem.data` 存储 JSON 封装的 TLS 序列化 `MLSMessage`（见 §6.1）；`description` 用于离线推送预览，显示 `"[加密消息]"`
+- OpenMLS Rust 函数通过 **`dart:ffi`** 直接调用，无需经过 Go SDK CGO 层
 - 服务器、中间节点对密文完全透明，仅做路由转发
 
 ---
@@ -255,26 +276,43 @@ sequenceDiagram
 sequenceDiagram
     participant GW as msg_gateway
     participant SDK as Go SDK Core
+    participant UI as ChatLogic / im_callback (Flutter)
     participant MLS as MLSController (Dart)
-    participant UI as ChatLogic (Flutter)
-    participant DB as 本地 SQLite
+    participant FFI as OpenMLS (Rust FFI)
+    participant SDKDB as Go SDK LocalDB
+    participant MLSDB as Flutter MLS SQLite
 
-    GW->>SDK: OnRecvNewMessage\n{contentType:1001, content: base64_ciphertext}
-    SDK->>SDK: 检测 contentType == ENCRYPTED (1001)
-    SDK->>SDK: base64 decode → MLSMessage bytes
+    GW->>SDK: OnRecvNewMessage\n{contentType:200, customElem:{data:e2eeJson, extension:"e2ee"}}
+    SDK->>SDKDB: INSERT CustomMessage 密文（现有逻辑）
+    SDK->>SDK: 触发 OnRecvNewMessage callback（原样传递 Message）
+    SDK-->>UI: onRecvNewMessage(message)
 
-    SDK->>MLS: FFI: mls_decrypt(groupID, mls_message_bytes)
-    MLS->>MLS: group.process_message(mls_msg)\n验证: epoch 匹配, 成员签名, MAC
-    MLS->>MLS: 提取 ApplicationMessage {plaintext, sender_leaf_index}
-    MLS->>MLS: 通过 leaf_index → Credential → userID 得到真实发送者
-    MLS-->>SDK: {plaintext_bytes, verified_sender_userID}
+    UI->>UI: 检查 message.contentType == 200 &&\ncustomElem?.extension == "e2ee"
+    UI->>UI: 解析 e2eeJson → {v, cs, gid, epoch, mls_msg: base64}
+    UI->>UI: base64 decode → mls_message_bytes
 
-    SDK->>SDK: 解析明文为实际消息内容（Text/Image/File...）
-    SDK->>DB: INSERT 解密后的消息（存明文，sender 已验证）
-    SDK->>SDK: 触发 OnRecvNewMessage callback（传明文 Message）
-    SDK-->>UI: recvNewMessageSubject.add(message)
-    UI->>UI: messageList 更新，滚动到最新
-    UI->>UI: 渲染消息气泡（显示明文）
+    alt extension == "mls_handshake"（Welcome / Commit）
+        Note over UI,MLS: 握手消息，路由到 processHandshake()
+        UI->>MLS: processHandshake(message)
+        MLS->>FFI: mls_process_commit / mls_from_welcome(...)
+        FFI-->>MLS: GroupState 更新
+        MLS->>MLSDB: UPDATE mls_group_state
+        Note over UI: 不显示在聊天 UI
+    else 加密应用消息（extension == "e2ee"）
+        UI->>MLS: decrypt(groupId: gid, mlsMessageBytes)
+        MLS->>MLS: 查找本地 GroupState (by gid)
+        MLS->>FFI: mls_group_process_message(group_ptr, mls_message_bytes)
+        FFI->>FFI: group.process_message(mls_msg)\n验证: epoch 匹配, 成员签名, MAC
+        FFI->>FFI: 提取 ApplicationMessage {plaintext, sender_leaf_index}
+        FFI->>FFI: leaf_index → Credential → userID（真实发送者）
+        FFI-->>MLS: {plaintext_bytes, verified_sender_userID}
+        MLS-->>UI: DecryptResult{plaintext, verifiedSenderID}
+
+        UI->>UI: 解析 plaintext → 原始消息内容（Text/Image/File...）
+        UI->>UI: 构建 decryptedMessage（恢复真实 contentType 和 content）
+        UI->>UI: recvNewMessageSubject.add(decryptedMessage)
+        UI->>UI: messageList 更新，滚动到最新，渲染明文气泡
+    end
 ```
 
 **异常处理：**
@@ -282,9 +320,11 @@ sequenceDiagram
 | 情况 | 处理方式 |
 |------|---------|
 | epoch 不匹配（落后） | 向 DS 拉取缺失 Commit，重放后重新解密 |
-| epoch 不匹配（超前） | 缓存消息，等待 Commit 追上后解密 |
+| epoch 不匹配（超前） | 缓存消息到 `mls_message_cache`，等待 Commit 追上后解密 |
 | 成员签名验证失败 | 丢弃消息，记录安全日志，上报服务器 |
 | GroupState 不存在 | 向 DS 请求 Welcome 重新初始化（设备恢复场景） |
+| JSON 解析失败 / extension 缺失 | 降级为普通 CustomMessage 处理，显示原始 data |
+| FFI Panic（Rust unwind） | `catch_unwind` 捕获，Dart 侧显示"消息无法解密" |
 
 ---
 
@@ -311,17 +351,17 @@ sequenceDiagram
     Creator->>DS: POST /mls/groups/{groupID}/commit\n{commit_msg, from_epoch:0}
     DS-->>Creator: {status:"ok", epoch:1}
 
-    Creator->>GW: sendMsg MLS_HANDSHAKE(Welcome_m1) → member1
-    Creator->>GW: sendMsg MLS_HANDSHAKE(Welcome_m2) → member2
+    Creator->>GW: sendCustomMsg(extension="mls_handshake", Welcome_m1) → member1
+    Creator->>GW: sendCustomMsg(extension="mls_handshake", Welcome_m2) → member2
 
     par 并行处理
-        GW-->>M1: Welcome
-        M1->>M1: new_from_welcome() → Epoch 1
-        M1->>M1: 存储 GroupState
+        GW-->>M1: CustomMessage (mls_handshake)
+        M1->>M1: processHandshake() → Epoch 1
+        M1->>M1: 存储 GroupState（Flutter MLS DB）
     and
-        GW-->>M2: Welcome
-        M2->>M2: new_from_welcome() → Epoch 1
-        M2->>M2: 存储 GroupState
+        GW-->>M2: CustomMessage (mls_handshake)
+        M2->>M2: processHandshake() → Epoch 1
+        M2->>M2: 存储 GroupState（Flutter MLS DB）
     end
 
     Note over Creator,M2: 所有成员均在 Epoch 1，群组 E2EE 就绪
@@ -350,13 +390,13 @@ sequenceDiagram
     DS->>DS: 验证 epoch 连续性，广播给现有成员
     DS-->>Admin: {epoch: N+1}
 
-    DS-->>Existing: 推送 Commit 消息（走 GW）
-    Existing->>Existing: group.process_message(commit)\n推进到 Epoch N+1（派生新密钥）
+    DS-->>Existing: 推送 Commit（GW → CustomMessage extension=mls_handshake）
+    Existing->>Existing: processHandshake(commit)\n推进到 Epoch N+1（派生新密钥）
     Existing->>Existing: 删除 Epoch N 的密钥材料 ✓前向保密
 
-    Admin->>GW: sendMsg MLS_HANDSHAKE(Welcome) → newMember
-    GW-->>NewMember: Welcome
-    NewMember->>NewMember: new_from_welcome() → Epoch N+1
+    Admin->>GW: sendCustomMsg(extension="mls_handshake", Welcome) → newMember
+    GW-->>NewMember: CustomMessage (mls_handshake)
+    NewMember->>NewMember: processHandshake() → Epoch N+1
     Note right of NewMember: 新成员无法解密 Epoch 0..N 的消息（前向保密）
 ```
 
@@ -379,8 +419,8 @@ sequenceDiagram
     Admin->>DS: POST /mls/groups/{groupID}/commit\n{commit, from_epoch: N}
     DS-->>Admin: {epoch: N+1}
 
-    DS-->>Remaining: 推送 Commit（走 GW）
-    Remaining->>Remaining: group.process_message(commit)\n推进到 Epoch N+1
+    DS-->>Remaining: 推送 Commit（GW → CustomMessage extension=mls_handshake）
+    Remaining->>Remaining: processHandshake(commit)\n推进到 Epoch N+1
     Remaining->>Remaining: 删除 Epoch N 密钥 ✓
 
     Note over Removed: 被移除成员不会收到 Epoch N+1 的 Commit
@@ -407,8 +447,8 @@ sequenceDiagram
     Member->>DS: POST /mls/groups/{groupID}/commit\n{commit, from_epoch: N}
     DS-->>Member: {epoch: N+1}
 
-    DS-->>Others: 推送 Commit
-    Others->>Others: group.process_message(commit)\n推进 Epoch，更新该成员路径密钥
+    DS-->>Others: 推送 Commit（CustomMessage extension=mls_handshake）
+    Others->>Others: processHandshake(commit)\n推进 Epoch，更新该成员路径密钥
     Others->>Others: 删除 Epoch N 密钥材料
 
     Note over Member,Others: 即使 Member 旧私钥被盗，\nEpoch N+1 后的消息对攻击者不可解 ✓PCS
@@ -434,16 +474,16 @@ sequenceDiagram
 
     Note over NewDevice: 通知已登录设备将新设备 Add 到所有群组
 
-    NewDevice->>GW: sendMsg(contentType: MLS_NEW_DEVICE_REQUEST)\n告知现有设备"新设备已上传 KP"
+    NewDevice->>GW: sendCustomMsg(extension="mls_new_device",\n  通知现有设备"新设备已上传 KP")
 
     ExistingDevice->>DS: GET /mls/key_packages/{userID} (获取新设备 KP)
     loop 每个群组
-        ExistingDevice->>ExistingDevice: group.add_members([new_device_kp])
+        ExistingDevice->>ExistingDevice: FFI: group.add_members([new_device_kp])
         ExistingDevice->>DS: POST /mls/groups/{gid}/commit
-        ExistingDevice->>GW: sendMsg MLS_HANDSHAKE(Welcome) → newDevice
+        ExistingDevice->>GW: sendCustomMsg(extension="mls_handshake", Welcome) → newDevice
     end
 
-    NewDevice-->>NewDevice: 收到各群 Welcome，逐一 new_from_welcome()
+    NewDevice-->>NewDevice: 收到各群 Welcome，逐一 processHandshake()
     Note right of NewDevice: 历史消息不可解密（前向保密，符合安全预期）\n此后新消息均可解密
 ```
 
@@ -717,7 +757,7 @@ Authorization: Bearer {imToken}
 }
 ```
 
-DS 通过 msg_gateway 向各接收方推送 `MLS_HANDSHAKE` 类型消息。
+DS 通过 msg_gateway 向各接收方推送 **CustomMessage**（`contentType=200`，`customElem.extension="mls_handshake"`），与客户端 `sendCustomMsg` 路径一致。
 
 ---
 
@@ -845,15 +885,17 @@ credential=base64(credential)
 
 #### `POST /msg/send_msg`（msg_gateway）
 
-**变更**：无变更。`MsgData.content` 字段由明文改为 base64(MLSMessage)，服务器不感知变化。
+**变更**：**无变更**。E2EE 消息以 `contentType=200`（CustomMessage）发送，`MsgData.customElem.data` 存放密文 JSON，服务器完全透传，与普通自定义消息无区别。
 
 **受影响字段**：
 
 | 字段 | 变更前 | 变更后 |
 |------|-------|-------|
-| `content_type` | 101 (Text) | 1001 (ENCRYPTED) 或原值（旧客户端兼容） |
-| `content` | 明文 JSON 字符串 | base64(TLS序列化的 MLSMessage PrivateMessage) |
-| `is_send_msg` | 不变 | 不变 |
+| `content_type` | 101 (Text) 等 | **200 (CustomMessage)**（E2EE 消息，旧客户端显示 description 占位） |
+| `custom_elem.data` | 业务 JSON | base64 或 JSON 封装的 TLS 序列化 `MLSMessage PrivateMessage` |
+| `custom_elem.extension` | 业务扩展字段 | `"e2ee"` 或 `"mls_handshake"` |
+| `custom_elem.description` | 自定义 | `"[加密消息]"`（用于推送预览） |
+| 其余字段 | 不变 | 不变 |
 
 #### `POST /msg/get_history_message`（msg_gateway）
 
@@ -877,9 +919,11 @@ credential=base64(credential)
 }
 ```
 
-此 JSON 整体 base64 后作为 `MsgData.content` 值。
+此 JSON 作为 **`CustomElem.data`** 字段值（`contentType=200` 的 CustomMessage），**不是** `MsgData.content` 明文字段。
 
-### 6.2 本地 GroupState 存储结构（SQLite）
+### 6.2 本地 GroupState 存储结构（Flutter MLS SQLite）
+
+> **与 openim-sdk-core 分离**：下列表位于 Flutter 侧 MLS 专用库（sqflite / drift）。Go SDK 的 LocalDB 仅按现有逻辑持久化 CustomMessage（含密文 `customElem`），**不存储** `mls_group_state`。
 
 ```sql
 CREATE TABLE mls_group_state (
@@ -926,20 +970,45 @@ key: "mls_db_encryption_key"         value: base64(AES-256-GCM密钥, 32字节�
 - **iOS**：Keychain，`kSecAttrAccessibleWhenUnlockedThisDeviceOnly`
 - **Android**：Android Keystore + EncryptedSharedPreferences
 
-### 6.4 消息 ContentType 扩展
+### 6.4 消息识别约定（CustomElem.extension）
 
-```go
-// 在 sdk_struct/sdk_struct.go 中扩展
-const (
-    // 现有
-    ContentTypeText  = 101
-    // 新增
-    ContentTypeEncrypted    = 1001  // MLS PrivateMessage（加密应用消息）
-    ContentTypeMlsHandshake = 1002  // MLS 握手消息（Welcome / Commit / Proposal）
-    // DS 内部使用，不经 msg_gateway
-    ContentTypeMlsKeyPackage = 1003
-)
+E2EE 消息复用 OpenIM 现有 **CustomMessage**（contentType = 200），不新增 contentType 常量。区分逻辑完全由 `CustomElem.extension` 字段承载；**消息收发路径** openim-sdk-core 无需改动（MLS DS HTTP 可选 bridge，见 §7.1）：
+
+| extension 值 | 含义 | 是否显示 UI | 处理方 |
+|---|---|---|---|
+| `"e2ee"` | MLS 加密应用消息（PrivateMessage） | 是（解密后） | `MLSController.decrypt()` |
+| `"mls_handshake"` | MLS 握手消息（Welcome / Commit / Proposal） | **否** | `MLSController.processHandshake()` |
+| `"mls_new_device"` | 新设备已上传 KeyPackage 的通知 | **否** | 触发已登录设备批量 Add + Welcome |
+| 其他值 | 业务自定义消息（红包、名片等） | 视业务 | 现有 CustomMsg 处理逻辑 |
+
+`CustomElem.data` 格式（E2EE 消息）：
+
+```json
+{
+  "v": 1,
+  "cs": "MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519",
+  "gid": "conversationID_xxx",
+  "epoch": 5,
+  "mls_msg": "base64(TLS序列化的 MLSMessage PrivateMessage)"
+}
 ```
+
+`CustomElem.data` 格式（MLS 握手消息）：
+
+```json
+{
+  "v": 1,
+  "type": "welcome",
+  "gid": "conversationID_xxx",
+  "mls_msg": "base64(TLS序列化的 Welcome 或 MLSMessage Commit)"
+}
+```
+
+`CustomElem.description`（所有 E2EE 消息统一）：
+- 加密消息：`"[加密消息]"` — 用于离线推送通知预览
+- 握手消息：`""` （空字符串，不触发推送）
+
+**迁移兼容性**：旧版客户端收到 `extension="e2ee"` 的 CustomMessage，将显示 `description` 中的 `"[加密消息]"` 占位文本，不会崩溃；新版客户端正常解密展示。
 
 ---
 
@@ -947,88 +1016,266 @@ const (
 
 ### 7.1 改动文件清单
 
-#### Flutter 层
+#### Flutter 层（主要改动集中于此）
 
 | 文件 | 改动类型 | 说明 |
 |------|---------|------|
 | `lib/core/controller/im_controller.dart` | 修改 | `login()` 成功后调用 `MLSController.initialize()` 上传 KeyPackage |
-| `lib/core/im_callback.dart` | 修改 | `onRecvNewMessage` 中路由 `MLS_HANDSHAKE` 消息到 `MLSController` |
-| `lib/pages/chat/chat_logic.dart` | 修改 | `_sendMessage()` 前插入加密；接收时解密 |
-| `openim_common/lib/src/apis.dart` | 新增 | `MLSApi` 类：KP 上传/获取、Commit、Credential |
-| `openim_common/lib/src/urls.dart` | 新增 | MLS DS 端点路径常量 |
-| `lib/core/mls_controller.dart` | 新增 | Dart FFI 封装，GroupState 缓存，Epoch 追踪 |
-| `lib/core/mls_key_store.dart` | 新增 | `flutter_secure_storage` 封装，私钥生命周期管理 |
+| `lib/core/im_callback.dart` | 修改 | `onRecvNewMessage` 中识别 `extension=="e2ee"` 和 `"mls_handshake"` 并路由到 `MLSController` |
+| `lib/im/pages/chat_logic.dart` | 修改 | 各 `sendXxxMsg()` 方法前插入 E2EE 加密拦截；改为调用 `sendCustomMsg()` |
+| `openim_common/lib/src/apis.dart` | 新增 | `MLSApi` 类：KP 上传/获取、Commit 提交、Welcome 发送、Credential 申请 |
+| `openim_common/lib/src/urls.dart` | 新增 | MLS DS 端点路径常量（`/mls/key_packages/...`, `/mls/groups/...` 等） |
+| `lib/core/mls_controller.dart` | **新增** | Dart FFI 封装 OpenMLS Rust 库；GroupState 缓存管理；Epoch 追踪；encrypt/decrypt/processHandshake |
+| `lib/core/mls_key_store.dart` | **新增** | `flutter_secure_storage` 封装；init_key / leaf_key 生命周期管理 |
+| `lib/core/mls_ffi_bindings.dart` | **新增** | `dart:ffi` 生成的 C bindings，对应 OpenMLS Rust 导出函数签名 |
+| `pubspec.yaml` | 修改 | 新增依赖：`flutter_secure_storage`、`ffi`；配置 `assets/` 中的 `.so` / `.xcframework` 路径 |
+| `android/app/src/main/jniLibs/` | 新增 | OpenMLS 编译产物：`libopenmls.so`（arm64-v8a / x86_64） |
+| `ios/Frameworks/openmls.xcframework/` | 新增 | OpenMLS 编译产物：iOS/macOS universal xcframework |
 
-#### Go SDK Core 层
+#### Go SDK Core 层（**最小改动，仅新增 HTTP 客户端**）
 
 | 模块 | 改动 | 说明 |
 |------|------|------|
-| `internal/crypto/crypto.go` | 扩展 | 新增 UploadKeyPackage / FetchKeyPackages / PostCommit / GetCommits / PostWelcome |
-| `sdk_struct/sdk_struct.go` | 扩展 | 新增 ContentType 常量 ENCRYPTED=1001, MLS_HANDSHAKE=1002 |
-| `internal/mls/`（新增） | 新增 | MLS 会话管理 + CGO 桥接 OpenMLS Rust FFI |
-| `internal/conversation_msg/api.go` | 不变 | 发送路径不变，内容已是加密 blob |
+| `internal/crypto/crypto.go` | **扩展** | 新增 `UploadKeyPackage / FetchKeyPackages / PostCommit / GetCommits / PostWelcome` HTTP 方法，供 Flutter 通过 Go bridge 调用 MLS DS |
+| `internal/conversation_msg/api.go` | **不变** | 发送路径不变，CustomElem 透传，不解析加密内容 |
+| `sdk_struct/sdk_struct.go` | **不变** | 不新增 ContentType 常量（沿用 contentType=200 CustomMessage） |
+| ~~`internal/mls/`~~ | **不新增** | MLS 加解密与 GroupState 不在 Go 层实现 |
+
+> **架构决策**：MLS Rust FFI 编译为平台原生库（`.so` / `.xcframework`），由 Flutter `dart:ffi` 直接加载。openim-sdk-core **可选**在 `internal/crypto` 提供 MLS DS HTTP bridge；若 Flutter `MLSApi` 直连，则 Go 层可零改动。
 
 ### 7.2 加密拦截点（伪代码）
 
-```dart
-// lib/pages/chat/chat_logic.dart
+#### 7.2.1 发送端：`chat_logic.dart` 中的通用加密拦截
 
-Future<void> _sendMessage(Message message) async {
-  // 加密拦截
-  if (MLSController.isE2EEEnabled(conversationID)) {
-    final plaintext = jsonEncode(message.toSendPayload());
-    final encrypted = await MLSController.encrypt(
-      groupId: conversationID,
-      plaintext: utf8.encode(plaintext),
-    );
-    message = message.copyWith(
-      contentType: ContentType.encrypted,
-      content: base64Encode(encrypted),
-    );
+```dart
+// lib/im/pages/chat_logic.dart
+
+/// 所有发送方法（sendTextMsg / sendPicture / sendVideo / sendFile 等）
+/// 在调用 _sendMessage 前，先经此方法做 E2EE 包装。
+/// 原有 _sendMessage 方法签名和内部逻辑保持不变。
+Future<void> _sendMessageWithE2EE(
+  Message message, {
+  String? userId,
+  String? groupId,
+}) async {
+  if (!MLSController.instance.isE2EEEnabled(conversationID)) {
+    // 非 E2EE 会话，走原有路径
+    return _sendMessage(message, userId: userId, groupId: groupId);
   }
 
-  // 原有发送逻辑（不变）
-  await messageManager.sendMessage(
-    message: message,
-    recvID: recvID,
-    groupID: groupID,
+  // 1. 将原始 Message 序列化为明文 payload
+  final plaintext = utf8.encode(jsonEncode({
+    'contentType': message.contentType,
+    'content': message.content,
+    // 保留 quoteMessage、atUserList 等扩展字段
+    'ex': message.ex,
+  }));
+
+  // 2. Flutter 层直接调用 OpenMLS Rust FFI 加密
+  final mlsMessageBytes = await MLSController.instance.encrypt(
+    groupId: conversationID,   // MLS Group ID = conversationID
+    plaintext: plaintext,
+  );
+
+  // 3. 构造 E2EE Custom Data JSON
+  final e2eeData = jsonEncode({
+    'v': 1,
+    'cs': 'MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519',
+    'gid': conversationID,
+    'epoch': MLSController.instance.currentEpoch(conversationID),
+    'mls_msg': base64Encode(mlsMessageBytes),
+  });
+
+  // 4. 用 sendCustomMsg 发送，extension="e2ee"
+  //    sendCustomMsg 内部调用 createCustomMessage → _sendMessage
+  sendCustomMsg(
+    data: e2eeData,
+    extension: 'e2ee',
+    description: '[加密消息]',  // 离线推送通知预览文本
   );
 }
 ```
+
+> **集成方式**：将现有各 `sendXxxMsg()` 方法末尾的 `_sendMessage(message)` 替换为 `_sendMessageWithE2EE(message)`，无需修改 `_sendMessage` 本身。
+
+#### 7.2.2 接收端：`im_callback.dart` 中的解密分发
 
 ```dart
 // lib/core/im_callback.dart
 
 void onRecvNewMessage(Message message) {
-  if (message.contentType == ContentType.mlsHandshake) {
-    // MLS 握手消息（Welcome/Commit），不显示在 UI
-    MLSController.processHandshake(message);
+  // --- 新设备 KeyPackage 已上传通知 ---
+  if (message.contentType == 200 &&
+      message.customElem?.extension == 'mls_new_device') {
+    MLSController.instance.onNewDeviceNotification(message);
     return;
   }
 
-  if (message.contentType == ContentType.encrypted) {
-    MLSController.decrypt(
-      groupId: message.conversationID,
-      ciphertext: base64Decode(message.content!),
-    ).then((plaintext) {
-      final decrypted = message.copyWith(
-        contentType: _parsePlaintextContentType(plaintext),
-        content: utf8.decode(plaintext.data),
-        senderID: plaintext.verifiedSenderID, // 经 MLS 验证的发送者
-      );
-      recvNewMessageSubject.add(decrypted);
-    }).catchError((e) {
-      // 解密失败：显示"无法解密的消息"
-      recvNewMessageSubject.add(message.copyWith(
-        contentType: ContentType.cannotDecrypt,
-      ));
+  // --- E2EE 握手消息（Welcome / Commit / Proposal）---
+  if (message.contentType == 200 &&
+      message.customElem?.extension == 'mls_handshake') {
+    // 不显示在聊天 UI，交给状态机处理
+    MLSController.instance.processHandshake(message).catchError((e) {
+      Logger.print('[MLS] processHandshake error: $e');
     });
     return;
   }
 
-  recvNewMessageSubject.add(message);
+  // --- E2EE 加密应用消息 ---
+  if (message.contentType == 200 &&
+      message.customElem?.extension == 'e2ee') {
+    _decryptAndDispatch(message);
+    return;
+  }
+
+  // --- 非 E2EE，走原有逻辑 ---
+  recvNewMessageSubject.addSafely(message);
+}
+
+Future<void> _decryptAndDispatch(Message encryptedMsg) async {
+  try {
+    // 1. 解析 CustomElem.data
+    final e2eeData = jsonDecode(encryptedMsg.customElem!.data!) as Map<String, dynamic>;
+    final mlsMessageBytes = base64Decode(e2eeData['mls_msg'] as String);
+    final groupId = e2eeData['gid'] as String;
+
+    // 2. Flutter 层直接调用 OpenMLS Rust FFI 解密
+    final result = await MLSController.instance.decrypt(
+      groupId: groupId,
+      mlsMessageBytes: mlsMessageBytes,
+    );
+    // result.plaintext: 原始 payload JSON bytes
+    // result.verifiedSenderID: 经 MLS Credential 验证的真实发送者 userID
+
+    // 3. 还原原始 Message
+    final payload = jsonDecode(utf8.decode(result.plaintext)) as Map<String, dynamic>;
+    final decryptedMsg = encryptedMsg.copyWith(
+      contentType: payload['contentType'] as int,
+      content: payload['content'] as String?,
+      ex: payload['ex'] as String?,
+      sendID: result.verifiedSenderID,   // 使用 MLS 验证的发送者，防止伪造
+    );
+
+    recvNewMessageSubject.addSafely(decryptedMsg);
+  } catch (e, stack) {
+    Logger.print('[MLS] decrypt failed: $e\n$stack');
+    // 解密失败降级：显示无法解密占位消息
+    recvNewMessageSubject.addSafely(encryptedMsg.copyWith(
+      contentType: 200,
+      customElem: CustomElem()
+        ..extension = 'e2ee_failed'
+        ..description = '[消息无法解密，请升级客户端]',
+    ));
+  }
 }
 ```
+
+#### 7.2.3 MLSController 核心接口（Dart FFI 封装骨架）
+
+```dart
+// lib/core/mls_controller.dart
+
+import 'dart:ffi';
+import 'dart:io';
+import 'package:ffi/ffi.dart';
+import 'mls_ffi_bindings.dart';   // dart:ffi 自动生成的 C bindings
+
+class MLSController {
+  static final MLSController instance = MLSController._();
+  MLSController._();
+
+  late final MlsFfiBindings _ffi;
+
+  /// 加载平台对应的 OpenMLS 动态库
+  void init() {
+    final lib = Platform.isAndroid
+        ? DynamicLibrary.open('libopenmls.so')
+        : DynamicLibrary.process();  // iOS: 静态链接到主可执行文件
+    _ffi = MlsFfiBindings(lib);
+    // 初始化 Rust 日志 / panic handler
+    _ffi.mls_init();
+  }
+
+  bool isE2EEEnabled(String conversationID) {
+    // 查本地 SQLite: mls_group_state 是否存在且 epoch >= 0
+    return _groupStateExists(conversationID);
+  }
+
+  int currentEpoch(String conversationID) {
+    return _loadGroupState(conversationID)?.epoch ?? 0;
+  }
+
+  /// 加密一条消息，返回 TLS 序列化的 MLSMessage bytes
+  Future<Uint8List> encrypt({
+    required String groupId,
+    required Uint8List plaintext,
+  }) async {
+    // 在 Dart Isolate 中执行 FFI（避免阻塞 UI 线程）
+    return Isolate.run(() {
+      final groupStateBytes = _loadGroupStateBytes(groupId);
+      // mls_group_create_message(group_state_ptr, plaintext_ptr, ...) → mls_message_bytes
+      final result = _ffi.mls_group_create_message(
+        groupStateBytes.toNativePtr(),
+        plaintext.toNativePtr(),
+        plaintext.length,
+      );
+      _saveGroupStateBytes(groupId, result.updatedGroupState);
+      return result.mlsMessageBytes;
+    });
+  }
+
+  /// 解密一条 MLSMessage，返回明文 bytes 和已验证的发送者 userID
+  Future<DecryptResult> decrypt({
+    required String groupId,
+    required Uint8List mlsMessageBytes,
+  }) async {
+    return Isolate.run(() {
+      final groupStateBytes = _loadGroupStateBytes(groupId);
+      final result = _ffi.mls_group_process_message(
+        groupStateBytes.toNativePtr(),
+        mlsMessageBytes.toNativePtr(),
+        mlsMessageBytes.length,
+      );
+      _saveGroupStateBytes(groupId, result.updatedGroupState);
+      return DecryptResult(
+        plaintext: result.plaintext,
+        verifiedSenderID: result.senderIdentity,  // from Credential
+      );
+    });
+  }
+
+  /// 处理 MLS 握手消息（Welcome / Commit）
+  Future<void> processHandshake(Message message) async { /* ... */ }
+}
+
+class DecryptResult {
+  final Uint8List plaintext;
+  final String verifiedSenderID;
+  DecryptResult({required this.plaintext, required this.verifiedSenderID});
+}
+```
+
+> **Rust FFI 导出函数约定**（OpenMLS 侧需实现的 C ABI）：
+>
+> ```c
+> // 初始化 panic handler 和日志
+> void mls_init(void);
+>
+> // 加密：返回 {mls_message_bytes, updated_group_state}
+> MlsEncryptResult mls_group_create_message(
+>     const uint8_t* group_state, size_t gs_len,
+>     const uint8_t* plaintext,   size_t pt_len);
+>
+> // 解密：返回 {plaintext, sender_identity_str, updated_group_state}
+> MlsDecryptResult mls_group_process_message(
+>     const uint8_t* group_state,  size_t gs_len,
+>     const uint8_t* mls_message,  size_t msg_len);
+>
+> // Welcome → 初始化 GroupState
+> MlsGroupState mls_group_from_welcome(
+>     const uint8_t* welcome_bytes, size_t len,
+>     const uint8_t* ratchet_tree,  size_t rt_len);
+> ```
 
 ---
 
@@ -1042,7 +1289,7 @@ Level 0: 设备硬件安全（Keychain / Android Keystore）
     └── mls_leaf_key_priv（Ed25519 私钥，消息签名）
     └── mls_init_key（X25519 私钥，一次性，用后删除）
 
-Level 1: 加密 SQLite 数据库（用 L0 密钥加密）
+Level 1: Flutter MLS 加密 SQLite（用 L0 密钥加密，与 Go SDK 消息库分离）
     └── GroupState（OpenMLS 序列化，含 epoch 密钥树）
     └── Pending Proposals
     └── Message Cache（超前 epoch 的缓存密文）
@@ -1059,19 +1306,25 @@ Level 2: 内存（仅运行时）
 | `leaf_key_priv` | 首次登录 / Update Commit | 下一次 Update Commit 生效后删除旧密钥 | Keychain |
 | `epoch_secret` | Commit 推进 | 下一个 Commit 生效后，立即安全擦除 | 内存 → GroupState |
 | `per-message key` | 每条消息加/解密 | 加/解密完成后立即归零 | 内存 |
-| `GroupState` | 群组初始化 | 退群 / 群解散 / 用户登出 | 加密 SQLite |
+| `GroupState` | 群组初始化 | 退群 / 群解散 / 用户登出 | Flutter MLS 加密 SQLite |
 
 ---
 
-## 9. ContentType 约定
+## 9. E2EE 消息识别与路由约定
 
-| ContentType | 整数值 | 名称 | 处理方式 | 是否显示在 UI |
-|-------------|--------|------|---------|-------------|
-| 现有文本 | 101 | Text | 现有逻辑（向后兼容） | 是 |
-| 现有图片 | 102 | Picture | 现有逻辑 | 是 |
-| **加密消息** | **1001** | **ENCRYPTED** | 触发 `mls_decrypt()`，显示解密后内容 | 是（解密后） |
-| **MLS 握手** | **1002** | **MLS_HANDSHAKE** | 路由到 `MLSController.processHandshake()`，状态机处理 | **否** |
-| 无法解密 | 1099 | CANNOT_DECRYPT | 显示"消息无法解密，请升级客户端"提示 | 是（提示） |
+E2EE 消息**不新增 ContentType**，统一使用 OpenIM 原有 **ContentType = 200（CustomMessage）**，通过 `CustomElem.extension` 字段区分：
+
+| ContentType | extension 值 | 名称 | 处理方式 | 是否显示在 UI |
+|-------------|--------------|------|---------|-------------|
+| 101 | —— | Text | 现有逻辑（向后兼容，非 E2EE 会话） | 是 |
+| 102 | —— | Picture | 现有逻辑 | 是 |
+| 200 | `"e2ee"` | **加密应用消息** | `MLSController.decrypt()` → 解密后按原 contentType 渲染 | 是（解密后） |
+| 200 | `"mls_handshake"` | **MLS 握手消息** | `MLSController.processHandshake()` → 状态机，不显示 | **否** |
+| 200 | `"mls_new_device"` | **新设备 KP 通知** | 触发已登录设备 Add 新设备到各群 | **否** |
+| 200 | `"redpacket"` 等 | 业务自定义消息 | 现有 CustomMsg 逻辑（不变） | 视业务 |
+| 200 | `"e2ee_failed"` | 解密失败占位 | 显示"[消息无法解密，请升级客户端]" | 是（降级提示） |
+
+**openim-sdk-core 消息路径无需变更**：`MessageManager` 透传 CustomElem；E2EE 识别与解密在 Flutter `onRecvNewMessage` 完成。MLS DS HTTP 可选经 Go `internal/crypto` bridge（§7.1）。
 
 ---
 
@@ -1098,11 +1351,13 @@ Level 2: 内存（仅运行时）
 
 | 任务 | 负责层 | 产出 |
 |------|-------|------|
-| 集成 OpenMLS crate，编译 Android/iOS FFI 库 | Native | `libopenmls.so` + `.xcframework` |
-| 实现 Go MLS FFI 桥（CGO wrapper） | Go SDK | `internal/mls/` 模块 |
-| KeyPackage 生命周期：生成/上传/消费/刷新 | Go SDK + Server | MLS DS 核心 API |
+| 集成 OpenMLS crate，编译 Android/iOS FFI 库 | Native / Flutter | `libopenmls.so` + `.xcframework` |
+| `MLSController` + `mls_ffi_bindings.dart`（dart:ffi） | Flutter | Flutter 侧 MLS 加解密能力 |
+| KeyPackage 生命周期：生成/上传/消费/刷新 | Flutter + Server | MLS DS 核心 API；生成在 Flutter FFI |
+| openim-sdk-core MLS DS HTTP bridge（**可选**） | Go SDK | `internal/crypto/crypto.go` 扩展 |
 | MLS Credential 颁发（Auth Server 新增端点） | Server | `/crypto/credential` |
 | 本地密钥存储（`flutter_secure_storage` 封装） | Flutter | `MLSKeyStore` |
+| Flutter MLS SQLite（GroupState / cache） | Flutter | `mls_group_state` 等表 |
 | MLS DS 服务骨架（Go，~2000 行） | Server | MLS DS v0.1 |
 
 ### Phase 2：1:1 消息加密（3-4 周）
@@ -1143,7 +1398,7 @@ Level 2: 内存（仅运行时）
 |------|------|------|---------|
 | Commit 竞争导致群组 epoch 分裂 | 中 | 高 | DS 序列化写 + `from_epoch` 乐观锁；客户端重试机制 |
 | KeyPackage 耗尽（批量新设备上线） | 低 | 中 | DS 低水位告警（< 3 份/设备），客户端自动后台补充 |
-| 旧客户端无法显示加密消息 | 高（过渡期） | 中 | ContentType 1001 优雅降级提示"请升级"；保持 101 向后兼容 |
+| 旧客户端无法显示加密消息 | 高（过渡期） | 中 | CustomMessage `description="[加密消息]"` 占位；非 E2EE 会话仍用 contentType 101 |
 | GroupState 丢失（重装、迁移） | 低 | 高 | 明确产品决策：历史不可恢复（E2EE 预期行为）；可选密码备份 |
 | FFI 层 Rust panic 影响 App 稳定性 | 中 | 高 | Rust `catch_unwind`；Dart Isolate 隔离；崩溃上报；降级明文模式 |
 | Commit 广播延迟导致消息解密失败 | 中 | 中 | 客户端 epoch 对齐缓冲队列；用户感知延迟 < 500ms |

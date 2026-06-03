@@ -23,6 +23,7 @@ import (
 	"github.com/openimsdk/open-im-server/v3/pkg/common/config"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/controller"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/database/mgo"
+	"github.com/openimsdk/open-im-server/v3/pkg/rpcli"
 	pbopenmls "github.com/openimsdk/protocol/openmls"
 	"github.com/openimsdk/tools/db/mongoutil"
 	"github.com/openimsdk/tools/discovery"
@@ -39,14 +40,16 @@ type Config struct {
 
 type openMLSServer struct {
 	pbopenmls.UnimplementedOpenMLSServiceServer
-	config     *Config
-	db         controller.OpenMLSDatabase
-	signingKey ed25519.PrivateKey // nil 表示 Credential 颁发功能未启用
-	rootPubKey string             // base64(Ed25519 公钥)，用于 GetRootPublicKey 返回
+	config      *Config
+	db          controller.OpenMLSDatabase
+	signingKey  ed25519.PrivateKey // nil 表示 Credential 颁发功能未启用
+	rootPubKey  string             // base64(Ed25519 公钥)，用于 GetRootPublicKey 返回
+	msgClient   *rpcli.MsgClient
+	groupClient *rpcli.GroupClient
 }
 
 // Start 初始化 openmls gRPC 服务并完成注册。
-func Start(ctx context.Context, cfg *Config, _ discovery.SvcDiscoveryRegistry, server *grpc.Server) error {
+func Start(ctx context.Context, cfg *Config, client discovery.SvcDiscoveryRegistry, server *grpc.Server) error {
 	mgocli, err := mongoutil.NewMongoDB(ctx, cfg.MongodbConfig.Build())
 	if err != nil {
 		return err
@@ -66,7 +69,16 @@ func Start(ctx context.Context, cfg *Config, _ discovery.SvcDiscoveryRegistry, s
 		return err
 	}
 
-	omlsDB := controller.NewOpenMLSDatabase(kpDB, groupDB, commitDB)
+	omlsDB := controller.NewOpenMLSDatabase(kpDB, groupDB, commitDB, mgocli.GetTx())
+
+	msgConn, err := client.GetConn(ctx, cfg.Share.RpcRegisterName.Msg)
+	if err != nil {
+		return err
+	}
+	groupConn, err := client.GetConn(ctx, cfg.Share.RpcRegisterName.Group)
+	if err != nil {
+		return err
+	}
 
 	var signingKey ed25519.PrivateKey
 	var rootPubKeyB64 string
@@ -84,10 +96,12 @@ func Start(ctx context.Context, cfg *Config, _ discovery.SvcDiscoveryRegistry, s
 	}
 
 	pbopenmls.RegisterOpenMLSServiceServer(server, &openMLSServer{
-		config:     cfg,
-		db:         omlsDB,
-		signingKey: signingKey,
-		rootPubKey: rootPubKeyB64,
+		config:      cfg,
+		db:          omlsDB,
+		signingKey:  signingKey,
+		rootPubKey:  rootPubKeyB64,
+		msgClient:   rpcli.NewMsgClient(msgConn),
+		groupClient: rpcli.NewGroupClient(groupConn),
 	})
 	return nil
 }

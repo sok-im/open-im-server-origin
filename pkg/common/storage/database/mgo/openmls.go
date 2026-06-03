@@ -72,17 +72,21 @@ func (m *mlsKeyPackageMgo) ConsumeByUserID(ctx context.Context, userID, excludeD
 		countPerDevice = 1
 	}
 
-	// Find all unconsumed device IDs for this user
+	// Find all unconsumed device IDs for this user.
 	matchFilter := bson.M{"user_id": userID, "consumed": false}
 	if excludeDeviceID != "" {
 		matchFilter["device_id"] = bson.M{"$ne": excludeDeviceID}
 	}
-
-	// Get distinct device IDs
 	deviceIDs, err := m.coll.Distinct(ctx, "device_id", matchFilter)
 	if err != nil {
 		return nil, err
 	}
+
+	// Claim each KeyPackage atomically via FindOneAndUpdate so that two concurrent
+	// consumers can never receive the same KeyPackage (one-time-use guarantee).
+	claimOpts := options.FindOneAndUpdate().
+		SetSort(bson.D{{Key: "created_at", Value: 1}}).
+		SetReturnDocument(options.Before)
 
 	var result []*model.MLSKeyPackage
 	for _, did := range deviceIDs {
@@ -90,31 +94,20 @@ func (m *mlsKeyPackageMgo) ConsumeByUserID(ctx context.Context, userID, excludeD
 		if !ok {
 			continue
 		}
-		filter := bson.M{"user_id": userID, "device_id": deviceID, "consumed": false}
-		opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: 1}}).SetLimit(int64(countPerDevice))
-		cursor, err := m.coll.Find(ctx, filter, opts)
-		if err != nil {
-			return nil, err
-		}
-		var batch []*model.MLSKeyPackage
-		if err := cursor.All(ctx, &batch); err != nil {
-			return nil, err
-		}
-		// Mark as consumed
-		ids := make([]string, len(batch))
-		for i, kp := range batch {
-			ids[i] = kp.KpID
-		}
-		if len(ids) > 0 {
-			_, err = m.coll.UpdateMany(ctx,
-				bson.M{"kp_id": bson.M{"$in": ids}},
-				bson.M{"$set": bson.M{"consumed": true}},
-			)
+		for i := 0; i < countPerDevice; i++ {
+			filter := bson.M{"user_id": userID, "device_id": deviceID, "consumed": false}
+			update := bson.M{"$set": bson.M{"consumed": true}}
+			var kp model.MLSKeyPackage
+			err := m.coll.FindOneAndUpdate(ctx, filter, update, claimOpts).Decode(&kp)
+			if err == mongo.ErrNoDocuments {
+				// No more unconsumed KeyPackages for this device.
+				break
+			}
 			if err != nil {
 				return nil, err
 			}
+			result = append(result, &kp)
 		}
-		result = append(result, batch...)
 	}
 	return result, nil
 }
@@ -191,6 +184,14 @@ func (m *mlsGroupStateMgo) GetState(ctx context.Context, groupID string) (*model
 
 func (m *mlsGroupStateMgo) DeleteGroup(ctx context.Context, groupID string) error {
 	_, err := m.coll.DeleteOne(ctx, bson.M{"group_id": groupID})
+	return err
+}
+
+func (m *mlsGroupStateMgo) UpdateMemberCount(ctx context.Context, groupID string, memberCount int32) error {
+	_, err := m.coll.UpdateOne(ctx,
+		bson.M{"group_id": groupID},
+		bson.M{"$set": bson.M{"member_count": memberCount}},
+	)
 	return err
 }
 
