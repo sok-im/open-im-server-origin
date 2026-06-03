@@ -15,6 +15,7 @@ rpcRegisterName:
   redPacket: redPacket
   virgilSecurity: virgilSecurity
   openMLS: openMLS
+  totp: totp
 
 imAdminUserID: [ imAdmin ]
 

@@ -133,6 +133,17 @@ builds:
       - amd64
       - arm64
 
+  - binary: openim-rpc-totp
+    id: openim-rpc-totp
+    main: ./cmd/openim-rpc/openim-rpc-totp/main.go
+    goos:
+      - darwin
+      - windows
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
   - binary: openim-rpc-conversation
     id: openim-rpc-conversation
     main: ./cmd/openim-rpc/openim-rpc-conversation/main.go
@@ -367,6 +378,7 @@ nfpms:
       - openim-push
       - openim-rpc-auth
       - openim-rpc-captcha
+      - openim-rpc-totp
       - openim-rpc-conversation
       - openim-rpc-friend
       - openim-rpc-group

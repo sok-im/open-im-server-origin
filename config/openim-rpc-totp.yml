@@ -1,0 +1,12 @@
+rpc:
+  registerIP: ""
+  listenIP: 0.0.0.0
+  autoSetPorts: false
+  ports: [10530]
+
+prometheus:
+  enable: false
+  ports: [12530]
+
+# Issuer name shown in the Authenticator app.
+issuer: "SOK-IM"

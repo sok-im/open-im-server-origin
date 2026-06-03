@@ -98,4 +98,13 @@ const (
 
 	// RTC error codes.
 	AllUserBusyError = 1801 // All invitees are busy on another call
+
+	// TOTP / MFA error codes (20001–20099).
+	TotpAlreadyBoundError    = 20001 // User already has TOTP bound; must unbind first
+	TotpCodeInvalidError     = 20002 // TOTP or recovery code is incorrect
+	TotpSecretExpiredError   = 20003 // Temporary secret not found or expired; restart binding
+	MfaTokenExpiredError     = 20004 // MFA token not found or expired; re-login required
+	TotpNotBoundError        = 20005 // User has not bound TOTP
+	TotpRecoveryExhausted    = 20006 // All recovery codes used; contact support
+	TotpVerifyTooManyErrors  = 20007 // Too many failed attempts; please retry later
 )

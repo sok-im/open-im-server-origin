@@ -70,4 +70,13 @@ var (
 	ErrFileUploadedExpired = errs.NewCodeError(FileUploadedExpiredError, "FileUploadedExpiredError")
 
 	ErrAllUserBusy = errs.NewCodeError(AllUserBusyError, "AllUserBusyError")
+
+	// TOTP / MFA errors.
+	ErrTotpAlreadyBound   = errs.NewCodeError(TotpAlreadyBoundError, "user already has TOTP bound, please unbind first")
+	ErrTotpCodeInvalid    = errs.NewCodeError(TotpCodeInvalidError, "TOTP or recovery code is incorrect")
+	ErrTotpSecretExpired  = errs.NewCodeError(TotpSecretExpiredError, "temporary secret not found or expired, please restart binding")
+	ErrMfaTokenExpired    = errs.NewCodeError(MfaTokenExpiredError, "MFA token not found or expired, please login again")
+	ErrTotpNotBound       = errs.NewCodeError(TotpNotBoundError, "user has not bound TOTP")
+	ErrTotpRecoveryExhausted = errs.NewCodeError(TotpRecoveryExhausted, "all recovery codes have been used, please contact support")
+	ErrTotpTooManyErrors  = errs.NewCodeError(TotpVerifyTooManyErrors, "too many failed attempts, please retry later")
 )

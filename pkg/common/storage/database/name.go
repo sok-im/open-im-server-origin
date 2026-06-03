@@ -27,4 +27,6 @@ const (
 	MsgBurnDeadlineName     = "msg_burn_deadline"
 	UserOfflineRecordName   = "user_offline_record"
 	UserMuteName            = "user_mute"
+	UserTotpName            = "user_totp"
+	UserTotpRecoveryName    = "user_totp_recovery"
 )

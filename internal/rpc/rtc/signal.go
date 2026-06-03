@@ -306,6 +306,11 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 		}
 	}
 
+	// Notify every group member who was NOT explicitly invited so they can
+	// render the "call in progress" banner and optionally join.
+	// Run in a goroutine so large groups don't block the caller's response.
+	go s.broadcastGroupCallStatusToNonInvited(context.WithoutCancel(ctx), inv.GroupID, inv.RoomID, inv.MediaType, inv.InviterUserID, inv.InviteeUserIDList, GroupCallStatusOngoing)
+
 	resp := &rtc.SignalInviteInGroupResp{
 		Token:              token,
 		RoomID:             inv.RoomID,
@@ -494,6 +499,11 @@ func (s *rtcServer) handleCancel(ctx context.Context, req *rtc.SignalCancelReq, 
 		log.ZWarn(ctx, "DeleteInvitation failed", err, "roomID", dbInv.RoomID)
 	}
 
+	// For group calls, notify non-invited members that the call was cancelled.
+	if dbInv.GroupID != "" {
+		go s.broadcastGroupCallStatusToNonInvited(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
+	}
+
 	s.sendCallRecordChatMsg(ctx, dbInv, callStatusCancelled, 0)
 
 	return &rtc.SignalCancelResp{}, nil
@@ -535,6 +545,12 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 
 	if err := s.db.DeleteInvitation(ctx, dbInv.RoomID); err != nil {
 		log.ZWarn(ctx, "DeleteInvitation failed", err, "roomID", dbInv.RoomID)
+	}
+
+	// For group calls, notify non-invited members that the call has ended
+	// so they can dismiss the "call in progress" banner.
+	if dbInv.GroupID != "" {
+		go s.broadcastGroupCallStatusToNonInvited(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
 	}
 
 	duration := int64(0)
@@ -848,6 +864,74 @@ func (s *rtcServer) sendSignalingNotification(ctx context.Context, sendID, recvI
 	return nil
 }
 
+// GroupCallStatusOngoing and GroupCallStatusEnded are the two states broadcast
+// to non-invited group members via a CustomSignalNotification payload.
+// The JSON field "type" is always "groupCallStatus".
+const (
+	GroupCallStatusOngoing = "started"
+	GroupCallStatusEnded   = "ended"
+)
+
+// groupCallStatusPayload is the JSON payload sent inside CustomSignalNotification
+// to non-invited group members so that they can render the "call in progress" banner.
+type groupCallStatusPayload struct {
+	Type          string `json:"type"`          // always "groupCallStatus"
+	Status        string `json:"status"`        // "started" | "ended"
+	GroupID       string `json:"groupID"`
+	RoomID        string `json:"roomID"`
+	MediaType     string `json:"mediaType"`     // "audio" | "video"
+	InviterUserID string `json:"inviterUserID"`
+}
+
+// broadcastGroupCallStatusToNonInvited sends a CustomSignalNotification to every
+// group member who is NOT the inviter and NOT in the invitee list.
+// It is called:
+//   - on call start (status = GroupCallStatusOngoing) — so non-invited members see the "join" banner
+//   - on call end   (status = GroupCallStatusEnded)   — so non-invited members dismiss the banner
+//
+// Errors per-recipient are non-fatal and only logged.
+func (s *rtcServer) broadcastGroupCallStatusToNonInvited(ctx context.Context, groupID, roomID, mediaType, inviterUserID string, inviteeUserIDList []string, status string) {
+	if groupID == "" {
+		return
+	}
+
+	allMemberIDs, err := s.groupClient.GetGroupMemberUserIDs(ctx, groupID)
+	if err != nil {
+		log.ZWarn(ctx, "broadcastGroupCallStatusToNonInvited: GetGroupMemberUserIDs failed", err, "groupID", groupID)
+		return
+	}
+
+	// Build an exclusion set: inviter + all explicitly invited members.
+	// They are notified through the SignalingNotification channel already.
+	excluded := make(map[string]struct{}, len(inviteeUserIDList)+1)
+	excluded[inviterUserID] = struct{}{}
+	for _, uid := range inviteeUserIDList {
+		excluded[uid] = struct{}{}
+	}
+
+	content, err := json.Marshal(groupCallStatusPayload{
+		Type:          "groupCallStatus",
+		Status:        status,
+		GroupID:       groupID,
+		RoomID:        roomID,
+		MediaType:     mediaType,
+		InviterUserID: inviterUserID,
+	})
+	if err != nil {
+		log.ZWarn(ctx, "broadcastGroupCallStatusToNonInvited: marshal failed", err)
+		return
+	}
+
+	for _, memberID := range allMemberIDs {
+		if _, skip := excluded[memberID]; skip {
+			continue
+		}
+		if err := s.sendCustomSignalNotification(ctx, inviterUserID, memberID, int32(constant.SingleChatType), content); err != nil {
+			log.ZWarn(ctx, "broadcastGroupCallStatusToNonInvited: send failed", err, "memberID", memberID, "status", status)
+		}
+	}
+}
+
 // sendCustomSignalNotification sends a CustomSignalNotification (1605) to a user.
 func (s *rtcServer) sendCustomSignalNotification(ctx context.Context, sendID, recvID string, sessionType int32, content []byte) error {
 	now := time.Now().UnixMilli()
@@ -1084,6 +1168,11 @@ func (s *rtcServer) handleTimeout(ctx context.Context, req *rtc.SignalTimeoutReq
 	}
 	if err := s.db.DeleteInvitation(ctx, dbInv.RoomID); err != nil {
 		log.ZWarn(ctx, "handleTimeout: DeleteInvitation failed", err, "roomID", dbInv.RoomID)
+	}
+
+	// For group calls, notify non-invited members that the call timed out.
+	if dbInv.GroupID != "" {
+		go s.broadcastGroupCallStatusToNonInvited(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
 	}
 
 	s.sendCallRecordChatMsg(ctx, dbInv, callStatusNotConnected, 0)
