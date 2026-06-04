@@ -81,6 +81,8 @@ type User struct {
 	GroupInviteSetting int32     `bson:"group_invite_setting"`
 	// CallRingtoneURL 用户自定义来电铃声 URL；对方来电时播放此铃声
 	CallRingtoneURL string `bson:"call_ringtone_url"`
+	// CallRingtoneName 用户自定义来电铃声名称（展示用）
+	CallRingtoneName string `bson:"call_ringtone_name"`
 	// Status 账号状态：0=正常，1=冻结，2=黑名单
 	Status int32 `bson:"status"`
 	// MsgBurnDuration 用户全局消息阅后即焚时长（秒）；0 表示关闭

@@ -64,6 +64,7 @@ func UserDB2Pb(user *relationtb.User) *sdkws.UserInfo {
 		MsgReceiveSetting:  user.MsgReceiveSetting,
 		GroupInviteSetting: user.GroupInviteSetting,
 		CallRingtoneURL:    user.CallRingtoneURL,
+		CallRingtoneName:   user.CallRingtoneName,
 		MsgBurnDuration:    user.MsgBurnDuration,
 	}
 }
@@ -86,7 +87,8 @@ func UserPb2DB(user *sdkws.UserInfo) *relationtb.User {
 		LastName:        user.LastName,
 		FullName:        fullName,
 		AreaCode:        user.AreaCode,
-		CallRingtoneURL: user.CallRingtoneURL,
+		CallRingtoneURL:  user.CallRingtoneURL,
+		CallRingtoneName: user.CallRingtoneName,
 	}
 }
 
@@ -105,6 +107,7 @@ func UserPb2DBMap(user *sdkws.UserInfo) map[string]any {
 		"app_manager_level":   user.AppMangerLevel,
 		"global_recv_msg_opt": user.GlobalRecvMsgOpt,
 		"call_ringtone_url":   user.CallRingtoneURL,
+		"call_ringtone_name":  user.CallRingtoneName,
 		"msg_burn_duration":   user.MsgBurnDuration,
 	}
 	for key, value := range fields {
@@ -176,6 +179,9 @@ func UserPb2DBMapEx(user *sdkws.UserInfoWithEx) map[string]any {
 	}
 	if user.CallRingtoneURL != nil {
 		val["call_ringtone_url"] = user.CallRingtoneURL.Value
+	}
+	if user.CallRingtoneName != nil {
+		val["call_ringtone_name"] = user.CallRingtoneName.Value
 	}
 	if user.MsgBurnDuration != nil {
 		val["msg_burn_duration"] = user.MsgBurnDuration.Value

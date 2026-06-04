@@ -17,8 +17,8 @@ import (
 	"github.com/openimsdk/protocol/relation"
 	"github.com/openimsdk/protocol/rtc"
 	"github.com/openimsdk/protocol/third"
-	"github.com/openimsdk/protocol/user"
 	pbtotp "github.com/openimsdk/protocol/totp"
+	"github.com/openimsdk/protocol/user"
 	pbvirgil "github.com/openimsdk/protocol/virgilsecurity"
 
 	"github.com/openimsdk/open-im-server/v3/internal/api/jssdk"
