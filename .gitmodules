@@ -1,3 +1,6 @@
 [submodule "protocol"]
 	path = protocol
 	url = https://github.com/sok-im/protocol
+[submodule "openim-sdk-core"]
+	path = openim-sdk-core
+	url = https://github.com/sok-im/openim-sdk-core-origin
