@@ -140,7 +140,7 @@ func (c *ConsumerHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim s
 	}
 	c.onlineCache.Lock.Unlock()
 	ctx := mcontext.SetOperationID(context.TODO(), strconv.FormatInt(time.Now().UnixNano()+int64(rand.Uint32()), 10))
-	log.ZDebug(ctx, "ConsumeClaim", "begin consume messages")
+	log.ZDebug(ctx, "ConsumeClaim begin consume messages")
 
 	for msg := range claim.Messages() {
 		ctx := c.pushConsumerGroup.GetContextFromMsg(msg)
@@ -198,7 +198,6 @@ func (c *ConsumerHandler) Push2User(ctx context.Context, userIDs []string, msg *
 	}
 	err = c.offlinePushMsg(ctx, msg, needOfflinePushUserID)
 	if err != nil {
-		log.ZDebug(ctx, "offlinePushMsg failed", err, "needOfflinePushUserID", needOfflinePushUserID, "msg", msg)
 		log.ZWarn(ctx, "offlinePushMsg failed", err, "needOfflinePushUserID length", len(needOfflinePushUserID), "msg", msg)
 		return nil
 	}
@@ -302,8 +301,6 @@ func (c *ConsumerHandler) asyncOfflinePush(ctx context.Context, needOfflinePushU
 		needOfflinePushUserIDs = offlinePushUserIDs
 	}
 	if err := c.pushDatabase.MsgToOfflinePushMQ(ctx, conversationutil.GenConversationUniqueKeyForSingle(msg.SendID, msg.RecvID), needOfflinePushUserIDs, msg); err != nil {
-		log.ZDebug(ctx, "Msg To OfflinePush MQ error", err, "needOfflinePushUserIDs",
-			needOfflinePushUserIDs, "msg", msg)
 		log.ZWarn(ctx, "Msg To OfflinePush MQ error", err, "needOfflinePushUserIDs length",
 			len(needOfflinePushUserIDs), "msg", msg)
 		prommetrics.GroupChatMsgProcessFailedCounter.Inc()

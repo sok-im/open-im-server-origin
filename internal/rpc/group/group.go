@@ -1029,7 +1029,7 @@ func (s *groupServer) GroupApplicationResponse(ctx context.Context, req *pbgroup
 	case constant.GroupResponseAgree:
 		s.notification.GroupApplicationAcceptedNotification(ctx, req)
 		if member == nil {
-			log.ZDebug(ctx, "GroupApplicationResponse", "member is nil")
+			log.ZDebug(ctx, "GroupApplicationResponse member is nil")
 		} else {
 			if groupRequest.InviterUserID == "" {
 				if err = s.notification.MemberEnterNotification(ctx, req.GroupID, req.FromUserID); err != nil {

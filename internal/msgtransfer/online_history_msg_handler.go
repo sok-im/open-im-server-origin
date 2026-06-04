@@ -320,7 +320,7 @@ func (och *OnlineHistoryRedisConsumerHandler) handleMsg(ctx context.Context, key
 					log.ZWarn(ctx, "single chat or notification first create conversation error", err,
 						"conversationID", conversationID, "sessionType", msg.SessionType)
 				}
-				log.ZDebug(ctx, "handleMsg", "CreateSingleChatConversations", "conversationID", conversationID, "sessionType", msg.SessionType, "recv", msg.RecvID, "send", msg.SendID)
+				log.ZDebug(ctx, "handleMsg CreateSingleChatConversations", "conversationID", conversationID, "sessionType", msg.SessionType, "recv", msg.RecvID, "send", msg.SendID)
 			default:
 				log.ZWarn(ctx, "unknown session type", nil, "sessionType",
 					msg.SessionType)
