@@ -27,9 +27,6 @@ config/config.yaml
 config/notification.yaml
 start-config.yml
 
-### Git 子模块（独立仓库，服务端开发以本仓源码为准）###
-openim-sdk-core/
-
 ### 部署生成物 / Helm 模板（重复 YAML，低索引价值）###
 deployments/openim-server/charts/
 deployments/charts/
