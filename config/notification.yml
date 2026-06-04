@@ -193,6 +193,56 @@ groupInfoSetName:
     desc: groupInfoSetName desc
     ext: groupInfoSetName ext
 
+groupCallStarted:
+  isSendMsg: true
+  reliabilityLevel: 2
+  unreadCount: false
+  offlinePush:
+    enable: false
+    title: group call started
+    desc: group call started
+    ext: group call started
+
+groupCallEnded:
+  isSendMsg: true
+  reliabilityLevel: 2
+  unreadCount: false
+  offlinePush:
+    enable: false
+    title: group call ended
+    desc: group call ended
+    ext: group call ended
+
+groupBurnDurationSet:
+  isSendMsg: true
+  reliabilityLevel: 2
+  unreadCount: false
+  offlinePush:
+    enable: false
+    title: disappearing messages updated
+    desc: disappearing messages updated
+    ext: disappearing messages updated
+
+groupFaceURLSet:
+  isSendMsg: true
+  reliabilityLevel: 2
+  unreadCount: false
+  offlinePush:
+    enable: false
+    title: group avatar updated
+    desc: group avatar updated
+    ext: group avatar updated
+
+groupNeedVerificationSet:
+  isSendMsg: true
+  reliabilityLevel: 2
+  unreadCount: false
+  offlinePush:
+    enable: false
+    title: join approval updated
+    desc: join approval updated
+    ext: join approval updated
+
 
 #############################friend#################################
 friendApplicationAdded:

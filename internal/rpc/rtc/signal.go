@@ -24,6 +24,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/livekit/protocol/auth"
 	livekit "github.com/livekit/protocol/livekit"
+	"github.com/openimsdk/open-im-server/v3/pkg/common/config"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/servererrs"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/model"
 	"github.com/openimsdk/protocol/constant"
@@ -496,14 +497,18 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 		if err := s.db.DeleteInvitation(ctx, dbInv.RoomID); err != nil {
 			log.ZWarn(ctx, "handleReject: DeleteInvitation failed", err, "roomID", dbInv.RoomID)
 		}
+
+		//s.sendCallRecordChatMsg(ctx, dbInv, callStatusRejected, 0)
+
 		go s.broadcastGroupCallStatusToNonInvited(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
-		s.sendCallRecordChatMsg(ctx, dbInv, callStatusRejected, 0)
+
 		go s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, 0)
 	} else {
 		if err := s.db.DeleteInvitation(ctx, dbInv.RoomID); err != nil {
 			log.ZWarn(ctx, "DeleteInvitation failed", err, "roomID", dbInv.RoomID)
 		}
-		s.sendCallRecordChatMsg(ctx, dbInv, callStatusRejected, 0)
+
+		//s.sendCallRecordChatMsg(ctx, dbInv, callStatusRejected, 0)
 	}
 
 	return &rtc.SignalRejectResp{}, nil
@@ -547,7 +552,7 @@ func (s *rtcServer) handleCancel(ctx context.Context, req *rtc.SignalCancelReq, 
 		go s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, 0)
 	}
 
-	s.sendCallRecordChatMsg(ctx, dbInv, callStatusCancelled, 0)
+	//s.sendCallRecordChatMsg(ctx, dbInv, callStatusCancelled, 0)
 
 	return &rtc.SignalCancelResp{}, nil
 }
@@ -638,7 +643,8 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 			duration = (nowMs - dbInv.InitiateTime) / 1000
 		}
 	}
-	s.sendCallRecordChatMsg(ctx, dbInv, callStatusAnswered, duration)
+
+	//s.sendCallRecordChatMsg(ctx, dbInv, callStatusAnswered, duration)
 
 	// Send a group-chat timeline notification to all members with duration, e.g.
 	// "Alice ended an audio/video call (10 minutes 30 seconds)".
@@ -960,11 +966,11 @@ const (
 // groupCallStatusPayload is the JSON payload sent inside CustomSignalNotification
 // to non-invited group members so that they can render the "call in progress" banner.
 type groupCallStatusPayload struct {
-	Type          string `json:"type"`          // always "groupCallStatus"
-	Status        string `json:"status"`        // "started" | "ended"
+	Type          string `json:"type"`   // always "groupCallStatus"
+	Status        string `json:"status"` // "started" | "ended"
 	GroupID       string `json:"groupID"`
 	RoomID        string `json:"roomID"`
-	MediaType     string `json:"mediaType"`     // "audio" | "video"
+	MediaType     string `json:"mediaType"` // "audio" | "video"
 	InviterUserID string `json:"inviterUserID"`
 }
 
@@ -1036,6 +1042,35 @@ func groupCallStartedDefaultTips(nickname, mediaType string) string {
 	}
 }
 
+// groupCallNotificationConfig returns notification.yml settings for group call timeline events.
+func (s *rtcServer) groupCallNotificationConfig(contentType int32) config.NotificationConfig {
+	switch contentType {
+	case constant.GroupCallStartedNotification:
+		return s.config.NotificationConfig.GroupCallStarted
+	case constant.GroupCallEndedNotification:
+		return s.config.NotificationConfig.GroupCallEnded
+	default:
+		return config.NotificationConfig{}
+	}
+}
+
+// groupCallTimelineMsgOptions builds MsgData.Options from notification.yml and routes
+// the message into the group chat timeline (sg_), not the n_ notification session.
+func (s *rtcServer) groupCallTimelineMsgOptions(contentType int32) map[string]bool {
+	cfg := s.groupCallNotificationConfig(contentType)
+	opts := config.GetOptionsByNotification(cfg, nil)
+	datautil.SetSwitchFromOptions(opts, constant.IsNotNotification, true)
+	return opts
+}
+
+func offlinePushInfoFromConfig(cfg config.NotificationConfig) *sdkws.OfflinePushInfo {
+	return &sdkws.OfflinePushInfo{
+		Title: cfg.OfflinePush.Title,
+		Desc:  cfg.OfflinePush.Desc,
+		Ex:    cfg.OfflinePush.Ext,
+	}
+}
+
 // sendGroupCallStartedNotification sends a GroupCallStartedNotification (1522) to the
 // group chat timeline so all members see a system message, e.g. "Alice started a video call".
 // Errors are non-fatal and only logged.
@@ -1079,20 +1114,22 @@ func (s *rtcServer) sendGroupCallStartedNotification(ctx context.Context, groupI
 		return
 	}
 
+	notifyCfg := s.groupCallNotificationConfig(constant.GroupCallStartedNotification)
 	now := time.Now().UnixMilli()
 	msgData := &sdkws.MsgData{
-		SendID:      inviterUserID,
-		RecvID:      groupID,
-		GroupID:     groupID,
-		SessionType: int32(constant.ReadGroupChatType),
-		ContentType: int32(constant.GroupCallStartedNotification),
-		MsgFrom:     int32(constant.SysMsgType),
-		Content:     content,
-		CreateTime:  now,
-		SendTime:    now,
-		ServerMsgID: uuid.New().String(),
-		ClientMsgID: uuid.New().String(),
-		Options:     callRecordMsgOptions(),
+		SendID:          inviterUserID,
+		RecvID:          groupID,
+		GroupID:         groupID,
+		SessionType:     int32(constant.ReadGroupChatType),
+		ContentType:     int32(constant.GroupCallStartedNotification),
+		MsgFrom:         int32(constant.SysMsgType),
+		Content:         content,
+		CreateTime:      now,
+		SendTime:        now,
+		ServerMsgID:     uuid.New().String(),
+		ClientMsgID:     uuid.New().String(),
+		Options:         s.groupCallTimelineMsgOptions(constant.GroupCallStartedNotification),
+		OfflinePushInfo: offlinePushInfoFromConfig(notifyCfg),
 	}
 	if _, err := s.msgClient.MsgClient.SendMsg(ctx, &pbmsg.SendMsgReq{MsgData: msgData}); err != nil {
 		log.ZWarn(ctx, "sendGroupCallStartedNotification: SendMsg failed", err, "groupID", groupID)
@@ -1214,20 +1251,22 @@ func (s *rtcServer) sendGroupCallEndedNotification(ctx context.Context, groupID,
 		return
 	}
 
+	notifyCfg := s.groupCallNotificationConfig(constant.GroupCallEndedNotification)
 	now := time.Now().UnixMilli()
 	msgData := &sdkws.MsgData{
-		SendID:      inviterUserID,
-		RecvID:      groupID,
-		GroupID:     groupID,
-		SessionType: int32(constant.ReadGroupChatType),
-		ContentType: int32(constant.GroupCallEndedNotification),
-		MsgFrom:     int32(constant.SysMsgType),
-		Content:     content,
-		CreateTime:  now,
-		SendTime:    now,
-		ServerMsgID: uuid.New().String(),
-		ClientMsgID: uuid.New().String(),
-		Options:     callRecordMsgOptions(),
+		SendID:          inviterUserID,
+		RecvID:          groupID,
+		GroupID:         groupID,
+		SessionType:     int32(constant.ReadGroupChatType),
+		ContentType:     int32(constant.GroupCallEndedNotification),
+		MsgFrom:         int32(constant.SysMsgType),
+		Content:         content,
+		CreateTime:      now,
+		SendTime:        now,
+		ServerMsgID:     uuid.New().String(),
+		ClientMsgID:     uuid.New().String(),
+		Options:         s.groupCallTimelineMsgOptions(constant.GroupCallEndedNotification),
+		OfflinePushInfo: offlinePushInfoFromConfig(notifyCfg),
 	}
 	if _, err := s.msgClient.MsgClient.SendMsg(ctx, &pbmsg.SendMsgReq{MsgData: msgData}); err != nil {
 		log.ZWarn(ctx, "sendGroupCallEndedNotification: SendMsg failed", err, "groupID", groupID)
@@ -1328,10 +1367,10 @@ const (
 // representing a completed call event in the conversation timeline.
 // Clients render this as a call bubble, e.g. "[语音通话] 2分05秒".
 type callRecordData struct {
-	CustomType        string   `json:"customType"`        // always "rtcCallRecord"
-	MediaType         string   `json:"mediaType"`         // "audio" | "video"
-	Status            string   `json:"status"`            // answered / cancelled / rejected / not_connected
-	Duration          int64    `json:"duration"`          // seconds; 0 for unanswered calls
+	CustomType        string   `json:"customType"` // always "rtcCallRecord"
+	MediaType         string   `json:"mediaType"`  // "audio" | "video"
+	Status            string   `json:"status"`     // answered / cancelled / rejected / not_connected
+	Duration          int64    `json:"duration"`   // seconds; 0 for unanswered calls
 	InviterUserID     string   `json:"inviterUserID"`
 	InviteeUserIDList []string `json:"inviteeUserIDList"`
 	RoomID            string   `json:"roomID"`
@@ -1477,7 +1516,7 @@ func (s *rtcServer) handleTimeout(ctx context.Context, req *rtc.SignalTimeoutReq
 		go s.broadcastGroupCallStatusToNonInvited(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
 	}
 
-	s.sendCallRecordChatMsg(ctx, dbInv, callStatusNotConnected, 0)
+	//s.sendCallRecordChatMsg(ctx, dbInv, callStatusNotConnected, 0)
 	return &rtc.SignalTimeoutResp{}, nil
 }
 

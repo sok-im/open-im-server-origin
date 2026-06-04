@@ -166,6 +166,11 @@ type Notification struct {
 	GroupMemberSetToOrdinary  NotificationConfig `yaml:"groupMemberSetToOrdinaryUser"`
 	GroupInfoSetAnnouncement  NotificationConfig `mapstructure:"groupInfoSetAnnouncement"`
 	GroupInfoSetName          NotificationConfig `mapstructure:"groupInfoSetName"`
+	GroupCallStarted          NotificationConfig `mapstructure:"groupCallStarted"`
+	GroupCallEnded            NotificationConfig `mapstructure:"groupCallEnded"`
+	GroupBurnDurationSet      NotificationConfig `mapstructure:"groupBurnDurationSet"`
+	GroupFaceURLSet           NotificationConfig `mapstructure:"groupFaceURLSet"`
+	GroupNeedVerificationSet  NotificationConfig `mapstructure:"groupNeedVerificationSet"`
 	FriendApplicationAdded    NotificationConfig `mapstructure:"friendApplicationAdded"`
 	FriendApplicationApproved NotificationConfig `mapstructure:"friendApplicationApproved"`
 	FriendApplicationRejected NotificationConfig `mapstructure:"friendApplicationRejected"`

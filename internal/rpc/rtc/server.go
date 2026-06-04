@@ -31,10 +31,11 @@ import (
 
 // Config aggregates all configuration needed by the RTC service.
 type Config struct {
-	RpcConfig     config.Rtc
-	MongodbConfig config.Mongo
-	Share         config.Share
-	Discovery     config.Discovery
+	RpcConfig          config.Rtc
+	MongodbConfig      config.Mongo
+	Share              config.Share
+	Discovery          config.Discovery
+	NotificationConfig config.Notification
 }
 
 type rtcServer struct {

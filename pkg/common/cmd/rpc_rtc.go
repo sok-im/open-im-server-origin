@@ -38,6 +38,7 @@ func NewRtcRpcCmd() *RtcRpcCmd {
 		OpenIMRPCRtcCfgFileName: &rtcConfig.RpcConfig,
 		MongodbConfigFileName:   &rtcConfig.MongodbConfig,
 		ShareFileName:           &rtcConfig.Share,
+		NotificationFileName:    &rtcConfig.NotificationConfig,
 		DiscoveryConfigFilename: &rtcConfig.Discovery,
 	}
 	ret.RootCmd = NewRootCmd(program.GetProcessName(), WithConfigMap(ret.configMap))
