@@ -498,7 +498,7 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 			log.ZWarn(ctx, "handleReject: DeleteInvitation failed", err, "roomID", dbInv.RoomID)
 		}
 
-		//s.sendCallRecordChatMsg(ctx, dbInv, callStatusRejected, 0)
+		s.sendCallRecordChatMsg(ctx, dbInv, callStatusRejected, 0)
 
 		go s.broadcastGroupCallStatusToNonInvited(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
 
@@ -508,7 +508,7 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 			log.ZWarn(ctx, "DeleteInvitation failed", err, "roomID", dbInv.RoomID)
 		}
 
-		//s.sendCallRecordChatMsg(ctx, dbInv, callStatusRejected, 0)
+		s.sendCallRecordChatMsg(ctx, dbInv, callStatusRejected, 0)
 	}
 
 	return &rtc.SignalRejectResp{}, nil
@@ -552,7 +552,7 @@ func (s *rtcServer) handleCancel(ctx context.Context, req *rtc.SignalCancelReq, 
 		go s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, 0)
 	}
 
-	//s.sendCallRecordChatMsg(ctx, dbInv, callStatusCancelled, 0)
+	s.sendCallRecordChatMsg(ctx, dbInv, callStatusCancelled, 0)
 
 	return &rtc.SignalCancelResp{}, nil
 }
@@ -644,7 +644,7 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 		}
 	}
 
-	//s.sendCallRecordChatMsg(ctx, dbInv, callStatusAnswered, duration)
+	s.sendCallRecordChatMsg(ctx, dbInv, callStatusAnswered, duration)
 
 	// Send a group-chat timeline notification to all members with duration, e.g.
 	// "Alice ended an audio/video call (10 minutes 30 seconds)".
@@ -1516,7 +1516,7 @@ func (s *rtcServer) handleTimeout(ctx context.Context, req *rtc.SignalTimeoutReq
 		go s.broadcastGroupCallStatusToNonInvited(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
 	}
 
-	//s.sendCallRecordChatMsg(ctx, dbInv, callStatusNotConnected, 0)
+	s.sendCallRecordChatMsg(ctx, dbInv, callStatusNotConnected, 0)
 	return &rtc.SignalTimeoutResp{}, nil
 }
 
