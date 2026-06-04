@@ -294,6 +294,40 @@ func buildPinSnapshot(groupID, conversationID, opUserID string, m *sdkws.MsgData
 	return pin
 }
 
+// pinnedMsgDefaultTips returns an English notification text describing what
+// the operator pinned, e.g. "Alice pinned a text message".
+func pinnedMsgDefaultTips(opUser *sdkws.GroupMemberFullInfo, pinned *sdkws.GroupPinnedMsgInfo) string {
+	name := ""
+	if opUser != nil {
+		name = opUser.Nickname
+		if name == "" {
+			name = opUser.UserID
+		}
+	}
+	if name == "" {
+		name = "Someone"
+	}
+
+	if pinned == nil {
+		return name + " pinned a message"
+	}
+
+	switch pinned.ContentType {
+	case constant.Text, constant.AtText, constant.Quote, constant.AdvancedText, constant.MarkdownText:
+		return name + " pinned a text message"
+	case constant.Picture:
+		return name + " pinned an image"
+	case constant.Video:
+		return name + " pinned a video"
+	case constant.Voice:
+		return name + " pinned a voice message"
+	case constant.File:
+		return name + " pinned a file"
+	default:
+		return name + " pinned a message"
+	}
+}
+
 func copyOptions(src map[string]bool) map[string]bool {
 	if len(src) == 0 {
 		return nil

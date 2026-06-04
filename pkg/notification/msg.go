@@ -56,6 +56,9 @@ func newContentTypeConf(conf *config.Notification) map[int32]config.Notification
 		constant.GroupMemberSetToOrdinaryUserNotification: conf.GroupMemberSetToOrdinary,
 		constant.GroupInfoSetAnnouncementNotification:     conf.GroupInfoSetAnnouncement,
 		constant.GroupInfoSetNameNotification:             conf.GroupInfoSetName,
+		constant.GroupBurnDurationSetNotification:         conf.GroupInfoSet,
+		constant.GroupFaceURLSetNotification:              conf.GroupInfoSet,
+		constant.GroupNeedVerificationSetNotification:     conf.GroupInfoSet,
 		// user
 		constant.UserInfoUpdatedNotification:  conf.UserInfoUpdated,
 		constant.UserStatusChangeNotification: conf.UserStatusChanged,
@@ -104,6 +107,9 @@ func newSessionTypeConf() map[int32]int32 {
 		constant.GroupMemberSetToOrdinaryUserNotification: constant.ReadGroupChatType,
 		constant.GroupInfoSetAnnouncementNotification:     constant.ReadGroupChatType,
 		constant.GroupInfoSetNameNotification:             constant.ReadGroupChatType,
+		constant.GroupBurnDurationSetNotification:         constant.ReadGroupChatType,
+		constant.GroupFaceURLSetNotification:              constant.ReadGroupChatType,
+		constant.GroupNeedVerificationSetNotification:     constant.ReadGroupChatType,
 		// user
 		constant.UserInfoUpdatedNotification:  constant.SingleChatType,
 		constant.UserStatusChangeNotification: constant.SingleChatType,

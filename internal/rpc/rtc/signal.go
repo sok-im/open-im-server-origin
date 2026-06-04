@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -33,6 +34,7 @@ import (
 	"github.com/openimsdk/tools/log"
 	"github.com/openimsdk/tools/mcontext"
 	"github.com/openimsdk/tools/utils/datautil"
+	"github.com/openimsdk/tools/utils/jsonutil"
 	"go.mongodb.org/mongo-driver/mongo"
 	"google.golang.org/protobuf/proto"
 )
@@ -311,6 +313,9 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 	// Run in a goroutine so large groups don't block the caller's response.
 	go s.broadcastGroupCallStatusToNonInvited(context.WithoutCancel(ctx), inv.GroupID, inv.RoomID, inv.MediaType, inv.InviterUserID, inv.InviteeUserIDList, GroupCallStatusOngoing)
 
+	// Send a group-chat timeline notification to all members: "XXX started an audio/video call".
+	go s.sendGroupCallStartedNotification(context.WithoutCancel(ctx), inv.GroupID, inv.InviterUserID, inv.MediaType)
+
 	resp := &rtc.SignalInviteInGroupResp{
 		Token:              token,
 		RoomID:             inv.RoomID,
@@ -493,6 +498,7 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 		}
 		go s.broadcastGroupCallStatusToNonInvited(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
 		s.sendCallRecordChatMsg(ctx, dbInv, callStatusRejected, 0)
+		go s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, 0)
 	} else {
 		if err := s.db.DeleteInvitation(ctx, dbInv.RoomID); err != nil {
 			log.ZWarn(ctx, "DeleteInvitation failed", err, "roomID", dbInv.RoomID)
@@ -538,6 +544,7 @@ func (s *rtcServer) handleCancel(ctx context.Context, req *rtc.SignalCancelReq, 
 	// For group calls, notify non-invited members that the call was cancelled.
 	if dbInv.GroupID != "" {
 		go s.broadcastGroupCallStatusToNonInvited(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
+		go s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, 0)
 	}
 
 	s.sendCallRecordChatMsg(ctx, dbInv, callStatusCancelled, 0)
@@ -632,6 +639,12 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 		}
 	}
 	s.sendCallRecordChatMsg(ctx, dbInv, callStatusAnswered, duration)
+
+	// Send a group-chat timeline notification to all members with duration, e.g.
+	// "Alice ended an audio/video call (10 minutes 30 seconds)".
+	if dbInv.GroupID != "" {
+		go s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, duration)
+	}
 
 	return &rtc.SignalHungUpResp{}, nil
 }
@@ -1001,6 +1014,223 @@ func (s *rtcServer) broadcastGroupCallStatusToNonInvited(ctx context.Context, gr
 		if err := s.sendCustomSignalNotification(ctx, inviterUserID, memberID, int32(constant.SingleChatType), content); err != nil {
 			log.ZWarn(ctx, "broadcastGroupCallStatusToNonInvited: send failed", err, "memberID", memberID, "status", status)
 		}
+	}
+}
+
+// groupCallStartedDefaultTips returns an English notification text, e.g.
+// "Alice started an audio/video call".
+func groupCallStartedDefaultTips(nickname, mediaType string) string {
+	name := nickname
+	if name == "" {
+		name = "Someone"
+	}
+	switch {
+	case strings.Contains(mediaType, "video") && strings.Contains(mediaType, "audio"):
+		return name + " started an audio/video call"
+	case strings.Contains(mediaType, "video"):
+		return name + " started a video call"
+	case strings.Contains(mediaType, "audio"):
+		return name + " started an audio call"
+	default:
+		return name + " started an audio/video call"
+	}
+}
+
+// sendGroupCallStartedNotification sends a GroupCallStartedNotification (1522) to the
+// group chat timeline so all members see a system message, e.g. "Alice started a video call".
+// Errors are non-fatal and only logged.
+func (s *rtcServer) sendGroupCallStartedNotification(ctx context.Context, groupID, inviterUserID, mediaType string) {
+	if groupID == "" {
+		return
+	}
+
+	groupInfo, err := s.groupClient.GetGroupInfoCache(ctx, groupID)
+	if err != nil {
+		log.ZWarn(ctx, "sendGroupCallStartedNotification: GetGroupInfoCache failed", err, "groupID", groupID)
+		return
+	}
+
+	var opUser *sdkws.GroupMemberFullInfo
+	if member, err := s.groupClient.GetGroupMemberCache(ctx, groupID, inviterUserID); err == nil {
+		opUser = member
+	} else {
+		log.ZWarn(ctx, "sendGroupCallStartedNotification: GetGroupMemberCache failed (non-fatal)", err,
+			"groupID", groupID, "inviterUserID", inviterUserID)
+		opUser = &sdkws.GroupMemberFullInfo{UserID: inviterUserID}
+	}
+
+	nickname := opUser.Nickname
+	if nickname == "" {
+		nickname = opUser.UserID
+	}
+
+	tips := &sdkws.GroupCallStartedTips{
+		OpUser:      opUser,
+		Group:       groupInfo,
+		MediaType:   mediaType,
+		DefaultTips: groupCallStartedDefaultTips(nickname, mediaType),
+	}
+
+	detail := jsonutil.StructToJsonString(tips)
+	elem := sdkws.NotificationElem{Detail: detail}
+	content, err := json.Marshal(&elem)
+	if err != nil {
+		log.ZWarn(ctx, "sendGroupCallStartedNotification: marshal NotificationElem failed", err)
+		return
+	}
+
+	now := time.Now().UnixMilli()
+	msgData := &sdkws.MsgData{
+		SendID:      inviterUserID,
+		RecvID:      groupID,
+		GroupID:     groupID,
+		SessionType: int32(constant.ReadGroupChatType),
+		ContentType: int32(constant.GroupCallStartedNotification),
+		MsgFrom:     int32(constant.SysMsgType),
+		Content:     content,
+		CreateTime:  now,
+		SendTime:    now,
+		ServerMsgID: uuid.New().String(),
+		ClientMsgID: uuid.New().String(),
+		Options:     callRecordMsgOptions(),
+	}
+	if _, err := s.msgClient.MsgClient.SendMsg(ctx, &pbmsg.SendMsgReq{MsgData: msgData}); err != nil {
+		log.ZWarn(ctx, "sendGroupCallStartedNotification: SendMsg failed", err, "groupID", groupID)
+	}
+}
+
+// callEndedDurationText returns a human-readable English string for the call
+// duration, e.g. "10 seconds", "10 minutes", "1 hour 10 minutes".
+// Returns empty string when durationSecs <= 0.
+func callEndedDurationText(durationSecs int64) string {
+	if durationSecs <= 0 {
+		return ""
+	}
+	hours := durationSecs / 3600
+	minutes := (durationSecs % 3600) / 60
+	seconds := durationSecs % 60
+
+	if hours > 0 {
+		hourWord := "hours"
+		if hours == 1 {
+			hourWord = "hour"
+		}
+		if minutes > 0 {
+			minuteWord := "minutes"
+			if minutes == 1 {
+				minuteWord = "minute"
+			}
+			return fmt.Sprintf("%d %s %d %s", hours, hourWord, minutes, minuteWord)
+		}
+		return fmt.Sprintf("%d %s", hours, hourWord)
+	}
+	if minutes > 0 {
+		minuteWord := "minutes"
+		if minutes == 1 {
+			minuteWord = "minute"
+		}
+		if seconds > 0 {
+			secondWord := "seconds"
+			if seconds == 1 {
+				secondWord = "second"
+			}
+			return fmt.Sprintf("%d %s %d %s", minutes, minuteWord, seconds, secondWord)
+		}
+		return fmt.Sprintf("%d %s", minutes, minuteWord)
+	}
+	secondWord := "seconds"
+	if seconds == 1 {
+		secondWord = "second"
+	}
+	return fmt.Sprintf("%d %s", seconds, secondWord)
+}
+
+// groupCallEndedDefaultTips returns an English notification text, e.g.
+// "Alice ended an audio/video call (10 minutes 30 seconds)".
+func groupCallEndedDefaultTips(nickname, mediaType string, durationSecs int64) string {
+	name := nickname
+	if name == "" {
+		name = "Someone"
+	}
+	callType := "audio/video call"
+	switch {
+	case strings.Contains(mediaType, "video") && strings.Contains(mediaType, "audio"):
+		callType = "audio/video call"
+	case strings.Contains(mediaType, "video"):
+		callType = "video call"
+	case strings.Contains(mediaType, "audio"):
+		callType = "audio call"
+	}
+	base := name + " ended an " + callType
+	dur := callEndedDurationText(durationSecs)
+	if dur == "" {
+		return base
+	}
+	return base + " (" + dur + ")"
+}
+
+// sendGroupCallEndedNotification sends a GroupCallEndedNotification (1523) to the
+// group chat timeline so all members see a system message, e.g.
+// "Alice ended an audio/video call (10 minutes 30 seconds)".
+// Errors are non-fatal and only logged.
+func (s *rtcServer) sendGroupCallEndedNotification(ctx context.Context, groupID, inviterUserID, mediaType string, durationSecs int64) {
+	if groupID == "" {
+		return
+	}
+
+	groupInfo, err := s.groupClient.GetGroupInfoCache(ctx, groupID)
+	if err != nil {
+		log.ZWarn(ctx, "sendGroupCallEndedNotification: GetGroupInfoCache failed", err, "groupID", groupID)
+		return
+	}
+
+	var opUser *sdkws.GroupMemberFullInfo
+	if member, err := s.groupClient.GetGroupMemberCache(ctx, groupID, inviterUserID); err == nil {
+		opUser = member
+	} else {
+		log.ZWarn(ctx, "sendGroupCallEndedNotification: GetGroupMemberCache failed (non-fatal)", err,
+			"groupID", groupID, "inviterUserID", inviterUserID)
+		opUser = &sdkws.GroupMemberFullInfo{UserID: inviterUserID}
+	}
+
+	nickname := opUser.Nickname
+	if nickname == "" {
+		nickname = opUser.UserID
+	}
+
+	tips := &sdkws.GroupCallEndedTips{
+		OpUser:       opUser,
+		Group:        groupInfo,
+		MediaType:    mediaType,
+		DurationSecs: durationSecs,
+		DefaultTips:  groupCallEndedDefaultTips(nickname, mediaType, durationSecs),
+	}
+
+	detail := jsonutil.StructToJsonString(tips)
+	elem := sdkws.NotificationElem{Detail: detail}
+	content, err := json.Marshal(&elem)
+	if err != nil {
+		log.ZWarn(ctx, "sendGroupCallEndedNotification: marshal NotificationElem failed", err)
+		return
+	}
+
+	now := time.Now().UnixMilli()
+	msgData := &sdkws.MsgData{
+		SendID:      inviterUserID,
+		RecvID:      groupID,
+		GroupID:     groupID,
+		SessionType: int32(constant.ReadGroupChatType),
+		ContentType: int32(constant.GroupCallEndedNotification),
+		MsgFrom:     int32(constant.SysMsgType),
+		Content:     content,
+		CreateTime:  now,
+		SendTime:    now,
+		ServerMsgID: uuid.New().String(),
+		ClientMsgID: uuid.New().String(),
+		Options:     callRecordMsgOptions(),
+	}
+	if _, err := s.msgClient.MsgClient.SendMsg(ctx, &pbmsg.SendMsgReq{MsgData: msgData}); err != nil {
+		log.ZWarn(ctx, "sendGroupCallEndedNotification: SendMsg failed", err, "groupID", groupID)
 	}
 }
 

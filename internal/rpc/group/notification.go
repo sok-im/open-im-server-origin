@@ -433,7 +433,242 @@ func (g *NotificationSender) GroupInfoSetNameNotification(ctx context.Context, t
 		return
 	}
 	g.setVersion(ctx, &tips.GroupMemberVersion, &tips.GroupMemberVersionID, database.GroupMemberVersionName, tips.Group.GroupID)
+	tips.DefaultTips = groupInfoSetNameDefaultTips(tips.OpUser, tips.Group)
 	g.Notification(ctx, mcontext.GetOpUserID(ctx), tips.Group.GroupID, constant.GroupInfoSetNameNotification, tips)
+}
+
+// groupInfoSetNameDefaultTips returns an English notification text, e.g.
+// "Alice has changed the group name to NewName".
+func groupInfoSetNameDefaultTips(opUser *sdkws.GroupMemberFullInfo, group *sdkws.GroupInfo) string {
+	name := ""
+	if opUser != nil {
+		name = opUser.Nickname
+		if name == "" {
+			name = opUser.UserID
+		}
+	}
+	if name == "" {
+		name = "Someone"
+	}
+	newName := ""
+	if group != nil {
+		newName = group.GroupName
+	}
+	if newName == "" {
+		return name + " has changed the group name"
+	}
+	return name + " has changed the group name to " + newName
+}
+
+// opUserName returns the display name for an operator: Nickname → UserID → "Someone".
+func opUserName(u *sdkws.GroupMemberFullInfo) string {
+	if u == nil {
+		return "Someone"
+	}
+	if u.Nickname != "" {
+		return u.Nickname
+	}
+	if u.UserID != "" {
+		return u.UserID
+	}
+	return "Someone"
+}
+
+// burnDurationText converts a duration in seconds to a human-readable English
+// string using the coarsest whole unit, e.g. 86400 → "1 day", 7200 → "2 hours".
+func burnDurationText(secs int32) string {
+	if secs <= 0 {
+		return ""
+	}
+	if secs%86400 == 0 {
+		d := secs / 86400
+		if d == 1 {
+			return "1 day"
+		}
+		return fmt.Sprintf("%d days", d)
+	}
+	if secs%3600 == 0 {
+		h := secs / 3600
+		if h == 1 {
+			return "1 hour"
+		}
+		return fmt.Sprintf("%d hours", h)
+	}
+	if secs%60 == 0 {
+		m := secs / 60
+		if m == 1 {
+			return "1 minute"
+		}
+		return fmt.Sprintf("%d minutes", m)
+	}
+	if secs == 1 {
+		return "1 second"
+	}
+	return fmt.Sprintf("%d seconds", secs)
+}
+
+// groupBurnDurationDefaultTips returns an English notification text, e.g.
+// "Alice set disappearing messages to 1 day" or "Alice turned off disappearing messages".
+func groupBurnDurationDefaultTips(opUser *sdkws.GroupMemberFullInfo, durationSecs int32) string {
+	name := ""
+	if opUser != nil {
+		name = opUser.Nickname
+		if name == "" {
+			name = opUser.UserID
+		}
+	}
+	if name == "" {
+		name = "Someone"
+	}
+	if durationSecs <= 0 {
+		return name + " turned off disappearing messages"
+	}
+	return name + " set disappearing messages to " + burnDurationText(durationSecs)
+}
+
+// GroupBurnDurationSetNotification broadcasts a GroupBurnDurationSetNotification (1524)
+// to all group members when an admin changes the disappearing-message duration.
+func (g *NotificationSender) GroupBurnDurationSetNotification(ctx context.Context, groupID string, durationSecs int32) {
+	var err error
+	defer func() {
+		if err != nil {
+			log.ZError(ctx, stringutil.GetFuncName(1)+" failed", err)
+		}
+	}()
+	groupInfo, err := g.getGroupInfo(ctx, groupID)
+	if err != nil {
+		return
+	}
+	var opUser *sdkws.GroupMemberFullInfo
+	if err = g.fillOpUser(ctx, &opUser, groupID); err != nil {
+		return
+	}
+	tips := &sdkws.GroupBurnDurationSetTips{
+		Group:        groupInfo,
+		OpUser:       opUser,
+		DurationSecs: durationSecs,
+		DefaultTips:  groupBurnDurationDefaultTips(opUser, durationSecs),
+	}
+	g.Notification(ctx, mcontext.GetOpUserID(ctx), groupID, constant.GroupBurnDurationSetNotification, tips)
+}
+
+// groupNeedVerificationDefaultTips returns an English text for a NeedVerification change.
+// 0/1 = approval required; 2 (Directly) = no approval.
+func groupNeedVerificationDefaultTips(opUser *sdkws.GroupMemberFullInfo, needVerification int32) string {
+	name := opUserName(opUser)
+	if needVerification == constant.Directly {
+		return name + " disabled join approval — anyone can join"
+	}
+	return name + " enabled join approval"
+}
+
+// GroupNeedVerificationSetNotification sends a GroupNeedVerificationSetNotification (1526)
+// to all group members when an admin changes the join-approval setting.
+func (g *NotificationSender) GroupNeedVerificationSetNotification(ctx context.Context, groupID string, needVerification int32) {
+	var err error
+	defer func() {
+		if err != nil {
+			log.ZError(ctx, stringutil.GetFuncName(1)+" failed", err)
+		}
+	}()
+	groupInfo, err := g.getGroupInfo(ctx, groupID)
+	if err != nil {
+		return
+	}
+	var opUser *sdkws.GroupMemberFullInfo
+	if err = g.fillOpUser(ctx, &opUser, groupID); err != nil {
+		return
+	}
+	tips := &sdkws.GroupNeedVerificationSetTips{
+		Group:            groupInfo,
+		OpUser:           opUser,
+		NeedVerification: needVerification,
+		DefaultTips:      groupNeedVerificationDefaultTips(opUser, needVerification),
+	}
+	g.Notification(ctx, mcontext.GetOpUserID(ctx), groupID, constant.GroupNeedVerificationSetNotification, tips)
+}
+
+func (g *NotificationSender) GroupFaceURLSetNotification(ctx context.Context, tips *sdkws.GroupFaceURLSetTips) {
+	var err error
+	defer func() {
+		if err != nil {
+			log.ZError(ctx, stringutil.GetFuncName(1)+" failed", err)
+		}
+	}()
+	if err = g.fillOpUser(ctx, &tips.OpUser, tips.Group.GroupID); err != nil {
+		return
+	}
+	g.setVersion(ctx, &tips.GroupMemberVersion, &tips.GroupMemberVersionID, database.GroupMemberVersionName, tips.Group.GroupID)
+	tips.DefaultTips = opUserName(tips.OpUser) + " has changed the group avatar"
+	g.Notification(ctx, mcontext.GetOpUserID(ctx), tips.Group.GroupID, constant.GroupFaceURLSetNotification, tips)
+}
+
+// memberInvitedDefaultTips returns an English notification text, e.g.
+// "Alice invited Bob to join the group" or
+// "Alice invited Bob, Charlie and 2 others to join the group".
+func memberInvitedDefaultTips(inviter *sdkws.GroupMemberFullInfo, invited []*sdkws.GroupMemberFullInfo) string {
+	inviterName := ""
+	if inviter != nil {
+		inviterName = inviter.Nickname
+		if inviterName == "" {
+			inviterName = inviter.UserID
+		}
+	}
+	if inviterName == "" {
+		inviterName = "Someone"
+	}
+
+	if len(invited) == 0 {
+		return inviterName + " invited members to join the group"
+	}
+
+	const maxNames = 3
+	names := make([]string, 0, len(invited))
+	for _, u := range invited {
+		if u == nil {
+			continue
+		}
+		n := u.Nickname
+		if n == "" {
+			n = u.UserID
+		}
+		names = append(names, n)
+	}
+	if len(names) == 0 {
+		return inviterName + " invited members to join the group"
+	}
+
+	var invitedStr string
+	if len(names) <= maxNames {
+		invitedStr = joinNames(names)
+	} else {
+		invitedStr = joinNames(names[:maxNames]) + fmt.Sprintf(" and %d others", len(names)-maxNames)
+	}
+	return inviterName + " invited " + invitedStr + " to join the group"
+}
+
+// joinNames joins a slice of names with commas and "and" before the last element.
+func joinNames(names []string) string {
+	switch len(names) {
+	case 0:
+		return ""
+	case 1:
+		return names[0]
+	case 2:
+		return names[0] + " and " + names[1]
+	default:
+		result := ""
+		for i, n := range names {
+			if i == len(names)-1 {
+				result += " and " + n
+			} else if i == 0 {
+				result = n
+			} else {
+				result += ", " + n
+			}
+		}
+		return result
+	}
 }
 
 func (g *NotificationSender) GroupInfoSetAnnouncementNotification(ctx context.Context, tips *sdkws.GroupInfoSetAnnouncementTips, sendMessage *bool) {
@@ -731,11 +966,42 @@ func (g *NotificationSender) groupApplicationAgreeMemberEnterNotification(ctx co
 		}
 	}
 	g.setVersion(ctx, &tips.GroupMemberVersion, &tips.GroupMemberVersionID, database.GroupMemberVersionName, tips.Group.GroupID)
+	tips.DefaultTips = memberInvitedDefaultTips(tips.InviterUser, tips.InvitedUserList)
 	g.Notification(ctx, mcontext.GetOpUserID(ctx), group.GroupID, constant.MemberInvitedNotification, tips, notification.WithSendMessage(SendMessage))
 	return nil
 }
 
-func (g *NotificationSender) MemberEnterNotification(ctx context.Context, groupID string, entrantUserID string) error {
+// memberEnterDefaultTips returns an English notification text based on how the
+// user joined, e.g. "Alice joined the group via invite link".
+func memberEnterDefaultTips(user *sdkws.GroupMemberFullInfo, joinSource int32) string {
+	name := ""
+	if user != nil {
+		name = user.Nickname
+		if name == "" {
+			name = user.UserID
+		}
+	}
+	if name == "" {
+		name = "Someone"
+	}
+	switch joinSource {
+	case constant.JoinByInviteLink:
+		return name + " joined the group via invite link"
+	case constant.JoinByQRCode:
+		return name + " joined the group via QR code"
+	case constant.JoinBySearch:
+		return name + " joined the group"
+	case constant.JoinByInvitation:
+		return name + " joined the group"
+	default:
+		return name + " joined the group"
+	}
+}
+
+// MemberEnterNotification sends a MemberEnterNotification (1510) to the group.
+// joinSource is optional; pass constant.JoinByInviteLink (or another join-source
+// constant) to include the appropriate English defaultTips.
+func (g *NotificationSender) MemberEnterNotification(ctx context.Context, groupID string, entrantUserID string, joinSource ...int32) error {
 	var err error
 	defer func() {
 		if err != nil {
@@ -766,10 +1032,16 @@ func (g *NotificationSender) MemberEnterNotification(ctx context.Context, groupI
 		return err
 	}
 
+	src := int32(0)
+	if len(joinSource) > 0 {
+		src = joinSource[0]
+	}
 	tips := &sdkws.MemberEnterTips{
 		Group:         group,
 		EntrantUser:   user,
 		OperationTime: time.Now().UnixMilli(),
+		JoinSource:    src,
+		DefaultTips:   memberEnterDefaultTips(user, src),
 	}
 	g.setVersion(ctx, &tips.GroupMemberVersion, &tips.GroupMemberVersionID, database.GroupMemberVersionName, tips.Group.GroupID)
 	g.Notification(ctx, mcontext.GetOpUserID(ctx), group.GroupID, constant.MemberEnterNotification, tips)
@@ -867,6 +1139,7 @@ func (g *NotificationSender) GroupMutedNotification(ctx context.Context, groupID
 		return
 	}
 	g.setVersion(ctx, &tips.GroupMemberVersion, &tips.GroupMemberVersionID, database.GroupMemberVersionName, groupID)
+	tips.DefaultTips = opUserName(tips.OpUser) + " muted all members"
 	g.Notification(ctx, mcontext.GetOpUserID(ctx), group.GroupID, constant.GroupMutedNotification, tips)
 }
 
@@ -895,6 +1168,7 @@ func (g *NotificationSender) GroupCancelMutedNotification(ctx context.Context, g
 		return
 	}
 	g.setVersion(ctx, &tips.GroupMemberVersion, &tips.GroupMemberVersionID, database.GroupMemberVersionName, groupID)
+	tips.DefaultTips = opUserName(tips.OpUser) + " unmuted all members"
 	g.Notification(ctx, mcontext.GetOpUserID(ctx), group.GroupID, constant.GroupCancelMutedNotification, tips)
 }
 
@@ -1001,6 +1275,7 @@ func (g *NotificationSender) GroupMessagePinnedNotification(ctx context.Context,
 	}
 	sendID := mcontext.GetOpUserID(ctx)
 	conversationID := msgprocessor.GetConversationIDBySessionType(constant.ReadGroupChatType, groupID)
+	defaultTips := pinnedMsgDefaultTips(opUser, pinned)
 	for _, memberID := range memberIDs {
 		minSeq, maxSeq := int64(0), int64(0)
 		conv, convErr := g.conversationClient.GetConversation(ctx, conversationID, memberID)
@@ -1014,11 +1289,12 @@ func (g *NotificationSender) GroupMessagePinnedNotification(ctx context.Context,
 		}
 		minSeq, maxSeq = conv.MinSeq, conv.MaxSeq
 		tips := &sdkws.GroupMessagePinnedTips{
-			Group:      groupInfo,
-			OpUser:     opUser,
-			Type:       pinType,
-			PinnedMsg:  pinnedMsgPBVisibleToUser(pinned, minSeq, maxSeq),
-			PinnedList: filterPinnedListPB(pinnedList, minSeq, maxSeq),
+			Group:       groupInfo,
+			OpUser:      opUser,
+			Type:        pinType,
+			PinnedMsg:   pinnedMsgPBVisibleToUser(pinned, minSeq, maxSeq),
+			PinnedList:  filterPinnedListPB(pinnedList, minSeq, maxSeq),
+			DefaultTips: defaultTips,
 		}
 		g.NotificationWithSessionType(ctx, sendID, memberID, constant.GroupMessagePinnedNotification,
 			constant.SingleChatType, tips, notification.WithGroupID(groupID))

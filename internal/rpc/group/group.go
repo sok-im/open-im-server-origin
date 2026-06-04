@@ -1073,7 +1073,7 @@ func (s *groupServer) joinGroupDirectly(ctx context.Context, group *model.Group,
 	if err := s.db.CreateGroup(ctx, nil, []*model.GroupMember{groupMember}); err != nil {
 		return err
 	}
-	if err = s.notification.MemberEnterNotification(ctx, req.GroupID, req.InviterUserID); err != nil {
+	if err = s.notification.MemberEnterNotification(ctx, req.GroupID, req.InviterUserID, req.JoinSource); err != nil {
 		return err
 	}
 	if err := s.setMemberJoinSeq(ctx, req.GroupID, []string{req.InviterUserID}); err != nil {
@@ -1281,6 +1281,13 @@ func (s *groupServer) SetGroupInfo(ctx context.Context, req *pbgroup.SetGroupInf
 		num--
 		s.notification.GroupInfoSetNameNotification(ctx, &sdkws.GroupInfoSetNameTips{Group: tips.Group, OpUser: tips.OpUser})
 	}
+	if req.GroupInfoForSet.FaceURL != "" {
+		num--
+		s.notification.GroupFaceURLSetNotification(ctx, &sdkws.GroupFaceURLSetTips{Group: tips.Group, OpUser: tips.OpUser})
+	}
+	if req.GroupInfoForSet.NeedVerification != nil {
+		s.notification.GroupNeedVerificationSetNotification(ctx, req.GroupInfoForSet.GroupID, req.GroupInfoForSet.NeedVerification.Value)
+	}
 	if num > 0 {
 		s.notification.GroupInfoSetNotification(ctx, tips)
 	}
@@ -1410,6 +1417,18 @@ func (s *groupServer) SetGroupInfoEx(ctx context.Context, req *pbgroup.SetGroupI
 
 	if groupNameFlag {
 		s.notification.GroupInfoSetNameNotification(ctx, &sdkws.GroupInfoSetNameTips{Group: tips.Group, OpUser: tips.OpUser})
+	}
+
+	if req.FaceURL != nil {
+		s.notification.GroupFaceURLSetNotification(ctx, &sdkws.GroupFaceURLSetTips{Group: tips.Group, OpUser: tips.OpUser})
+	}
+
+	if req.NeedVerification != nil {
+		s.notification.GroupNeedVerificationSetNotification(ctx, req.GroupID, req.NeedVerification.Value)
+	}
+
+	if req.MsgBurnDuration != nil {
+		s.notification.GroupBurnDurationSetNotification(ctx, req.GroupID, req.MsgBurnDuration.Value)
 	}
 
 	// if updatedData > 0, send the normal notification

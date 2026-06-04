@@ -184,7 +184,7 @@ func (s *groupServer) JoinGroupByInviteLink(ctx context.Context, req *pbgroup.Jo
 	joinReq := &pbgroup.JoinGroupReq{
 		GroupID:       link.GroupID,
 		ReqMessage:    req.ReqMessage,
-		JoinSource:    constant.JoinByQRCode,
+		JoinSource:    constant.JoinByInviteLink,
 		InviterUserID: opUserID,
 	}
 	reqCall := &callbackstruct.CallbackJoinGroupReq{
