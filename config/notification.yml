@@ -193,6 +193,16 @@ groupInfoSetName:
     desc: groupInfoSetName desc
     ext: groupInfoSetName ext
 
+groupMessagePinned:
+  isSendMsg: true
+  reliabilityLevel: 2
+  unreadCount: false
+  offlinePush:
+    enable: false
+    title: group message pinned
+    desc: group message pinned
+    ext: group message pinned
+
 groupCallStarted:
   isSendMsg: true
   reliabilityLevel: 2

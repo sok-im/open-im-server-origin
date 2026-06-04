@@ -166,6 +166,7 @@ type Notification struct {
 	GroupMemberSetToOrdinary  NotificationConfig `yaml:"groupMemberSetToOrdinaryUser"`
 	GroupInfoSetAnnouncement  NotificationConfig `mapstructure:"groupInfoSetAnnouncement"`
 	GroupInfoSetName          NotificationConfig `mapstructure:"groupInfoSetName"`
+	GroupMessagePinned        NotificationConfig `mapstructure:"groupMessagePinned"`
 	GroupCallStarted          NotificationConfig `mapstructure:"groupCallStarted"`
 	GroupCallEnded            NotificationConfig `mapstructure:"groupCallEnded"`
 	GroupBurnDurationSet      NotificationConfig `mapstructure:"groupBurnDurationSet"`
