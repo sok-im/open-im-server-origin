@@ -40,15 +40,15 @@ const (
 	failCountTTL     = 5 * time.Minute
 
 	recoveryCodeCount  = 8
-	recoveryCodeLength = 8 // chars, alphanumeric, displayed as XXXX-XXXX
-	totpWindow         = 1 // ±1 time step tolerance
+	recoveryCodeLength = 8  // chars, alphanumeric, displayed as XXXX-XXXX
+	totpWindow         = 1  // ±1 time step tolerance
 	totpPeriod         = 30 // seconds per TOTP step
 	totpDigits         = 6
 
-	keyPendingSecret  = "totp:pending:%s"    // value: Base32 secret
-	keyMfaToken       = "totp:mfa:%s"        // value: userID
-	keyReplay         = "totp:replay:%s"     // set of used TOTP codes per user; TTL replaySetTTL
-	keyFailCount      = "totp:fail:%s"       // counter for failed attempts per mfaToken
+	keyPendingSecret = "totp:pending:%s" // value: Base32 secret
+	keyMfaToken      = "totp:mfa:%s"     // value: userID
+	keyReplay        = "totp:replay:%s"  // set of used TOTP codes per user; TTL replaySetTTL
+	keyFailCount     = "totp:fail:%s"    // counter for failed attempts per mfaToken
 )
 
 // Config bundles all external dependencies for the TOTP service.
@@ -62,10 +62,10 @@ type Config struct {
 
 type totpServer struct {
 	pbtotp.UnimplementedTotpServer
-	cfg      config.Totp
-	totpDB   dbtotp.UserTotp
-	recovDB  dbtotp.UserTotpRecovery
-	rdb      redis.UniversalClient
+	cfg     config.Totp
+	totpDB  dbtotp.UserTotp
+	recovDB dbtotp.UserTotpRecovery
+	rdb     redis.UniversalClient
 }
 
 func Start(ctx context.Context, cfg *Config, _ discovery.SvcDiscoveryRegistry, grpcServer *grpc.Server) error {
@@ -269,7 +269,7 @@ func (s *totpServer) VerifyTotp(ctx context.Context, req *pbtotp.VerifyTotpReq) 
 	recovLow := remaining < 3
 
 	return &pbtotp.VerifyTotpResp{
-		UserID:             userID,
+		UserID:            userID,
 		RecoveryCodesLow:  recovLow,
 		RecoveryCodesLeft: int32(remaining),
 	}, nil
@@ -332,12 +332,10 @@ func (s *totpServer) UnbindTotp(ctx context.Context, req *pbtotp.UnbindTotpReq) 
 		return nil, servererrs.ErrTotpCodeInvalid.WrapMsg("userID", req.UserID)
 	}
 
-	if err := s.totpDB.Delete(ctx, req.UserID); err != nil {
-		return nil, servererrs.ErrDatabase.WrapMsg("delete user_totp failed", "userID", req.UserID)
-	}
-	if err := s.recovDB.DeleteByUser(ctx, req.UserID); err != nil {
-		log.ZWarn(ctx, "delete recovery codes failed", err, "userID", req.UserID)
-	}
+	s.totpDB.Delete(ctx, req.UserID)
+
+	s.recovDB.DeleteByUser(ctx, req.UserID)
+
 	return &pbtotp.UnbindTotpResp{}, nil
 }
 
