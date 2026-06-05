@@ -38,8 +38,14 @@ func (s *friendServer) GetPaginationBlacks(ctx context.Context, req *relation.Ge
 	if err != nil {
 		return nil, err
 	}
+	blockUserIDs := datautil.Slice(blacks, func(b *model.Black) string { return b.BlockUserID })
+	friends, err := s.db.FindFriendsWithError(ctx, req.UserID, blockUserIDs)
+	if err != nil {
+		return nil, err
+	}
+	remarkMap := convert.RemarkMapFromFriendModels(friends)
 	resp = &relation.GetPaginationBlacksResp{}
-	resp.Blacks, err = convert.BlackDB2Pb(ctx, blacks, s.userClient.GetUsersInfoMap)
+	resp.Blacks, err = convert.BlackDB2Pb(ctx, blacks, remarkMap, s.userClient.GetUsersInfoMap)
 	if err != nil {
 		return nil, err
 	}
@@ -122,6 +128,12 @@ func (s *friendServer) GetSpecifiedBlacks(ctx context.Context, req *relation.Get
 		return nil, err
 	}
 
+	friends, err := s.db.FindFriendsWithError(ctx, req.OwnerUserID, req.UserIDList)
+	if err != nil {
+		return nil, err
+	}
+	remarkMap := convert.RemarkMapFromFriendModels(friends)
+
 	blackMap := datautil.SliceToMap(blacks, func(e *model.Black) string {
 		return e.BlockUserID
 	})
@@ -130,17 +142,8 @@ func (s *friendServer) GetSpecifiedBlacks(ctx context.Context, req *relation.Get
 		Blacks: make([]*sdkws.BlackInfo, 0, len(req.UserIDList)),
 	}
 
-	toPublcUser := func(userID string) *sdkws.PublicUserInfo {
-		v, ok := userMap[userID]
-		if !ok {
-			return nil
-		}
-		return &sdkws.PublicUserInfo{
-			UserID:   v.UserID,
-			Nickname: v.Nickname,
-			FaceURL:  v.FaceURL,
-			Ex:       v.Ex,
-		}
+	toPublicUser := func(userID string) *sdkws.PublicUserInfo {
+		return convert.BlackUserPublicInfo(userMap[userID], remarkMap[userID])
 	}
 
 	for _, userID := range req.UserIDList {
@@ -149,7 +152,7 @@ func (s *friendServer) GetSpecifiedBlacks(ctx context.Context, req *relation.Get
 				&sdkws.BlackInfo{
 					OwnerUserID:    black.OwnerUserID,
 					CreateTime:     black.CreateTime.UnixMilli(),
-					BlackUserInfo:  toPublcUser(userID),
+					BlackUserInfo:  toPublicUser(userID),
 					AddSource:      black.AddSource,
 					OperatorUserID: black.OperatorUserID,
 					Ex:             black.Ex,

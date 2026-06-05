@@ -5,6 +5,7 @@ package convert
 import (
 	"strings"
 
+	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/model"
 	"github.com/openimsdk/protocol/relation"
 	"github.com/openimsdk/protocol/sdkws"
 )
@@ -15,6 +16,17 @@ func DisplayNickname(remark string, user *sdkws.UserInfo) string {
 		return remark
 	}
 	return MemberDisplayNickname(user)
+}
+
+// RemarkMapFromFriendModels 从好友记录构建 friendUserID -> remark 映射。
+func RemarkMapFromFriendModels(friends []*model.Friend) map[string]string {
+	m := make(map[string]string, len(friends))
+	for _, f := range friends {
+		if f != nil && f.Remark != "" {
+			m[f.FriendUserID] = f.Remark
+		}
+	}
+	return m
 }
 
 // RemarkMapFromFriendInfos 从好友信息构建 friendUserID -> remark 映射。
