@@ -131,7 +131,7 @@ func TestVerifyKeyPackageCredential(t *testing.T) {
 	kp := buildKeyPackage(leafPub, []byte(cred))
 
 	t.Run("valid", func(t *testing.T) {
-		meta, err := s.verifyKeyPackageCredential(kp, "alice", "device-1")
+		meta, err := s.verifyKeyPackageCredential(context.Background(), kp, "alice", "device-1")
 		if err != nil {
 			t.Fatalf("expected valid credential, got error: %v", err)
 		}
@@ -144,13 +144,13 @@ func TestVerifyKeyPackageCredential(t *testing.T) {
 	})
 
 	t.Run("wrong user", func(t *testing.T) {
-		if _, err := s.verifyKeyPackageCredential(kp, "bob", "device-1"); err == nil {
+		if _, err := s.verifyKeyPackageCredential(context.Background(), kp, "bob", "device-1"); err == nil {
 			t.Fatal("expected identity mismatch error, got nil")
 		}
 	})
 
 	t.Run("wrong device", func(t *testing.T) {
-		if _, err := s.verifyKeyPackageCredential(kp, "alice", "device-2"); err == nil {
+		if _, err := s.verifyKeyPackageCredential(context.Background(), kp, "alice", "device-2"); err == nil {
 			t.Fatal("expected identity mismatch error, got nil")
 		}
 	})
@@ -158,7 +158,7 @@ func TestVerifyKeyPackageCredential(t *testing.T) {
 	t.Run("leaf key mismatch", func(t *testing.T) {
 		otherLeaf, _, _ := ed25519.GenerateKey(rand.Reader)
 		kpBad := buildKeyPackage(otherLeaf, []byte(cred))
-		if _, err := s.verifyKeyPackageCredential(kpBad, "alice", "device-1"); err == nil {
+		if _, err := s.verifyKeyPackageCredential(context.Background(), kpBad, "alice", "device-1"); err == nil {
 			t.Fatal("expected leaf key binding error, got nil")
 		}
 	})
@@ -167,14 +167,14 @@ func TestVerifyKeyPackageCredential(t *testing.T) {
 		tampered := []byte(cred)
 		tampered[len(tampered)-2] ^= 0xff
 		kpBad := buildKeyPackage(leafPub, tampered)
-		if _, err := s.verifyKeyPackageCredential(kpBad, "alice", "device-1"); err == nil {
+		if _, err := s.verifyKeyPackageCredential(context.Background(), kpBad, "alice", "device-1"); err == nil {
 			t.Fatal("expected signature verification error, got nil")
 		}
 	})
 
 	t.Run("signing disabled skips verification", func(t *testing.T) {
 		disabled := &openMLSServer{config: &Config{}}
-		if _, err := disabled.verifyKeyPackageCredential([]byte("not-a-keypackage"), "alice", "device-1"); err != nil {
+		if _, err := disabled.verifyKeyPackageCredential(context.Background(), []byte("not-a-keypackage"), "alice", "device-1"); err != nil {
 			t.Fatalf("expected skip when signing key absent, got error: %v", err)
 		}
 	})

@@ -70,7 +70,7 @@ func (s *openMLSServer) UploadKeyPackage(ctx context.Context, req *pbopenmls.Upl
 	}
 	// Verify the credential embedded in the KeyPackage was issued by this server
 	// and is bound to this user/device (no-op when credential issuing is disabled).
-	meta, err := s.verifyKeyPackageCredential(kpBytes, req.UserID, req.DeviceID)
+	meta, err := s.verifyKeyPackageCredential(ctx, kpBytes, req.UserID, req.DeviceID)
 	if err != nil {
 		return nil, err
 	}
@@ -229,7 +229,7 @@ func (s *openMLSServer) RefreshKeyPackages(ctx context.Context, req *pbopenmls.R
 		if err != nil {
 			return nil, errs.ErrArgs.WrapMsg("keyPackages[" + strconv.Itoa(i) + "] must be valid base64")
 		}
-		meta, err := s.verifyKeyPackageCredential(kpBytes, req.UserID, req.DeviceID)
+		meta, err := s.verifyKeyPackageCredential(ctx, kpBytes, req.UserID, req.DeviceID)
 		if err != nil {
 			return nil, err
 		}
@@ -592,7 +592,7 @@ func (s *openMLSServer) VerifyCredential(ctx context.Context, req *pbopenmls.Ver
 		return nil, errs.ErrArgs.WrapMsg("credential is required")
 	}
 
-	payload, ok := s.verifyCredentialEnvelope(req.Credential)
+	payload, ok := s.verifyCredentialEnvelope(ctx, req.Credential)
 	if !ok {
 		return &pbopenmls.VerifyCredentialResp{Valid: false}, nil
 	}
@@ -616,35 +616,58 @@ func (s *openMLSServer) VerifyCredential(ctx context.Context, req *pbopenmls.Ver
 // verifyCredentialEnvelope decodes a base64 credential envelope, verifies its
 // Ed25519 signature against the root signing key, and checks expiry. It returns
 // the decoded payload and true only when the credential is authentic and valid.
-func (s *openMLSServer) verifyCredentialEnvelope(credentialB64 string) (*credentialPayload, bool) {
-	if s.signingKey == nil || credentialB64 == "" {
+// Each failure path logs a distinct reason to aid production debugging.
+func (s *openMLSServer) verifyCredentialEnvelope(ctx context.Context, credentialB64 string) (*credentialPayload, bool) {
+	const logPrefix = "verifyCredentialEnvelope"
+	if s.signingKey == nil {
+		log.ZWarn(ctx, logPrefix+": signing key not configured", nil)
+		return nil, false
+	}
+	if credentialB64 == "" {
+		log.ZWarn(ctx, logPrefix+": empty credential", nil)
 		return nil, false
 	}
 	envelopeBytes, err := base64.StdEncoding.DecodeString(credentialB64)
 	if err != nil {
+		log.ZWarn(ctx, logPrefix+": outer base64 decode failed (credential must be base64(JSON envelope))", err,
+			"credentialLen", len(credentialB64))
 		return nil, false
 	}
 	var envelope credentialEnvelope
 	if err := json.Unmarshal(envelopeBytes, &envelope); err != nil {
+		log.ZWarn(ctx, logPrefix+": envelope JSON unmarshal failed", err,
+			"envelopeBytesLen", len(envelopeBytes))
 		return nil, false
 	}
 	payloadBytes, err := base64.StdEncoding.DecodeString(envelope.Payload)
 	if err != nil {
+		log.ZWarn(ctx, logPrefix+": payload base64 decode failed", err)
 		return nil, false
 	}
 	sig, err := base64.StdEncoding.DecodeString(envelope.Sig)
 	if err != nil {
+		log.ZWarn(ctx, logPrefix+": signature base64 decode failed", err)
 		return nil, false
 	}
 	pubKey := s.signingKey.Public().(ed25519.PublicKey)
 	if !ed25519.Verify(pubKey, payloadBytes, sig) {
+		log.ZWarn(ctx, logPrefix+": Ed25519 signature verification failed (wrong signing key or tampered credential)", nil,
+			"payloadBytesLen", len(payloadBytes), "sigBytesLen", len(sig))
 		return nil, false
 	}
 	var payload credentialPayload
 	if err := json.Unmarshal(payloadBytes, &payload); err != nil {
+		log.ZWarn(ctx, logPrefix+": payload JSON unmarshal failed", err,
+			"payloadBytesLen", len(payloadBytes))
 		return nil, false
 	}
-	if time.Now().Unix() > payload.ExpiresAt {
+	now := time.Now().Unix()
+	if now > payload.ExpiresAt {
+		log.ZWarn(ctx, logPrefix+": credential expired", nil,
+			"identity", payload.Identity,
+			"issuedAt", payload.IssuedAt,
+			"expiresAt", payload.ExpiresAt,
+			"now", now)
 		return nil, false
 	}
 	return &payload, true
@@ -667,7 +690,7 @@ type mlsKPMeta struct {
 //
 // Contract: the client MUST place the exact `credential` string returned by
 // IssueCredential into the KeyPackage's BasicCredential.identity field.
-func (s *openMLSServer) verifyKeyPackageCredential(kpBytes []byte, userID, deviceID string) (mlsKPMeta, error) {
+func (s *openMLSServer) verifyKeyPackageCredential(ctx context.Context, kpBytes []byte, userID, deviceID string) (mlsKPMeta, error) {
 	if s.signingKey == nil {
 		return mlsKPMeta{}, nil
 	}
@@ -675,8 +698,12 @@ func (s *openMLSServer) verifyKeyPackageCredential(kpBytes []byte, userID, devic
 	if err != nil {
 		return mlsKPMeta{}, errs.ErrArgs.WrapMsg("invalid keyPackage structure: " + err.Error())
 	}
-	payload, ok := s.verifyCredentialEnvelope(string(credentialIdentity))
+	payload, ok := s.verifyCredentialEnvelope(ctx, string(credentialIdentity))
 	if !ok {
+		log.ZWarn(ctx, "verifyKeyPackageCredential: embedded credential invalid",
+			errs.ErrNoPermission.WrapMsg("credential signature verification failed or expired"),
+			"userID", userID, "deviceID", deviceID,
+			"identityBytesLen", len(credentialIdentity))
 		return mlsKPMeta{}, errs.ErrNoPermission.WrapMsg("credential signature verification failed or expired")
 	}
 	if payload.LeafPubKey != base64.StdEncoding.EncodeToString(signatureKey) {
