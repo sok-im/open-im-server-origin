@@ -24,6 +24,32 @@ import (
 	"github.com/openimsdk/protocol/sdkws"
 )
 
+const (
+	DefaultCallRingtoneURL    = "https://sok-wallet.s3.ap-southeast-1.amazonaws.com/20250430/d92c3d7562f74c148d3f83dd61dce490.mp3"
+	DefaultCallRingtoneName   = "可爱"
+	DefaultCallRingtoneCover  = "https://sok-wallet.s3.ap-southeast-1.amazonaws.com/20250430/192d9544022d4b978d7c70f4d97c02e3.png"
+	DefaultCallRingtoneAuthor = "佚名"
+)
+
+// ApplyCallRingtoneDefaults fills empty call ringtone fields with system defaults.
+func ApplyCallRingtoneDefaults(user *relationtb.User) {
+	if user == nil {
+		return
+	}
+	if user.CallRingtoneURL == "" {
+		user.CallRingtoneURL = DefaultCallRingtoneURL
+	}
+	if user.CallRingtoneName == "" {
+		user.CallRingtoneName = DefaultCallRingtoneName
+	}
+	if user.CallRingtoneCover == "" {
+		user.CallRingtoneCover = DefaultCallRingtoneCover
+	}
+	if user.CallRingtoneAuthor == "" {
+		user.CallRingtoneAuthor = DefaultCallRingtoneAuthor
+	}
+}
+
 func BuildFullName(firstName, lastName string) string {
 	if firstName == "" {
 		return lastName
@@ -65,6 +91,8 @@ func UserDB2Pb(user *relationtb.User) *sdkws.UserInfo {
 		GroupInviteSetting: user.GroupInviteSetting,
 		CallRingtoneURL:    user.CallRingtoneURL,
 		CallRingtoneName:   user.CallRingtoneName,
+		CallRingtoneCover:  user.CallRingtoneCover,
+		CallRingtoneAuthor: user.CallRingtoneAuthor,
 		MsgBurnDuration:    user.MsgBurnDuration,
 	}
 }
@@ -87,8 +115,10 @@ func UserPb2DB(user *sdkws.UserInfo) *relationtb.User {
 		LastName:        user.LastName,
 		FullName:        fullName,
 		AreaCode:        user.AreaCode,
-		CallRingtoneURL:  user.CallRingtoneURL,
-		CallRingtoneName: user.CallRingtoneName,
+		CallRingtoneURL:    user.CallRingtoneURL,
+		CallRingtoneName:   user.CallRingtoneName,
+		CallRingtoneCover:  user.CallRingtoneCover,
+		CallRingtoneAuthor: user.CallRingtoneAuthor,
 	}
 }
 
@@ -106,9 +136,11 @@ func UserPb2DBMap(user *sdkws.UserInfo) map[string]any {
 		"area_code":           user.AreaCode,
 		"app_manager_level":   user.AppMangerLevel,
 		"global_recv_msg_opt": user.GlobalRecvMsgOpt,
-		"call_ringtone_url":   user.CallRingtoneURL,
-		"call_ringtone_name":  user.CallRingtoneName,
-		"msg_burn_duration":   user.MsgBurnDuration,
+		"call_ringtone_url":    user.CallRingtoneURL,
+		"call_ringtone_name":   user.CallRingtoneName,
+		"call_ringtone_cover":  user.CallRingtoneCover,
+		"call_ringtone_author": user.CallRingtoneAuthor,
+		"msg_burn_duration":    user.MsgBurnDuration,
 	}
 	for key, value := range fields {
 		if v, ok := value.(string); ok && v != "" {
@@ -182,6 +214,12 @@ func UserPb2DBMapEx(user *sdkws.UserInfoWithEx) map[string]any {
 	}
 	if user.CallRingtoneName != nil {
 		val["call_ringtone_name"] = user.CallRingtoneName.Value
+	}
+	if user.CallRingtoneCover != nil {
+		val["call_ringtone_cover"] = user.CallRingtoneCover.Value
+	}
+	if user.CallRingtoneAuthor != nil {
+		val["call_ringtone_author"] = user.CallRingtoneAuthor.Value
 	}
 	if user.MsgBurnDuration != nil {
 		val["msg_burn_duration"] = user.MsgBurnDuration.Value

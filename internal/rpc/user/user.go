@@ -745,20 +745,26 @@ func (s *userServer) UserRegister(ctx context.Context, req *pbuser.UserRegisterR
 	users := make([]*tablerelation.User, 0, len(req.Users))
 	for _, user := range req.Users {
 		fullName := convert.BuildFullName(user.FirstName, user.LastName)
-		users = append(users, &tablerelation.User{
-			UserID:           user.UserID,
-			Nickname:         user.Nickname,
-			FaceURL:          user.FaceURL,
-			Ex:               user.Ex,
-			CreateTime:       now,
-			AppMangerLevel:   user.AppMangerLevel,
-			GlobalRecvMsgOpt: user.GlobalRecvMsgOpt,
-			FirstName:        user.FirstName,
-			LastName:         user.LastName,
-			FullName:         fullName,
-			Phone:            user.Phone,
-			AreaCode:         user.AreaCode,
-		})
+		u := &tablerelation.User{
+			UserID:             user.UserID,
+			Nickname:           user.Nickname,
+			FaceURL:            user.FaceURL,
+			Ex:                 user.Ex,
+			CreateTime:         now,
+			AppMangerLevel:     user.AppMangerLevel,
+			GlobalRecvMsgOpt:   user.GlobalRecvMsgOpt,
+			FirstName:          user.FirstName,
+			LastName:           user.LastName,
+			FullName:           fullName,
+			Phone:              user.Phone,
+			AreaCode:           user.AreaCode,
+			CallRingtoneURL:    user.CallRingtoneURL,
+			CallRingtoneName:   user.CallRingtoneName,
+			CallRingtoneCover:  user.CallRingtoneCover,
+			CallRingtoneAuthor: user.CallRingtoneAuthor,
+		}
+		convert.ApplyCallRingtoneDefaults(u)
+		users = append(users, u)
 	}
 	if err := s.db.Create(ctx, users); err != nil {
 		return nil, err
