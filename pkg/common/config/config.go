@@ -386,6 +386,14 @@ type Aws struct {
 	SessionToken    string `mapstructure:"sessionToken"`
 }
 
+// CallRingtoneDefaults 新用户注册时来电铃声字段的默认值（用户未指定时使用）。
+type CallRingtoneDefaults struct {
+	URL    string `mapstructure:"url"`
+	Name   string `mapstructure:"name"`
+	Cover  string `mapstructure:"cover"`
+	Author string `mapstructure:"author"`
+}
+
 type User struct {
 	RPC struct {
 		RegisterIP   string `mapstructure:"registerIP"`
@@ -398,6 +406,8 @@ type User struct {
 	// false（默认）：任何人均可通过手机号搜到用户，忽略 phone_visibility；
 	// true：按 phone_visibility 过滤（Hidden 不可搜，Friends 仅好友可搜）。
 	PhoneSearchVisibility bool `mapstructure:"phoneSearchVisibility"`
+	// CallRingtoneDefaults 注册时未传入的铃声字段将使用此处配置；留空则不填充。
+	CallRingtoneDefaults CallRingtoneDefaults `mapstructure:"callRingtoneDefaults"`
 }
 
 type Redis struct {

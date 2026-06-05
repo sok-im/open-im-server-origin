@@ -18,35 +18,29 @@ import (
 	"strings"
 	"time"
 
+	"github.com/openimsdk/open-im-server/v3/pkg/common/config"
 	relationtb "github.com/openimsdk/open-im-server/v3/pkg/common/storage/model"
 	"github.com/openimsdk/tools/utils/datautil"
 
 	"github.com/openimsdk/protocol/sdkws"
 )
 
-const (
-	DefaultCallRingtoneURL    = "https://sok-wallet.s3.ap-southeast-1.amazonaws.com/20250430/d92c3d7562f74c148d3f83dd61dce490.mp3"
-	DefaultCallRingtoneName   = "可爱"
-	DefaultCallRingtoneCover  = "https://sok-wallet.s3.ap-southeast-1.amazonaws.com/20250430/192d9544022d4b978d7c70f4d97c02e3.png"
-	DefaultCallRingtoneAuthor = "佚名"
-)
-
-// ApplyCallRingtoneDefaults fills empty call ringtone fields with system defaults.
-func ApplyCallRingtoneDefaults(user *relationtb.User) {
+// ApplyCallRingtoneDefaults fills empty call ringtone fields from config defaults.
+func ApplyCallRingtoneDefaults(user *relationtb.User, defaults config.CallRingtoneDefaults) {
 	if user == nil {
 		return
 	}
-	if user.CallRingtoneURL == "" {
-		user.CallRingtoneURL = DefaultCallRingtoneURL
+	if user.CallRingtoneURL == "" && defaults.URL != "" {
+		user.CallRingtoneURL = defaults.URL
 	}
-	if user.CallRingtoneName == "" {
-		user.CallRingtoneName = DefaultCallRingtoneName
+	if user.CallRingtoneName == "" && defaults.Name != "" {
+		user.CallRingtoneName = defaults.Name
 	}
-	if user.CallRingtoneCover == "" {
-		user.CallRingtoneCover = DefaultCallRingtoneCover
+	if user.CallRingtoneCover == "" && defaults.Cover != "" {
+		user.CallRingtoneCover = defaults.Cover
 	}
-	if user.CallRingtoneAuthor == "" {
-		user.CallRingtoneAuthor = DefaultCallRingtoneAuthor
+	if user.CallRingtoneAuthor == "" && defaults.Author != "" {
+		user.CallRingtoneAuthor = defaults.Author
 	}
 }
 

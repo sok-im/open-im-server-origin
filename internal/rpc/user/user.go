@@ -763,7 +763,7 @@ func (s *userServer) UserRegister(ctx context.Context, req *pbuser.UserRegisterR
 			CallRingtoneCover:  user.CallRingtoneCover,
 			CallRingtoneAuthor: user.CallRingtoneAuthor,
 		}
-		convert.ApplyCallRingtoneDefaults(u)
+		convert.ApplyCallRingtoneDefaults(u, s.config.RpcConfig.CallRingtoneDefaults)
 		users = append(users, u)
 	}
 	if err := s.db.Create(ctx, users); err != nil {

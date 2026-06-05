@@ -18,3 +18,10 @@ prometheus:
 
 # GetUserByPhone: false = ignore phone_visibility when searching by phone; true = enforce phone_visibility (hidden / friends-only).
 phoneSearchVisibility: false
+
+# Default call ringtone for newly registered users (used when the field is not provided in the register request).
+callRingtoneDefaults:
+  url: https://sok-wallet.s3.ap-southeast-1.amazonaws.com/20250430/d92c3d7562f74c148d3f83dd61dce490.mp3
+  name: 可爱
+  cover: https://sok-wallet.s3.ap-southeast-1.amazonaws.com/20250430/192d9544022d4b978d7c70f4d97c02e3.png
+  author: 佚名
