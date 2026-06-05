@@ -23,6 +23,8 @@ type DeleteUserApi struct {
 	userDB         database.User
 	friendDB       database.Friend
 	phoneSNDB      database.PhoneSN
+	totpDB         database.UserTotp
+	totpRecoveryDB database.UserTotpRecovery
 	authClient     *rpcli.AuthClient
 	groupClient    group.GroupClient
 	friendClient   relation.FriendClient
@@ -33,6 +35,8 @@ func NewDeleteUserApi(
 	userDB database.User,
 	friendDB database.Friend,
 	phoneSNDB database.PhoneSN,
+	totpDB database.UserTotp,
+	totpRecoveryDB database.UserTotpRecovery,
 	authClient *rpcli.AuthClient,
 	groupClient group.GroupClient,
 	friendClient relation.FriendClient,
@@ -42,6 +46,8 @@ func NewDeleteUserApi(
 		userDB:         userDB,
 		friendDB:       friendDB,
 		phoneSNDB:      phoneSNDB,
+		totpDB:         totpDB,
+		totpRecoveryDB: totpRecoveryDB,
 		authClient:     authClient,
 		groupClient:    groupClient,
 		friendClient:   friendClient,
@@ -154,6 +160,18 @@ func (d *DeleteUserApi) DeleteUser(c *gin.Context) {
 	if phone := users[0].Phone; phone != "" {
 		if err := d.phoneSNDB.DeleteByPhone(c, phone); err != nil {
 			log.ZWarn(c, "DeleteUser: DeleteByPhone failed", err, "userID", req.UserID, "phone", phone)
+		}
+	}
+
+	// 5b. Delete TOTP binding and recovery codes.
+	if d.totpDB != nil {
+		if err := d.totpDB.Delete(c, req.UserID); err != nil {
+			log.ZWarn(c, "DeleteUser: Delete user_totp failed", err, "userID", req.UserID)
+		}
+	}
+	if d.totpRecoveryDB != nil {
+		if err := d.totpRecoveryDB.DeleteByUser(c, req.UserID); err != nil {
+			log.ZWarn(c, "DeleteUser: Delete user_totp_recovery failed", err, "userID", req.UserID)
 		}
 	}
 
