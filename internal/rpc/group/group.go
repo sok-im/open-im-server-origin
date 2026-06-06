@@ -1182,15 +1182,11 @@ func (s *groupServer) QuitGroup(ctx context.Context, req *pbgroup.QuitGroupReq) 
 	}
 	s.webhookAfterQuitGroup(ctx, &s.config.WebhooksConfig.AfterQuitGroup, req)
 	//s.cryptoClient.BumpGroupKeyVersion(ctx, req.GroupID, req.UserID, "member_left")
-	// Notify the group owner's devices to perform the MLS Remove-Commit flow
-	// so that the departed member loses access to future messages.
-	go func() {
-		owner, err := s.db.TakeGroupOwner(ctx, req.GroupID)
-		if err != nil {
-			return
-		}
-		s.openMLSClient.RemoveMemberTrigger(ctx, req.GroupID, owner.UserID, []string{req.UserID})
-	}()
+	// Notify the quitting member's own devices to submit a self-removal Commit
+	// before losing their MLS group state. The quitting user is guaranteed to be
+	// online (they just called QuitGroup), making this more reliable than
+	// triggering the group owner who may be offline.
+	go s.openMLSClient.RemoveMemberTrigger(ctx, req.GroupID, req.UserID, []string{req.UserID})
 
 	return &pbgroup.QuitGroupResp{}, nil
 }
