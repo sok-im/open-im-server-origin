@@ -25,6 +25,13 @@ import (
 	"github.com/openimsdk/protocol/sdkws"
 )
 
+func callRingtoneFieldValue(value, defaultVal string) string {
+	if value == "" && defaultVal != "" {
+		return defaultVal
+	}
+	return value
+}
+
 // ApplyCallRingtoneDefaults fills empty call ringtone fields from config defaults.
 func ApplyCallRingtoneDefaults(user *relationtb.User, defaults config.CallRingtoneDefaults) {
 	if user == nil {
@@ -149,7 +156,7 @@ func UserPb2DBMap(user *sdkws.UserInfo) map[string]any {
 	}
 	return val
 }
-func UserPb2DBMapEx(user *sdkws.UserInfoWithEx) map[string]any {
+func UserPb2DBMapEx(user *sdkws.UserInfoWithEx, defaults *config.CallRingtoneDefaults) map[string]any {
 	if user == nil {
 		return nil
 	}
@@ -204,16 +211,32 @@ func UserPb2DBMapEx(user *sdkws.UserInfoWithEx) map[string]any {
 		val["group_invite_setting"] = user.GroupInviteSetting.Value
 	}
 	if user.CallRingtoneURL != nil {
-		val["call_ringtone_url"] = user.CallRingtoneURL.Value
+		v := user.CallRingtoneURL.Value
+		if defaults != nil {
+			v = callRingtoneFieldValue(v, defaults.URL)
+		}
+		val["call_ringtone_url"] = v
 	}
 	if user.CallRingtoneName != nil {
-		val["call_ringtone_name"] = user.CallRingtoneName.Value
+		v := user.CallRingtoneName.Value
+		if defaults != nil {
+			v = callRingtoneFieldValue(v, defaults.Name)
+		}
+		val["call_ringtone_name"] = v
 	}
 	if user.CallRingtoneCover != nil {
-		val["call_ringtone_cover"] = user.CallRingtoneCover.Value
+		v := user.CallRingtoneCover.Value
+		if defaults != nil {
+			v = callRingtoneFieldValue(v, defaults.Cover)
+		}
+		val["call_ringtone_cover"] = v
 	}
 	if user.CallRingtoneAuthor != nil {
-		val["call_ringtone_author"] = user.CallRingtoneAuthor.Value
+		v := user.CallRingtoneAuthor.Value
+		if defaults != nil {
+			v = callRingtoneFieldValue(v, defaults.Author)
+		}
+		val["call_ringtone_author"] = v
 	}
 	if user.MsgBurnDuration != nil {
 		val["msg_burn_duration"] = user.MsgBurnDuration.Value

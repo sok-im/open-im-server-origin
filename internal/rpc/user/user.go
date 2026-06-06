@@ -272,7 +272,7 @@ func (s *userServer) UpdateUserInfoEx(ctx context.Context, req *pbuser.UpdateUse
 		return nil, err
 	}
 
-	data := convert.UserPb2DBMapEx(req.UserInfo)
+	data := convert.UserPb2DBMapEx(req.UserInfo, &s.config.RpcConfig.CallRingtoneDefaults)
 	if err = s.db.UpdateByMap(ctx, req.UserInfo.UserID, data); err != nil {
 		return nil, err
 	}

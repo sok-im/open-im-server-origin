@@ -19,7 +19,9 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/openimsdk/open-im-server/v3/pkg/common/config"
 	"github.com/openimsdk/protocol/sdkws"
+	"github.com/openimsdk/protocol/wrapperspb"
 )
 
 func TestUsersDB2Pb(t *testing.T) {
@@ -82,5 +84,40 @@ func TestUserPb2DBMap(t *testing.T) {
 	result := UserPb2DBMap(user)
 	if !reflect.DeepEqual(result, expected) {
 		t.Errorf("UserPb2DBMap returned unexpected map. Got %v, want %v", result, expected)
+	}
+}
+
+func TestUserPb2DBMapEx_CallRingtoneDefaults(t *testing.T) {
+	defaults := &config.CallRingtoneDefaults{
+		URL:    "https://example.com/default.mp3",
+		Name:   "Default Ring",
+		Cover:  "https://example.com/cover.jpg",
+		Author: "Default Author",
+	}
+	user := &sdkws.UserInfoWithEx{
+		CallRingtoneURL:    &wrapperspb.StringValue{Value: ""},
+		CallRingtoneName:   &wrapperspb.StringValue{Value: ""},
+		CallRingtoneCover:  &wrapperspb.StringValue{Value: ""},
+		CallRingtoneAuthor: &wrapperspb.StringValue{Value: ""},
+	}
+
+	got := UserPb2DBMapEx(user, defaults)
+	expected := map[string]any{
+		"call_ringtone_url":    defaults.URL,
+		"call_ringtone_name":   defaults.Name,
+		"call_ringtone_cover":  defaults.Cover,
+		"call_ringtone_author": defaults.Author,
+	}
+	if !reflect.DeepEqual(got, expected) {
+		t.Errorf("UserPb2DBMapEx() = %v, want %v", got, expected)
+	}
+
+	customURL := "https://example.com/custom.mp3"
+	userWithCustom := &sdkws.UserInfoWithEx{
+		CallRingtoneURL: &wrapperspb.StringValue{Value: customURL},
+	}
+	gotCustom := UserPb2DBMapEx(userWithCustom, defaults)
+	if gotCustom["call_ringtone_url"] != customURL {
+		t.Errorf("UserPb2DBMapEx() custom url = %v, want %v", gotCustom["call_ringtone_url"], customURL)
 	}
 }
