@@ -43,33 +43,8 @@ func (o *GroupApi) SetGroupInfoEx(c *gin.Context) {
 	a2r.Call(c, group.GroupClient.SetGroupInfoEx, o.Client)
 }
 
-// SetSendMessageSetting 设置群成员发消息权限：allowSendMsg 0=全员可发，1=仅群主/管理员可发（委托 SetGroupInfoEx）。
 func (o *GroupApi) SetSendMessageSetting(c *gin.Context) {
-	var req struct {
-		GroupID      string `json:"groupID"`
-		AllowSendMsg int32  `json:"allowSendMsg"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		apiresp.GinError(c, errs.ErrArgs.WrapMsg(err.Error()))
-		return
-	}
-	if req.GroupID == "" {
-		apiresp.GinError(c, errs.ErrArgs.WrapMsg("groupID is empty"))
-		return
-	}
-	if req.AllowSendMsg != 0 && req.AllowSendMsg != 1 {
-		apiresp.GinError(c, errs.ErrArgs.WrapMsg("allowSendMsg must be 0 or 1"))
-		return
-	}
-	resp, err := o.Client.SetGroupInfoEx(c, &group.SetGroupInfoExReq{
-		GroupID:      req.GroupID,
-		AllowSendMsg: wrapperspb.Int32(req.AllowSendMsg),
-	})
-	if err != nil {
-		apiresp.GinError(c, err)
-		return
-	}
-	apiresp.GinSuccess(c, resp)
+	a2r.Call(c, group.GroupClient.SetSendMessageSetting, o.Client)
 }
 
 // SetInviteLinkSetting 开启/关闭群邀请链接：enableInviteLink 0=关闭，1=开启（委托 SetGroupInfoEx；创建/通过链接入群时 RPC 已校验）。

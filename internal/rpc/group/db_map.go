@@ -156,6 +156,12 @@ func UpdateGroupStatusMap(status int) map[string]any {
 	}
 }
 
+func UpdateAllowSendMsgMap(allowSendMsg int32) map[string]any {
+	return map[string]any{
+		"allow_send_msg": allowSendMsg,
+	}
+}
+
 func UpdateGroupMemberMutedTimeMap(t time.Time) map[string]any {
 	return map[string]any{
 		"mute_end_time": t,

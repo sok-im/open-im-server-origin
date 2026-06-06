@@ -2153,3 +2153,35 @@ func (s *groupServer) GetSpecifiedUserGroupRequestInfo(ctx context.Context, req 
 
 	return resp, nil
 }
+
+func (s *groupServer) SetSendMessageSetting(ctx context.Context, req *pbgroup.SetSendMessageSettingReq) (*pbgroup.SetSendMessageSettingResp, error) {
+	if err := s.CheckGroupAdmin(ctx, req.GroupID); err != nil {
+		return nil, err
+	}
+
+	group, err := s.db.TakeGroup(ctx, req.GroupID)
+	if err != nil {
+		return nil, err
+	}
+	if group.Status == constant.GroupStatusDismissed {
+		return nil, servererrs.ErrDismissedAlready.Wrap()
+	}
+	if req.AllowSendMsg != model.GroupPermAllMember && req.AllowSendMsg != model.GroupPermAdminOnly {
+		return nil, errs.ErrArgs.WrapMsg("allowSendMsg must be 0 or 1")
+	}
+	if group.AllowSendMsg == req.AllowSendMsg {
+		return &pbgroup.SetSendMessageSettingResp{}, nil
+	}
+
+	if err := s.db.UpdateGroup(ctx, req.GroupID, UpdateAllowSendMsgMap(req.AllowSendMsg)); err != nil {
+		return nil, err
+	}
+
+	if req.AllowSendMsg == model.GroupPermAdminOnly {
+		s.notification.GroupMutedNotification(ctx, req.GroupID)
+	} else {
+		s.notification.GroupCancelMutedNotification(ctx, req.GroupID)
+	}
+
+	return &pbgroup.SetSendMessageSettingResp{}, nil
+}
