@@ -330,42 +330,63 @@ sequenceDiagram
 
 ### 4.5 群组创建与成员初始化
 
+> **触发方**：服务器。OpenIM 群组 RPC 在 `CreateGroup` 成功落库后，自动调用 MLS DS 的 `InitGroupTrigger`，将初始化任务推送至群主所有在线设备。客户端**无需感知**何时应该启动 MLS 初始化流程——一切由服务器驱动。
+
 ```mermaid
 sequenceDiagram
-    participant Creator as 群主 (Creator)
-    participant DS as MLS DS
+    participant Client as 群主客户端 (Creator)
+    participant GroupRPC as OpenIM Group RPC
+    participant DS as MLS DS (openMLSServer)
     participant GW as msg_gateway
     participant M1 as 成员1
     participant M2 as 成员2
 
-    Note over Creator: 在 OpenIM 侧群组已创建，获得 groupID
+    Client->>GroupRPC: CreateGroup(ownerUserID, memberUserIDs=[m1,m2])
+    GroupRPC->>GroupRPC: 落库群组 & 成员记录
+    GroupRPC->>DS: InitGroupTrigger(groupID, creatorUserID, memberUserIDs)
+    Note right of DS: 服务器触发，不做加密运算\n仅发送信令通知给群主设备
 
-    Creator->>DS: GET /mls/key_packages/{member1_userID}
-    Creator->>DS: GET /mls/key_packages/{member2_userID}
-    DS-->>Creator: [kp_m1_d1, kp_m1_d2, kp_m2_d1, ...]
+    DS->>GW: sendCustomMsg(extension="mls_group_init_trigger",\n  {groupID, memberUserIDs}) → creatorUserID
+    GW-->>Client: CustomMessage (mls_group_init_trigger)
+    GroupRPC-->>Client: CreateGroupResp(groupID)
 
-    Creator->>Creator: MlsGroup::new(groupID, creator_credential)
-    Creator->>Creator: group.add_members([kp_m1_d1, kp_m1_d2, kp_m2_d1])\n→ (Commit, Welcome_m1, Welcome_m2)
-    Creator->>Creator: 应用 Commit，推进到 Epoch 1
+    Note over Client: 收到触发通知，开始 MLS 初始化
+    Client->>DS: GetKeyPackages(member1_userID)
+    Client->>DS: GetKeyPackages(member2_userID)
+    DS-->>Client: [kp_m1_d1, kp_m1_d2, kp_m2_d1, ...]
 
-    Creator->>DS: POST /mls/groups/{groupID}/commit\n{commit_msg, from_epoch:0}
-    DS-->>Creator: {status:"ok", epoch:1}
+    Client->>Client: MlsGroup::new(groupID, creator_credential)
+    Client->>Client: group.add_members([kp_m1_d1, kp_m1_d2, kp_m2_d1])\n→ (Commit, Welcome_m1, Welcome_m2)
+    Client->>Client: 应用 Commit，推进到 Epoch 1
 
-    Creator->>GW: sendCustomMsg(extension="mls_handshake", Welcome_m1) → member1
-    Creator->>GW: sendCustomMsg(extension="mls_handshake", Welcome_m2) → member2
+    Client->>DS: SubmitCommit(groupID, commit, from_epoch:0,\n  welcomeMessages=[{m1,Welcome_m1},{m2,Welcome_m2}])
+    DS->>DS: 校验 epoch 连续性，持久化 Commit，epoch → 1
+    DS-->>Client: {newEpoch: 1}
+
+    DS->>GW: sendCustomMsg(extension="mls_handshake", Welcome_m1) → m1
+    DS->>GW: sendCustomMsg(extension="mls_handshake", Welcome_m2) → m2
 
     par 并行处理
-        GW-->>M1: CustomMessage (mls_handshake)
+        GW-->>M1: CustomMessage (mls_handshake: Welcome)
         M1->>M1: processHandshake() → Epoch 1
         M1->>M1: 存储 GroupState（Flutter MLS DB）
     and
-        GW-->>M2: CustomMessage (mls_handshake)
+        GW-->>M2: CustomMessage (mls_handshake: Welcome)
         M2->>M2: processHandshake() → Epoch 1
         M2->>M2: 存储 GroupState（Flutter MLS DB）
     end
 
-    Note over Creator,M2: 所有成员均在 Epoch 1，群组 E2EE 就绪
+    Note over Client,M2: 所有成员均在 Epoch 1，群组 E2EE 就绪
 ```
+
+**关键设计说明：**
+
+| 点 | 说明 |
+|----|------|
+| **服务器触发** | `CreateGroup` 落库后立即调用 `InitGroupTrigger`，确保 MLS 初始化与群组创建原子绑定，无需客户端主动发起 |
+| **加密操作仍在客户端** | 服务器仅发送信令（不参与 MLS 密钥运算），群主设备收到触发后完成所有 HPKE/MLS 计算，E2EE 属性不受影响 |
+| **Welcome 由 DS 分发** | `SubmitCommit` 接收 `welcomeMessages` 列表，DS 负责点对点推送 Welcome 到各成员设备，群主无需直接联系每个成员 |
+| **KP 缺失处理** | 若某成员无可用 KeyPackage，客户端记录 `pending_member`，待该成员上传 KP 后通过 4.6 Add 流程补充加入 |
 
 ---
 

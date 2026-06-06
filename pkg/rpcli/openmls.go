@@ -42,3 +42,58 @@ func (x *OpenMLSClient) DeleteGroup(ctx context.Context, groupID string) {
 	}
 	log.ZDebug(ctx, "OpenMLSClient.DeleteGroup success", "groupID", groupID)
 }
+
+// InitGroupTrigger notifies the creator's devices to start the MLS
+// group-creation flow for a newly created OpenIM group. It is a
+// fire-and-return call: errors are logged but do not block the Group RPC.
+func (x *OpenMLSClient) InitGroupTrigger(ctx context.Context, groupID, creatorUserID string, memberUserIDs []string) {
+	_, err := x.OpenMLSServiceClient.InitGroupTrigger(ctx, &pbopenmls.InitGroupTriggerReq{
+		GroupID:       groupID,
+		CreatorUserID: creatorUserID,
+		MemberUserIDs: memberUserIDs,
+	})
+	if err != nil {
+		log.ZError(ctx, "OpenMLSClient.InitGroupTrigger failed", err,
+			"groupID", groupID, "creatorUserID", creatorUserID)
+		return
+	}
+	log.ZDebug(ctx, "OpenMLSClient.InitGroupTrigger success",
+		"groupID", groupID, "creatorUserID", creatorUserID)
+}
+
+// AddMemberTrigger notifies the operator's devices to perform the MLS
+// Add-Commit + Welcome flow after new members are invited to an OpenIM group.
+// It is a fire-and-return call: errors are logged but do not block the Group RPC.
+func (x *OpenMLSClient) AddMemberTrigger(ctx context.Context, groupID, operatorUserID string, newMemberUserIDs []string) {
+	_, err := x.OpenMLSServiceClient.AddMemberTrigger(ctx, &pbopenmls.AddMemberTriggerReq{
+		GroupID:          groupID,
+		OperatorUserID:   operatorUserID,
+		NewMemberUserIDs: newMemberUserIDs,
+	})
+	if err != nil {
+		log.ZError(ctx, "OpenMLSClient.AddMemberTrigger failed", err,
+			"groupID", groupID, "operatorUserID", operatorUserID)
+		return
+	}
+	log.ZDebug(ctx, "OpenMLSClient.AddMemberTrigger success",
+		"groupID", groupID, "operatorUserID", operatorUserID, "newMemberCount", len(newMemberUserIDs))
+}
+
+// RemoveMemberTrigger notifies the operator's devices to perform the MLS
+// Remove-Commit flow after members are kicked from an OpenIM group, rotating
+// the group epoch so removed members lose forward secrecy. It is a
+// fire-and-return call: errors are logged but do not block the Group RPC.
+func (x *OpenMLSClient) RemoveMemberTrigger(ctx context.Context, groupID, operatorUserID string, removedMemberUserIDs []string) {
+	_, err := x.OpenMLSServiceClient.RemoveMemberTrigger(ctx, &pbopenmls.RemoveMemberTriggerReq{
+		GroupID:              groupID,
+		OperatorUserID:       operatorUserID,
+		RemovedMemberUserIDs: removedMemberUserIDs,
+	})
+	if err != nil {
+		log.ZError(ctx, "OpenMLSClient.RemoveMemberTrigger failed", err,
+			"groupID", groupID, "operatorUserID", operatorUserID)
+		return
+	}
+	log.ZDebug(ctx, "OpenMLSClient.RemoveMemberTrigger success",
+		"groupID", groupID, "operatorUserID", operatorUserID, "removedMemberCount", len(removedMemberUserIDs))
+}

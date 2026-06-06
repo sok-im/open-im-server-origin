@@ -350,7 +350,11 @@ func (s *groupServer) CreateGroup(ctx context.Context, req *pbgroup.CreateGroupR
 	if err := s.db.CreateGroup(ctx, []*model.Group{group}, groupMembers); err != nil {
 		return nil, err
 	}
-	//s.cryptoClient.InitGroupKeyVersion(ctx, group.GroupID)
+	// Trigger server-side MLS group initialization: notify the creator's
+	// devices to fetch key packages and create the MLS group via the DS.
+	// Fire-and-return: MLS setup failure must not block the group creation
+	// response.
+	go s.openMLSClient.InitGroupTrigger(ctx, group.GroupID, req.OwnerUserID, userIDs)
 	resp := &pbgroup.CreateGroupResp{GroupInfo: &sdkws.GroupInfo{}}
 
 	resp.GroupInfo = convert.Db2PbGroupInfo(group, req.OwnerUserID, uint32(len(userIDs)))
@@ -616,6 +620,7 @@ func (s *groupServer) InviteUserToGroup(ctx context.Context, req *pbgroup.Invite
 		}
 	}
 	//s.cryptoClient.BumpGroupKeyVersion(ctx, req.GroupID, opUserID, "member_added")
+	go s.openMLSClient.AddMemberTrigger(ctx, req.GroupID, opUserID, req.InvitedUserIDs)
 	return &pbgroup.InviteUserToGroupResp{}, nil
 }
 
@@ -786,6 +791,7 @@ func (s *groupServer) KickGroupMember(ctx context.Context, req *pbgroup.KickGrou
 	}
 	s.webhookAfterKickGroupMember(ctx, &s.config.WebhooksConfig.AfterKickGroupMember, req)
 	//s.cryptoClient.BumpGroupKeyVersion(ctx, req.GroupID, opUserID, "member_removed")
+	go s.openMLSClient.RemoveMemberTrigger(ctx, req.GroupID, opUserID, req.KickedUserIDs)
 
 	return &pbgroup.KickGroupMemberResp{}, nil
 }
@@ -1044,6 +1050,10 @@ func (s *groupServer) GroupApplicationResponse(ctx context.Context, req *pbgroup
 				return nil, err
 			}
 			//s.cryptoClient.BumpGroupKeyVersion(ctx, req.GroupID, mcontext.GetOpUserID(ctx), "member_added")
+			// Notify the approver's devices to perform the MLS Add-Commit + Welcome
+			// flow for the newly admitted member.
+			opUserID := mcontext.GetOpUserID(ctx)
+			go s.openMLSClient.AddMemberTrigger(ctx, req.GroupID, opUserID, []string{req.FromUserID})
 		}
 	case constant.GroupResponseRefuse:
 		s.notification.GroupApplicationRejectedNotification(ctx, req)
@@ -1132,6 +1142,15 @@ func (s *groupServer) JoinGroup(ctx context.Context, req *pbgroup.JoinGroupReq) 
 	if err := s.joinGroupDirectly(ctx, group, req); err != nil {
 		return nil, err
 	}
+	// Notify the group owner's devices to perform the MLS Add-Commit + Welcome
+	// flow so the new member can be added to the encrypted group.
+	go func() {
+		owner, err := s.db.TakeGroupOwner(ctx, req.GroupID)
+		if err != nil {
+			return
+		}
+		s.openMLSClient.AddMemberTrigger(ctx, req.GroupID, owner.UserID, []string{req.InviterUserID})
+	}()
 	return &pbgroup.JoinGroupResp{}, nil
 }
 
@@ -1163,6 +1182,15 @@ func (s *groupServer) QuitGroup(ctx context.Context, req *pbgroup.QuitGroupReq) 
 	}
 	s.webhookAfterQuitGroup(ctx, &s.config.WebhooksConfig.AfterQuitGroup, req)
 	//s.cryptoClient.BumpGroupKeyVersion(ctx, req.GroupID, req.UserID, "member_left")
+	// Notify the group owner's devices to perform the MLS Remove-Commit flow
+	// so that the departed member loses access to future messages.
+	go func() {
+		owner, err := s.db.TakeGroupOwner(ctx, req.GroupID)
+		if err != nil {
+			return
+		}
+		s.openMLSClient.RemoveMemberTrigger(ctx, req.GroupID, owner.UserID, []string{req.UserID})
+	}()
 
 	return &pbgroup.QuitGroupResp{}, nil
 }

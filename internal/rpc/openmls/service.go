@@ -753,3 +753,67 @@ func splitIdentity(identity string) []string {
 	parts = append(parts, identity[start:])
 	return parts
 }
+
+// InitGroupTrigger is called by the Group RPC immediately after a new OpenIM
+// group is created. It sends a mls_group_init_trigger notification to all of
+// the creator's devices so that the client-side MLS group-creation flow starts
+// automatically — the creator fetches KeyPackages, generates the initial
+// Commit + Welcome messages, and calls SubmitCommit.
+//
+// This RPC performs no cryptographic operations; it is a pure signalling call.
+// Errors are non-fatal for the caller (fire-and-return pattern): if the
+// trigger fails the creator can still initiate MLS setup manually or on next
+// login.
+func (s *openMLSServer) InitGroupTrigger(ctx context.Context, req *pbopenmls.InitGroupTriggerReq) (*pbopenmls.InitGroupTriggerResp, error) {
+	if req.GroupID == "" {
+		return nil, errs.ErrArgs.WrapMsg("groupID is required")
+	}
+	if req.CreatorUserID == "" {
+		return nil, errs.ErrArgs.WrapMsg("creatorUserID is required")
+	}
+	s.sendGroupInitTrigger(ctx, req.GroupID, req.CreatorUserID, req.MemberUserIDs)
+	return &pbopenmls.InitGroupTriggerResp{}, nil
+}
+
+// AddMemberTrigger is called by the Group RPC immediately after new members
+// are invited into an OpenIM group. It sends a mls_add_member_trigger
+// notification to the operator's devices so that the client-side MLS Add flow
+// starts automatically — the operator fetches KeyPackages for the new members,
+// creates an Add-Commit + Welcome bundle, and calls SubmitCommit.
+//
+// This RPC performs no cryptographic operations; it is a pure signalling call.
+func (s *openMLSServer) AddMemberTrigger(ctx context.Context, req *pbopenmls.AddMemberTriggerReq) (*pbopenmls.AddMemberTriggerResp, error) {
+	if req.GroupID == "" {
+		return nil, errs.ErrArgs.WrapMsg("groupID is required")
+	}
+	if req.OperatorUserID == "" {
+		return nil, errs.ErrArgs.WrapMsg("operatorUserID is required")
+	}
+	if len(req.NewMemberUserIDs) == 0 {
+		return nil, errs.ErrArgs.WrapMsg("newMemberUserIDs must not be empty")
+	}
+	s.sendAddMemberTrigger(ctx, req.GroupID, req.OperatorUserID, req.NewMemberUserIDs)
+	return &pbopenmls.AddMemberTriggerResp{}, nil
+}
+
+// RemoveMemberTrigger is called by the Group RPC immediately after members are
+// kicked from an OpenIM group. It sends a mls_remove_member_trigger
+// notification to the operator's devices so that the client-side MLS Remove
+// flow starts automatically — the operator creates a Remove-Commit and calls
+// SubmitCommit to rotate the group epoch, preventing kicked members from
+// decrypting future messages.
+//
+// This RPC performs no cryptographic operations; it is a pure signalling call.
+func (s *openMLSServer) RemoveMemberTrigger(ctx context.Context, req *pbopenmls.RemoveMemberTriggerReq) (*pbopenmls.RemoveMemberTriggerResp, error) {
+	if req.GroupID == "" {
+		return nil, errs.ErrArgs.WrapMsg("groupID is required")
+	}
+	if req.OperatorUserID == "" {
+		return nil, errs.ErrArgs.WrapMsg("operatorUserID is required")
+	}
+	if len(req.RemovedMemberUserIDs) == 0 {
+		return nil, errs.ErrArgs.WrapMsg("removedMemberUserIDs must not be empty")
+	}
+	s.sendRemoveMemberTrigger(ctx, req.GroupID, req.OperatorUserID, req.RemovedMemberUserIDs)
+	return &pbopenmls.RemoveMemberTriggerResp{}, nil
+}
