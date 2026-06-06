@@ -1,7 +1,7 @@
 # OpenMLS 端到端加密详细方案设计
 
-> **文档版本**：v1.2  
-> **日期**：2026-06-01（v1.2：统一时序图/路线图与 v1.1 架构，消除 Go SDK 承担 MLS 逻辑的旧描述）  
+> **文档版本**：v1.3  
+> **日期**：2026-06-06（v1.3：补充服务器驱动的成员加入/移除 MLS 触发机制；更新 §4.6 §4.7 时序图；新增 §5.1 Trigger RPC 说明；更新 §9 extension 表）  
 > **项目**：OpenIM Flutter Enterprise  
 > **协议基础**：[MLS RFC 9420](https://www.rfc-editor.org/rfc/rfc9420)  
 > **参考实现**：[OpenMLS](https://github.com/openmls/openmls)（Rust，经第三方安全审计）
@@ -21,6 +21,7 @@
    - 4.5 [群组创建与成员初始化](#45-群组创建与成员初始化)
    - 4.6 [群成员加入（Add）](#46-群成员加入add)
    - 4.7 [群成员移除（Remove）](#47-群成员移除remove)
+   - 4.10 [成员变更触发机制汇总](#410-成员变更触发机制汇总)
    - 4.8 [密钥轮换（PCS Update）](#48-密钥轮换pcs-update)
    - 4.9 [新设备登录同步](#49-新设备登录同步)
 5. [后端接口详细说明](#5-后端接口详细说明)
@@ -392,55 +393,105 @@ sequenceDiagram
 
 ### 4.6 群成员加入（Add）
 
+> **触发方**：服务器。OpenIM 群组 RPC 在成员加入成功落库后，自动调用 MLS DS 的 `AddMemberTrigger`，将加人任务推送至操作者（邀请者/审批者/群主）的所有在线设备。客户端无需感知何时应该执行 Add-Commit——一切由服务器驱动。
+
+触发场景：
+
+| OpenIM 接口 | 触发接收方 |
+|---|---|
+| `InviteUserToGroup`（管理员邀请） | 邀请者（opUserID） |
+| `JoinGroup`（用户自主入群） | 群主（owner） |
+| `GroupApplicationResponse`（审批通过） | 审批者（opUserID） |
+
 ```mermaid
 sequenceDiagram
-    participant Admin as 群主/管理员
-    participant DS as MLS DS
+    participant Client as 操作者客户端 (邀请者/审批者/群主)
+    participant GroupRPC as OpenIM Group RPC
+    participant DS as MLS DS (openMLSServer)
     participant GW as msg_gateway
     participant Existing as 现有成员 (已在群)
     participant NewMember as 新成员
 
-    Admin->>DS: GET /mls/key_packages/{newMember_userID}
-    DS-->>Admin: [kp_new_d1, kp_new_d2]
+    Client->>GroupRPC: InviteUserToGroup / JoinGroup / GroupApplicationResponse
+    GroupRPC->>GroupRPC: 落库成员记录
+    GroupRPC->>DS: AddMemberTrigger(groupID, operatorUserID, newMemberUserIDs)
+    Note right of DS: 服务器触发，不做加密运算\n仅发送信令通知给操作者设备
 
-    Admin->>Admin: group.propose_add(kp_new_d1) → Add Proposal
-    Admin->>Admin: group.commit([add_proposal]) → (Commit, Welcome_for_new)
-    Admin->>Admin: 应用 Commit，推进到 Epoch N+1
+    DS->>GW: sendCustomMsg(extension="mls_add_member_trigger",\n  {groupID, newMemberUserIDs}) → operatorUserID
+    GW-->>Client: CustomMessage (mls_add_member_trigger)
+    GroupRPC-->>Client: 接口响应
 
-    Admin->>DS: POST /mls/groups/{groupID}/commit\n{commit, from_epoch: N}
-    DS->>DS: 验证 epoch 连续性，广播给现有成员
-    DS-->>Admin: {epoch: N+1}
+    Note over Client: 收到触发通知，开始 MLS Add 流程
+    Client->>DS: GET /mls/key_packages/{newMember_userID}
+    DS-->>Client: [kp_new_d1, kp_new_d2]
 
-    DS-->>Existing: 推送 Commit（GW → CustomMessage extension=mls_handshake）
-    Existing->>Existing: processHandshake(commit)\n推进到 Epoch N+1（派生新密钥）
-    Existing->>Existing: 删除 Epoch N 的密钥材料 ✓前向保密
+    Client->>Client: group.propose_add(kp_new_d1) → Add Proposal
+    Client->>Client: group.commit([add_proposal]) → (Commit, Welcome_for_new)
+    Client->>Client: 应用 Commit，推进到 Epoch N+1
 
-    Admin->>GW: sendCustomMsg(extension="mls_handshake", Welcome) → newMember
-    GW-->>NewMember: CustomMessage (mls_handshake)
-    NewMember->>NewMember: processHandshake() → Epoch N+1
-    Note right of NewMember: 新成员无法解密 Epoch 0..N 的消息（前向保密）
+    Client->>DS: POST /mls/groups/{groupID}/commit\n{commit, from_epoch: N,\n  welcomeMessages=[{newMember, Welcome}]}
+    DS->>DS: 验证 epoch 连续性，持久化 Commit，epoch → N+1
+    DS-->>Client: {newEpoch: N+1}
+
+    DS->>GW: sendCustomMsg(extension="mls_handshake", Commit) → groupID (广播)
+    DS->>GW: sendCustomMsg(extension="mls_handshake", Welcome) → newMember
+
+    par 并行处理
+        GW-->>Existing: CustomMessage (mls_handshake: Commit)
+        Existing->>Existing: processHandshake(commit)\n推进到 Epoch N+1（派生新密钥）
+        Existing->>Existing: 删除 Epoch N 的密钥材料 ✓前向保密
+    and
+        GW-->>NewMember: CustomMessage (mls_handshake: Welcome)
+        NewMember->>NewMember: processHandshake() → Epoch N+1
+        Note right of NewMember: 新成员无法解密 Epoch 0..N 的消息（前向保密）
+    end
+
+    Note over Client,NewMember: 所有成员均在 Epoch N+1，新成员加入 E2EE 群组
 ```
 
 ---
 
 ### 4.7 群成员移除（Remove）
 
+> **触发方**：服务器。OpenIM 群组 RPC 在成员移除成功落库后，自动调用 MLS DS 的 `RemoveMemberTrigger`，将 Remove-Commit 任务推送至操作者（踢人者/群主）的所有在线设备。操作者设备提交 Remove-Commit，群 epoch 轮换，被移除成员失去后续消息的解密能力。
+
+触发场景：
+
+| OpenIM 接口 | 触发接收方 |
+|---|---|
+| `KickGroupMember`（踢人） | 踢人者（opUserID） |
+| `QuitGroup`（主动退群） | 群主（owner） |
+
 ```mermaid
 sequenceDiagram
-    participant Admin as 群主/管理员
-    participant DS as MLS DS
+    participant Client as 操作者客户端 (踢人者/群主)
+    participant GroupRPC as OpenIM Group RPC
+    participant DS as MLS DS (openMLSServer)
+    participant GW as msg_gateway
     participant Remaining as 剩余成员
     participant Removed as 被移除成员
 
-    Admin->>Admin: group.propose_remove(removed_leaf_index) → Remove Proposal
-    Admin->>Admin: group.commit([remove_proposal]) → Commit
-    Admin->>Admin: 应用 Commit，推进到 Epoch N+1
-    Note right of Admin: Epoch N+1 密钥由新的 ratchet tree 派生\n被移除成员无对应叶节点
+    Client->>GroupRPC: KickGroupMember / QuitGroup
+    GroupRPC->>GroupRPC: 落库删除成员记录
+    GroupRPC->>DS: RemoveMemberTrigger(groupID, operatorUserID, removedMemberUserIDs)
+    Note right of DS: 服务器触发，不做加密运算\n仅发送信令通知给操作者设备
 
-    Admin->>DS: POST /mls/groups/{groupID}/commit\n{commit, from_epoch: N}
-    DS-->>Admin: {epoch: N+1}
+    DS->>GW: sendCustomMsg(extension="mls_remove_member_trigger",\n  {groupID, removedMemberUserIDs}) → operatorUserID
+    GW-->>Client: CustomMessage (mls_remove_member_trigger)
+    GroupRPC-->>Client: 接口响应
 
-    DS-->>Remaining: 推送 Commit（GW → CustomMessage extension=mls_handshake）
+    Note over Client: 收到触发通知，开始 MLS Remove 流程
+    Client->>Client: group.propose_remove(removed_leaf_index) → Remove Proposal
+    Client->>Client: group.commit([remove_proposal]) → Commit
+    Client->>Client: 应用 Commit，推进到 Epoch N+1
+    Note right of Client: Epoch N+1 密钥由新的 ratchet tree 派生\n被移除成员无对应叶节点
+
+    Client->>DS: POST /mls/groups/{groupID}/commit\n{commit, from_epoch: N}
+    DS->>DS: 验证 epoch 连续性，持久化 Commit，epoch → N+1
+    DS-->>Client: {newEpoch: N+1}
+
+    DS->>GW: sendCustomMsg(extension="mls_handshake", Commit) → groupID (广播)
+    GW-->>Remaining: CustomMessage (mls_handshake: Commit)
     Remaining->>Remaining: processHandshake(commit)\n推进到 Epoch N+1
     Remaining->>Remaining: 删除 Epoch N 密钥 ✓
 
@@ -449,6 +500,26 @@ sequenceDiagram
 ```
 
 ---
+
+### 4.10 成员变更触发机制汇总
+
+服务器在每次成员变更时向特定设备发送 MLS 信令触发通知，使客户端自动执行对应的 MLS Commit 操作，无需客户端主动感知时机。
+
+| OpenIM 接口 | 触发 RPC | extension | 通知接收方 | 客户端动作 |
+|---|---|---|---|---|
+| `CreateGroup` | `InitGroupTrigger` | `mls_group_init_trigger` | 创建者 | 批量 Add 成员 + Welcome + SubmitCommit |
+| `InviteUserToGroup` | `AddMemberTrigger` | `mls_add_member_trigger` | 邀请者（opUserID） | 获取新成员 KP + Add Commit + Welcome |
+| `JoinGroup`（自主入群） | `AddMemberTrigger` | `mls_add_member_trigger` | 群主（owner） | 获取新成员 KP + Add Commit + Welcome |
+| `GroupApplicationResponse`（审批通过） | `AddMemberTrigger` | `mls_add_member_trigger` | 审批者（opUserID） | 获取新成员 KP + Add Commit + Welcome |
+| `KickGroupMember` | `RemoveMemberTrigger` | `mls_remove_member_trigger` | 踢人者（opUserID） | Remove Commit + SubmitCommit |
+| `QuitGroup`（主动退群） | `RemoveMemberTrigger` | `mls_remove_member_trigger` | 群主（owner） | Remove Commit + SubmitCommit |
+| `DismissGroup`（解散群） | — | — | — | MLS DS 直接清除群状态（`DeleteGroup`）|
+
+**设计原则**：
+- 所有触发消息均为 fire-and-log（不阻塞 Group RPC 响应）
+- 通知走 notification channel（不进历史、不计未读），仅到达操作者的在线设备
+- MLS 加密运算仍完全在客户端进行，服务器零感知密钥内容
+
 
 ### 4.8 密钥轮换（PCS Update）
 
@@ -808,6 +879,40 @@ DS 通过 msg_gateway 向各接收方推送 **CustomMessage**（`contentType=200
 
 ---
 
+#### `POST /mls/groups/{group_id}/init_trigger`（内部 RPC）
+
+**功能**：由 OpenIM `Group RPC` 在 `CreateGroup` 成功后调用，触发群主设备执行 MLS 初始化流程。
+
+**触发方**：Group RPC（服务器内部 gRPC 调用，非客户端直接调用）
+
+**行为**：向群主所有在线设备发送 `mls_group_init_trigger` CustomMessage，携带 `{groupID, memberUserIDs}`。
+
+---
+
+#### `POST /mls/groups/{group_id}/add_member_trigger`（内部 RPC）
+
+**功能**：由 OpenIM `Group RPC` 在成员加入后调用，触发操作者设备执行 MLS Add-Commit + Welcome 流程。
+
+**触发方**：Group RPC（服务器内部 gRPC 调用）
+
+**触发场景**：`InviteUserToGroup`、`JoinGroup`、`GroupApplicationResponse`（通过）
+
+**行为**：向操作者（邀请者/审批者/群主）所有在线设备发送 `mls_add_member_trigger` CustomMessage，携带 `{groupID, newMemberUserIDs}`。
+
+---
+
+#### `POST /mls/groups/{group_id}/remove_member_trigger`（内部 RPC）
+
+**功能**：由 OpenIM `Group RPC` 在成员退出/被踢后调用，触发操作者设备执行 MLS Remove-Commit 流程，轮换群 epoch。
+
+**触发方**：Group RPC（服务器内部 gRPC 调用）
+
+**触发场景**：`KickGroupMember`、`QuitGroup`
+
+**行为**：向操作者（踢人者/群主）所有在线设备发送 `mls_remove_member_trigger` CustomMessage，携带 `{groupID, removedMemberUserIDs}`。
+
+---
+
 ### 5.2 Auth Server 扩展接口
 
 #### `POST /crypto/credential`
@@ -1125,6 +1230,33 @@ Future<void> _sendMessageWithE2EE(
 // lib/core/im_callback.dart
 
 void onRecvNewMessage(Message message) {
+  // --- 服务器触发：群组初始化（CreateGroup 后） ---
+  if (message.contentType == 200 &&
+      message.customElem?.extension == 'mls_group_init_trigger') {
+    MLSController.instance.onGroupInitTrigger(message).catchError((e) {
+      Logger.print('[MLS] onGroupInitTrigger error: $e');
+    });
+    return;
+  }
+
+  // --- 服务器触发：成员加入（Invite/Join/Approve 后） ---
+  if (message.contentType == 200 &&
+      message.customElem?.extension == 'mls_add_member_trigger') {
+    MLSController.instance.onAddMemberTrigger(message).catchError((e) {
+      Logger.print('[MLS] onAddMemberTrigger error: $e');
+    });
+    return;
+  }
+
+  // --- 服务器触发：成员移除（Kick/Quit 后） ---
+  if (message.contentType == 200 &&
+      message.customElem?.extension == 'mls_remove_member_trigger') {
+    MLSController.instance.onRemoveMemberTrigger(message).catchError((e) {
+      Logger.print('[MLS] onRemoveMemberTrigger error: $e');
+    });
+    return;
+  }
+
   // --- 新设备 KeyPackage 已上传通知 ---
   if (message.contentType == 200 &&
       message.customElem?.extension == 'mls_new_device') {
@@ -1427,4 +1559,5 @@ E2EE 消息**不新增 ContentType**，统一使用 OpenIM 原有 **ContentType 
 
 ---
 
-*文档由 Cursor AI 基于 openim-flutter-enterprise 代码库自动生成，请在实施前进行人工审阅。*
+*文档由 Cursor AI 基于 openim-flutter-enterprise 代码库自动生成并持续维护，请在实施前进行人工审阅。*  
+*v1.3 更新：服务器驱动 MLS 成员变更触发机制（AddMemberTrigger / RemoveMemberTrigger），覆盖 InviteUserToGroup / JoinGroup / GroupApplicationResponse / KickGroupMember / QuitGroup 全路径。*
