@@ -102,7 +102,23 @@ func (s *userServer) GetOnlineUserCount(ctx context.Context, req *pbuser.GetOnli
 		cursor = onlineResp.NextCursor
 	}
 
+	if filterArea != "" {
+		return &pbuser.GetOnlineUserCountResp{
+			OnlineUserCount: total,
+			AreaCode:        filterArea,
+		}, nil
+	}
+
+	areaCountList := make([]*pbuser.OnlineUserAreaCount, 0, len(areaCounts))
+	for area, count := range areaCounts {
+		areaCountList = append(areaCountList, &pbuser.OnlineUserAreaCount{
+			AreaCode:        area,
+			OnlineUserCount: count,
+		})
+	}
+
 	return &pbuser.GetOnlineUserCountResp{
 		OnlineUserCount: total,
+		AreaCounts:      areaCountList,
 	}, nil
 }
