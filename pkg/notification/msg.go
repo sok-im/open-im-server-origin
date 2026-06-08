@@ -56,12 +56,12 @@ func newContentTypeConf(conf *config.Notification) map[int32]config.Notification
 		constant.GroupMemberSetToOrdinaryUserNotification: conf.GroupMemberSetToOrdinary,
 		constant.GroupInfoSetAnnouncementNotification:     conf.GroupInfoSetAnnouncement,
 		constant.GroupInfoSetNameNotification:             conf.GroupInfoSetName,
-		constant.GroupMessagePinnedNotification:         conf.GroupMessagePinned,
-		constant.GroupCallStartedNotification:           conf.GroupCallStarted,
-		constant.GroupCallEndedNotification:             conf.GroupCallEnded,
-		constant.GroupBurnDurationSetNotification:       conf.GroupBurnDurationSet,
-		constant.GroupFaceURLSetNotification:            conf.GroupFaceURLSet,
-		constant.GroupNeedVerificationSetNotification:   conf.GroupNeedVerificationSet,
+		constant.GroupMessagePinnedNotification:           conf.GroupMessagePinned,
+		constant.GroupCallStartedNotification:             conf.GroupCallStarted,
+		constant.GroupCallEndedNotification:               conf.GroupCallEnded,
+		constant.GroupBurnDurationSetNotification:         conf.GroupBurnDurationSet,
+		constant.GroupFaceURLSetNotification:              conf.GroupFaceURLSet,
+		constant.GroupNeedVerificationSetNotification:     conf.GroupNeedVerificationSet,
 		// user
 		constant.UserInfoUpdatedNotification:  conf.UserInfoUpdated,
 		constant.UserStatusChangeNotification: conf.UserStatusChanged,
@@ -110,12 +110,12 @@ func newSessionTypeConf() map[int32]int32 {
 		constant.GroupMemberSetToOrdinaryUserNotification: constant.ReadGroupChatType,
 		constant.GroupInfoSetAnnouncementNotification:     constant.ReadGroupChatType,
 		constant.GroupInfoSetNameNotification:             constant.ReadGroupChatType,
-		constant.GroupMessagePinnedNotification:         constant.SingleChatType,
-		constant.GroupCallStartedNotification:           constant.ReadGroupChatType,
-		constant.GroupCallEndedNotification:             constant.ReadGroupChatType,
-		constant.GroupBurnDurationSetNotification:       constant.ReadGroupChatType,
-		constant.GroupFaceURLSetNotification:            constant.ReadGroupChatType,
-		constant.GroupNeedVerificationSetNotification:   constant.ReadGroupChatType,
+		constant.GroupMessagePinnedNotification:           constant.ReadGroupChatType,
+		constant.GroupCallStartedNotification:             constant.ReadGroupChatType,
+		constant.GroupCallEndedNotification:               constant.ReadGroupChatType,
+		constant.GroupBurnDurationSetNotification:         constant.ReadGroupChatType,
+		constant.GroupFaceURLSetNotification:              constant.ReadGroupChatType,
+		constant.GroupNeedVerificationSetNotification:     constant.ReadGroupChatType,
 		// user
 		constant.UserInfoUpdatedNotification:  constant.SingleChatType,
 		constant.UserStatusChangeNotification: constant.SingleChatType,
@@ -140,12 +140,12 @@ func newSessionTypeConf() map[int32]int32 {
 }
 
 type NotificationSender struct {
-	contentTypeConf map[int32]config.NotificationConfig
-	sessionTypeConf map[int32]int32
-	sendMsg         func(ctx context.Context, req *msg.SendMsgReq) (*msg.SendMsgResp, error)
-	getUserInfo         func(ctx context.Context, userID string) (*sdkws.UserInfo, error)
-	getDisplayNickname  func(ctx context.Context, viewerUserID, targetUserID string) (string, error)
-	queue               *memamq.MemoryQueue
+	contentTypeConf    map[int32]config.NotificationConfig
+	sessionTypeConf    map[int32]int32
+	sendMsg            func(ctx context.Context, req *msg.SendMsgReq) (*msg.SendMsgResp, error)
+	getUserInfo        func(ctx context.Context, userID string) (*sdkws.UserInfo, error)
+	getDisplayNickname func(ctx context.Context, viewerUserID, targetUserID string) (string, error)
+	queue              *memamq.MemoryQueue
 }
 
 func WithQueue(queue *memamq.MemoryQueue) NotificationSenderOptions {
