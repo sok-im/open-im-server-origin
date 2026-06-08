@@ -212,27 +212,6 @@ func isPinnedSeqVisible(seq, minSeq, maxSeq int64) bool {
 	return true
 }
 
-func filterPinnedListPB(list []*sdkws.GroupPinnedMsgInfo, minSeq, maxSeq int64) []*sdkws.GroupPinnedMsgInfo {
-	if len(list) == 0 {
-		return nil
-	}
-	out := make([]*sdkws.GroupPinnedMsgInfo, 0, len(list))
-	for _, m := range list {
-		if m == nil || !isPinnedSeqVisible(m.Seq, minSeq, maxSeq) {
-			continue
-		}
-		out = append(out, m)
-	}
-	return out
-}
-
-func pinnedMsgPBVisibleToUser(pinned *sdkws.GroupPinnedMsgInfo, minSeq, maxSeq int64) *sdkws.GroupPinnedMsgInfo {
-	if pinned == nil || !isPinnedSeqVisible(pinned.Seq, minSeq, maxSeq) {
-		return nil
-	}
-	return pinned
-}
-
 // checkPinPermission 校验当前操作者是否具备群消息置顶权限
 func (s *groupServer) checkPinPermission(ctx context.Context, group *model.Group) error {
 	if authverify.IsAppManagerUid(ctx, s.config.Share.IMAdminUserID) {

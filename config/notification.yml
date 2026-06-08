@@ -195,7 +195,7 @@ groupInfoSetName:
 
 groupMessagePinned:
   isSendMsg: true
-  reliabilityLevel: 2
+  reliabilityLevel: 1
   unreadCount: false
   offlinePush:
     enable: false

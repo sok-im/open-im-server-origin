@@ -1251,7 +1251,8 @@ func (g *NotificationSender) GroupMemberSetToAdminNotification(ctx context.Conte
 	g.Notification(ctx, mcontext.GetOpUserID(ctx), group.GroupID, constant.GroupMemberSetToAdminNotification, tips)
 }
 
-// GroupMessagePinnedNotification 按成员分别下发置顶通知：每人收到的 pinnedList 按其群会话 minSeq/maxSeq 过滤。
+// GroupMessagePinnedNotification 向群聊下发一条置顶系统消息（ReadGroupChatType），全员可见。
+// pinnedList 的按成员 minSeq/maxSeq 过滤由 GetGroupPinnedMessages 等拉取接口负责。
 // pinType: 1=置顶，2=取消置顶
 func (g *NotificationSender) GroupMessagePinnedNotification(ctx context.Context, groupID string, pinType int32,
 	pinned *sdkws.GroupPinnedMsgInfo, pinnedList []*sdkws.GroupPinnedMsgInfo) {
@@ -1265,40 +1266,19 @@ func (g *NotificationSender) GroupMessagePinnedNotification(ctx context.Context,
 	if err != nil {
 		return
 	}
-	memberIDs, err := g.db.FindGroupMemberUserID(ctx, groupID)
-	if err != nil {
-		return
-	}
 	var opUser *sdkws.GroupMemberFullInfo
 	if err = g.fillOpUser(ctx, &opUser, groupID); err != nil {
 		return
 	}
-	sendID := mcontext.GetOpUserID(ctx)
-	conversationID := msgprocessor.GetConversationIDBySessionType(constant.ReadGroupChatType, groupID)
-	defaultTips := pinnedMsgDefaultTips(opUser, pinned)
-	for _, memberID := range memberIDs {
-		minSeq, maxSeq := int64(0), int64(0)
-		conv, convErr := g.conversationClient.GetConversation(ctx, conversationID, memberID)
-		if convErr != nil {
-			if errs.ErrRecordNotFound.Is(convErr) {
-				continue
-			}
-			log.ZWarn(ctx, "GroupMessagePinnedNotification GetConversation failed", convErr,
-				"groupID", groupID, "userID", memberID)
-			continue
-		}
-		minSeq, maxSeq = conv.MinSeq, conv.MaxSeq
-		tips := &sdkws.GroupMessagePinnedTips{
-			Group:       groupInfo,
-			OpUser:      opUser,
-			Type:        pinType,
-			PinnedMsg:   pinnedMsgPBVisibleToUser(pinned, minSeq, maxSeq),
-			PinnedList:  filterPinnedListPB(pinnedList, minSeq, maxSeq),
-			DefaultTips: defaultTips,
-		}
-		g.NotificationWithSessionType(ctx, sendID, memberID, constant.GroupMessagePinnedNotification,
-			constant.SingleChatType, tips, notification.WithGroupID(groupID))
+	tips := &sdkws.GroupMessagePinnedTips{
+		Group:       groupInfo,
+		OpUser:      opUser,
+		Type:        pinType,
+		PinnedMsg:   pinned,
+		PinnedList:  pinnedList,
+		DefaultTips: pinnedMsgDefaultTips(opUser, pinned),
 	}
+	g.Notification(ctx, mcontext.GetOpUserID(ctx), groupID, constant.GroupMessagePinnedNotification, tips)
 }
 
 func (g *NotificationSender) GroupMemberSetToOrdinaryUserNotification(ctx context.Context, groupID, groupMemberUserID string) {
