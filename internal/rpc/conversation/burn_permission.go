@@ -24,18 +24,41 @@ import (
 	"github.com/openimsdk/tools/mcontext"
 )
 
+// imAdminUserIDs returns configured IM admin user IDs, or nil when config is unset.
+func (c *conversationServer) imAdminUserIDs() []string {
+	if c == nil || c.config == nil {
+		return nil
+	}
+	return c.config.Share.IMAdminUserID
+}
+
+// firstIMAdminUserID returns the first configured IM admin user ID, or "" if none.
+func (c *conversationServer) firstIMAdminUserID() string {
+	ids := c.imAdminUserIDs()
+	if len(ids) == 0 {
+		return ""
+	}
+	return ids[0]
+}
+
 // checkGroupBurnPermission 校验当前操作者是否具备群会话阅后即焚设置权限。
 // allowBurn=0（默认）仅群主可设置；allowBurn=1 时全员可设置。
 func (c *conversationServer) checkGroupBurnPermission(ctx context.Context, groupID string) error {
 	if groupID == "" {
 		return nil
 	}
-	if authverify.IsAppManagerUid(ctx, c.config.Share.IMAdminUserID) {
+	if c.groupClient == nil {
+		return errs.New("group client not configured").Wrap()
+	}
+	if authverify.IsAppManagerUid(ctx, c.imAdminUserIDs()) {
 		return nil
 	}
 	groupInfo, err := c.groupClient.GetGroupInfo(ctx, groupID)
 	if err != nil {
 		return err
+	}
+	if groupInfo == nil {
+		return errs.ErrRecordNotFound.WrapMsg("group not found")
 	}
 	if groupInfo.GetAllowBurn() == model.GroupAllowBurnAllMember {
 		return nil
@@ -47,6 +70,9 @@ func (c *conversationServer) checkGroupBurnPermission(ctx context.Context, group
 	member, err := c.groupClient.GetGroupMemberInfo(ctx, groupID, opUserID)
 	if err != nil {
 		return err
+	}
+	if member == nil {
+		return errs.ErrRecordNotFound.WrapMsg("group member not found")
 	}
 	if member.RoleLevel == constant.GroupOwner {
 		return nil

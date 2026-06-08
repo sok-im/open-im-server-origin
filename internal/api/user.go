@@ -45,10 +45,6 @@ type GetSelfLoginPlatformsResp struct {
 	SDKVersion   string `json:"sdkVersion"`
 }
 
-type GetOnlineUserCountResp struct {
-	OnlineUserCount int64 `json:"onlineUserCount"`
-}
-
 func NewUserApi(client user.UserClient, discov discovery.SvcDiscoveryRegistry, config config.RpcRegisterName, imAdminUserID []string) UserApi {
 	return UserApi{Client: client, discov: discov, config: config, imAdminUserID: imAdminUserID}
 }
@@ -146,31 +142,13 @@ func (u *UserApi) UserRegisterCount(c *gin.Context) {
 	a2r.Call(c, user.UserClient.UserRegisterCount, u.Client)
 }
 
-// GetOnlineUserCount Get current online user count.
+// GetOnlineUserCount Get current online user count, optionally filtered by areaCode.
 func (u *UserApi) GetOnlineUserCount(c *gin.Context) {
 	if err := authverify.CheckAdmin(c, u.imAdminUserID); err != nil {
 		apiresp.GinError(c, err)
 		return
 	}
-	cursor := uint64(0)
-	var count int64
-	for {
-		resp, err := u.Client.GetAllOnlineUsers(c, &user.GetAllOnlineUsersReq{Cursor: cursor})
-		if err != nil {
-			apiresp.GinError(c, err)
-			return
-		}
-		for _, status := range resp.StatusList {
-			if status.Status == constant.Online {
-				count++
-			}
-		}
-		if resp.NextCursor == 0 {
-			break
-		}
-		cursor = resp.NextCursor
-	}
-	apiresp.GinSuccess(c, &GetOnlineUserCountResp{OnlineUserCount: count})
+	a2r.Call(c, user.UserClient.GetOnlineUserCount, u.Client)
 }
 
 // GetUsersOnlineTokenDetail Get user online token details.

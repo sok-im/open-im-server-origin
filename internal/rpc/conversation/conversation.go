@@ -1056,12 +1056,12 @@ func (c *conversationServer) ClearGroupBurnExpiredMsgs(ctx context.Context, req 
 		conversationID := msgprocessor.GetConversationIDBySessionType(constant.ReadGroupChatType, g.GroupID)
 
 		// 与 ClearBurnExpiredMsgs 一致：物理删除并同步客户端（best-effort）。
-		var deleteAsUserID string
-		if len(c.config.Share.IMAdminUserID) > 0 {
-			deleteAsUserID = c.config.Share.IMAdminUserID[0]
-		}
+		deleteAsUserID := c.firstIMAdminUserID()
 		if deleteAsUserID == "" {
 			log.ZWarn(ctx, "ClearGroupBurnExpiredMsgs: IMAdminUserID empty, skip DeleteMsgs", nil,
+				"groupID", g.GroupID, "conversationID", conversationID, "seqs", g.Seqs)
+		} else if c.msgClient == nil {
+			log.ZWarn(ctx, "ClearGroupBurnExpiredMsgs: msg client not configured, skip DeleteMsgs", nil,
 				"groupID", g.GroupID, "conversationID", conversationID, "seqs", g.Seqs)
 		} else if err := c.msgClient.DeleteMsgs(ctx, deleteAsUserID, conversationID, g.Seqs, &msg.DeleteSyncOpt{
 			IsSyncOther: true,
