@@ -136,7 +136,6 @@ func UpdateGroupInfoExMap(ctx context.Context, group *pbgroup.SetGroupInfoExReq)
 	}
 	if group.MsgBurnDuration != nil {
 		m["msg_burn_duration"] = group.MsgBurnDuration.Value
-		normalFlag = true
 	}
 	if group.AllowBurn != nil {
 		m["allow_burn"] = group.AllowBurn.Value

@@ -1351,6 +1351,9 @@ func (s *groupServer) SetGroupInfoEx(ctx context.Context, req *pbgroup.SetGroupI
 			if grp.AllowEditGroupInfo == model.GroupPermAdminOnly {
 				return nil, errs.ErrNoPermission.WrapMsg("only owner or admin can edit group info")
 			}
+			if req.MsgBurnDuration != nil && grp.AllowBurn == model.GroupAllowBurnOwnerOnly {
+				return nil, errs.ErrNoPermission.WrapMsg("only owner or admin can set group msg burn duration")
+			}
 		}
 
 		if err := s.PopulateGroupMember(ctx, opMember); err != nil {

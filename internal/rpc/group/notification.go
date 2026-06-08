@@ -539,6 +539,7 @@ func (g *NotificationSender) GroupBurnDurationSetNotification(ctx context.Contex
 	if err != nil {
 		return
 	}
+	groupInfo.MsgBurnDuration = durationSecs
 	var opUser *sdkws.GroupMemberFullInfo
 	if err = g.fillOpUser(ctx, &opUser, groupID); err != nil {
 		return
