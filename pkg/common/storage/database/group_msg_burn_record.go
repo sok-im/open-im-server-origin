@@ -28,19 +28,15 @@ type ExpiredGroupBurn struct {
 	Seqs []int64
 }
 
-// GroupMsgBurnRecord 持久化群消息「阅后即焚」的阅读计数与截止时间。
+// GroupMsgBurnRecord 持久化群消息定时删除的截止时间。
 //
-// 写入：msg 服务 MarkConversationAsRead 群聊分支。
+// 写入：msgtransfer 在群消息落库分配 seq 后写入 burn_end_time = send_time + duration。
 // 消费：conversation 服务 ClearGroupBurnExpiredMsgs cron 入口。
 type GroupMsgBurnRecord interface {
-	// UpsertOnRead 批量原子更新阅读记录：
-	//   - 若 (group_id, seq) 不存在：插入 {member_count, burn_end_time, create_time, send_id, read_count=1}；send_id 来自 seqSenderID[seq]，可为空。
-	//   - 若已存在：仅对 read_count 执行 $inc，不覆盖首次写入的 burn_end_time、send_id
-	UpsertOnRead(ctx context.Context, groupID string, seqs []int64, seqSenderID map[int64]string, memberCount int32, burnEndTimeMs int64) error
+	// UpsertOnSend 在消息发送时批量写入删除截止时间；已存在 (group_id, seq) 时不覆盖。
+	UpsertOnSend(ctx context.Context, groupID string, seqs []int64, seqSenderID map[int64]string, burnEndTimeMs int64) error
 
-	// FindExpired 查询满足以下条件的记录并按 group_id 聚合：
-	//   burn_end_time <= nowMs AND read_count >= member_count
-	// limit 限制返回的 group 数量。
+	// FindExpired 查询 burn_end_time <= nowMs 的记录并按 group_id 聚合；limit 限制返回的 group 数量。
 	FindExpired(ctx context.Context, nowMs int64, limit int) ([]*ExpiredGroupBurn, error)
 
 	// DeleteByGroupSeqs 删除指定群下一批 seq 的记录，在成功推进 min_seq 后调用。

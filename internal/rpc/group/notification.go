@@ -554,13 +554,13 @@ func (g *NotificationSender) GroupBurnDurationSetNotification(ctx context.Contex
 }
 
 // groupNeedVerificationDefaultTips returns an English text for a NeedVerification change.
-// 0/1 = approval required; 2 (Directly) = no approval.
+// 仅影响分享链接入群：0/1=需审批，2(Directly)=免审直接入群。
 func groupNeedVerificationDefaultTips(opUser *sdkws.GroupMemberFullInfo, needVerification int32) string {
 	name := opUserName(opUser)
 	if needVerification == constant.Directly {
-		return name + " disabled join approval — anyone can join"
+		return name + " disabled invite-link join approval"
 	}
-	return name + " enabled join approval"
+	return name + " enabled invite-link join approval"
 }
 
 // GroupNeedVerificationSetNotification sends a GroupNeedVerificationSetNotification (1526)

@@ -1373,6 +1373,14 @@ func (s *groupServer) SetGroupInfoEx(ctx context.Context, req *pbgroup.SetGroupI
 		return nil, servererrs.ErrDismissedAlready.Wrap()
 	}
 
+	// 首次开启群分享链接时，默认关闭入群审核（needVerification=Directly）。
+	if req.EnableInviteLink != nil &&
+		req.EnableInviteLink.Value == model.GroupEnableInviteLinkOn &&
+		group.EnableInviteLink != model.GroupEnableInviteLinkOn &&
+		req.NeedVerification == nil {
+		req.NeedVerification = wrapperspb.Int32(constant.Directly)
+	}
+
 	count, err := s.db.FindGroupMemberNum(ctx, group.GroupID)
 	if err != nil {
 		return nil, err

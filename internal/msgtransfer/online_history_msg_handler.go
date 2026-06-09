@@ -33,6 +33,7 @@ import (
 
 	"github.com/IBM/sarama"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/controller"
+	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/database"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/kafka"
 	"github.com/openimsdk/open-im-server/v3/pkg/msgprocessor"
 	"github.com/openimsdk/open-im-server/v3/pkg/tools/batcher"
@@ -75,11 +76,12 @@ type OnlineHistoryRedisConsumerHandler struct {
 	conversationUserHasReadChan chan *userHasReadSeq
 	wg                          sync.WaitGroup
 
-	groupClient        *rpcli.GroupClient
-	conversationClient *rpcli.ConversationClient
+	groupClient          *rpcli.GroupClient
+	conversationClient   *rpcli.ConversationClient
+	groupMsgBurnRecordDB database.GroupMsgBurnRecord
 }
 
-func NewOnlineHistoryRedisConsumerHandler(ctx context.Context, client discovery.SvcDiscoveryRegistry, config *Config, database controller.MsgTransferDatabase) (*OnlineHistoryRedisConsumerHandler, error) {
+func NewOnlineHistoryRedisConsumerHandler(ctx context.Context, client discovery.SvcDiscoveryRegistry, config *Config, msgTransferDB controller.MsgTransferDatabase, groupMsgBurnRecordDB database.GroupMsgBurnRecord) (*OnlineHistoryRedisConsumerHandler, error) {
 	kafkaConf := config.KafkaConfig
 	historyConsumerGroup, err := kafka.NewMConsumerGroup(kafkaConf.Build(), kafkaConf.ToRedisGroupID, []string{kafkaConf.ToRedisTopic}, false)
 	if err != nil {
@@ -94,10 +96,11 @@ func NewOnlineHistoryRedisConsumerHandler(ctx context.Context, client discovery.
 		return nil, err
 	}
 	var och OnlineHistoryRedisConsumerHandler
-	och.msgTransferDatabase = database
+	och.msgTransferDatabase = msgTransferDB
 	och.conversationUserHasReadChan = make(chan *userHasReadSeq, hasReadChanBuffer)
 	och.groupClient = rpcli.NewGroupClient(groupConn)
 	och.conversationClient = rpcli.NewConversationClient(conversationConn)
+	och.groupMsgBurnRecordDB = groupMsgBurnRecordDB
 	och.wg.Add(1)
 
 	b := batcher.New[sarama.ConsumerMessage](
@@ -279,6 +282,10 @@ func (och *OnlineHistoryRedisConsumerHandler) handleMsg(ctx context.Context, key
 		}
 
 		log.ZDebug(ctx, "handleMsg", "lastSeq", lastSeq, "isNewConversation", isNewConversation, "userSeqMap", userSeqMap)
+
+		if msg.SessionType == constant.ReadGroupChatType {
+			och.recordGroupBurnOnSend(ctx, storageMessageList)
+		}
 
 		err = och.msgTransferDatabase.SetHasReadSeqs(ctx, conversationID, userSeqMap)
 		if err != nil {

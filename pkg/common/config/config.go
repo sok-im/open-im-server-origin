@@ -308,6 +308,8 @@ type GroupInviteLinkConfig struct {
 	MaxExpireSeconds int `mapstructure:"maxExpireSeconds"`
 	// MaxUseCountCap 使用次数硬上限；0=无硬上限
 	MaxUseCountCap int `mapstructure:"maxUseCountCap"`
+	// ShareLinkBaseURL 分享链接前缀，与 linkID 拼接为完整 shareURL；未配置时 shareURL 为空
+	ShareLinkBaseURL string `mapstructure:"shareLinkBaseURL"`
 }
 
 type Group struct {

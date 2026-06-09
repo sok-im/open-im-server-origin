@@ -1032,8 +1032,8 @@ func (c *conversationServer) ClearBurnExpiredMsgs(ctx context.Context, req *pbco
 	return &pbconversation.ClearBurnExpiredMsgsResp{Count: processed}, nil
 }
 
-// ClearGroupBurnExpiredMsgs 处理群消息「阅后即焚」到期记录：
-//  1. 查询满足 read_count >= member_count 且 burn_end_time 过期的记录（按 group_id 聚合）。
+// ClearGroupBurnExpiredMsgs 处理群消息定时删除到期记录：
+//  1. 查询 burn_end_time 过期的记录（按 group_id 聚合）。
 //  2. 对每个群调用 msg.DeleteMsgs（IsSyncOther：物理删除群会话消息并下发 DeleteMsgsNotification）。
 //  3. 删除已处理的 group_msg_burn_record 记录。
 func (c *conversationServer) ClearGroupBurnExpiredMsgs(ctx context.Context, req *pbconversation.ClearGroupBurnExpiredMsgsReq) (*pbconversation.ClearGroupBurnExpiredMsgsResp, error) {

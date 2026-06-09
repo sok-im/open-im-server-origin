@@ -175,21 +175,12 @@ func (m *msgServer) MarkConversationAsRead(ctx context.Context, req *msg.MarkCon
 			m.conversationAndGetRecvID(conversation, req.UserID), seqs, hasReadSeq)
 	} else if conversation.ConversationType == constant.ReadGroupChatType ||
 		conversation.ConversationType == constant.NotificationChatType {
-		var oldHasReadSeq int64 = hasReadSeq
 		if req.HasReadSeq > hasReadSeq {
 			err = m.MsgDatabase.SetHasReadSeq(ctx, req.UserID, req.ConversationID, req.HasReadSeq)
 			if err != nil {
 				return nil, err
 			}
 			hasReadSeq = req.HasReadSeq
-		}
-		// 计算本次新增已读的 seq 范围，用于阅后即焚计数
-		if conversation.ConversationType == constant.ReadGroupChatType && req.HasReadSeq > oldHasReadSeq {
-			var groupSeqs []int64
-			for i := oldHasReadSeq + 1; i <= req.HasReadSeq; i++ {
-				groupSeqs = append(groupSeqs, i)
-			}
-			m.recordGroupBurnReadCount(ctx, conversation, req.UserID, groupSeqs)
 		}
 		m.sendMarkAsReadNotification(ctx, req.ConversationID, constant.SingleChatType, req.UserID,
 			req.UserID, seqs, hasReadSeq)
@@ -272,66 +263,6 @@ func (m *msgServer) recordBurnDeadlines(ctx context.Context, conv *conversation.
 		log.ZError(ctx, "recordBurnDeadlines UpsertIfAbsent failed", err,
 			"readerUserID", readerUserID, "peerID", peerID,
 			"conversationID", conv.ConversationID, "seqs", seqs)
-	}
-}
-
-// resolveGroupBurnSeconds 群聊阅后即焚有效时长（秒），优先级：
-//  1. 会话级 BurnDuration（/conversation/set_burn）；
-//  2. 群级 MsgBurnDuration；
-//  3. 阅读者个人 MsgBurnDuration。
-// 均为 0 时返回 0，表示不开启。
-func (m *msgServer) resolveGroupBurnSeconds(ctx context.Context, conv *conversation.Conversation, groupInfo *sdkws.GroupInfo, readerUserID string) int32 {
-	if conv.BurnDuration > 0 {
-		return conv.BurnDuration
-	}
-	if groupInfo != nil && groupInfo.MsgBurnDuration > 0 {
-		return groupInfo.MsgBurnDuration
-	}
-	readerInfo, err := m.UserLocalCache.GetUserInfo(ctx, readerUserID)
-	if err != nil {
-		log.ZWarn(ctx, "resolveGroupBurnSeconds GetUserInfo failed", err, "readerUserID", readerUserID)
-		return 0
-	}
-	if readerInfo != nil && readerInfo.MsgBurnDuration > 0 {
-		return readerInfo.MsgBurnDuration
-	}
-	return 0
-}
-
-// recordGroupBurnReadCount 在群聊阅读时记录「阅后即焚」进度。
-// 每次已读触发 $inc read_count；首次写入时记录 member_count、burn_end_time、send_id（发送者）。
-// 焚毁时长见 resolveGroupBurnSeconds；为 0 时不记录；失败只记日志，不影响主流程。
-func (m *msgServer) recordGroupBurnReadCount(ctx context.Context, conv *conversation.Conversation, readerUserID string, seqs []int64) {
-	if len(seqs) == 0 || m.groupMsgBurnRecordDB == nil {
-		return
-	}
-	groupInfo, err := m.GroupLocalCache.GetGroupInfo(ctx, conv.GroupID)
-	if err != nil {
-		log.ZWarn(ctx, "recordGroupBurnReadCount GetGroupInfo failed", err, "groupID", conv.GroupID)
-		return
-	}
-	burnSeconds := m.resolveGroupBurnSeconds(ctx, conv, groupInfo, readerUserID)
-	if burnSeconds <= 0 {
-		return
-	}
-	seqSenderID := make(map[int64]string, len(seqs))
-	_, _, msgs, err := m.MsgDatabase.GetMsgBySeqs(ctx, readerUserID, conv.ConversationID, seqs)
-	if err != nil {
-		log.ZWarn(ctx, "recordGroupBurnReadCount GetMsgBySeqs failed", err,
-			"groupID", conv.GroupID, "conversationID", conv.ConversationID, "readerUserID", readerUserID, "seqs", seqs)
-	} else {
-		for _, md := range msgs {
-			if md != nil && md.Seq > 0 {
-				seqSenderID[md.Seq] = md.SendID
-			}
-		}
-	}
-	now := time.Now().UnixMilli()
-	burnEndTimeMs := now + int64(burnSeconds)*1000
-	memberCount := int32(groupInfo.MemberCount)
-	if err := m.groupMsgBurnRecordDB.UpsertOnRead(ctx, conv.GroupID, seqs, seqSenderID, memberCount, burnEndTimeMs); err != nil {
-		log.ZError(ctx, "recordGroupBurnReadCount UpsertOnRead failed", err,
-			"groupID", conv.GroupID, "seqs", seqs)
 	}
 }
 

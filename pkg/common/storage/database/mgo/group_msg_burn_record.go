@@ -51,10 +51,8 @@ type groupMsgBurnRecordMgo struct {
 	coll *mongo.Collection
 }
 
-// UpsertOnRead 对每条 seq 执行 upsert：
-//   - 首次插入（$setOnInsert）写入 member_count、burn_end_time、create_time、send_id，read_count 初始化为 1。
-//   - 已存在时仅对 read_count 执行 $inc 1。
-func (m *groupMsgBurnRecordMgo) UpsertOnRead(ctx context.Context, groupID string, seqs []int64, seqSenderID map[int64]string, memberCount int32, burnEndTimeMs int64) error {
+// UpsertOnSend 在消息发送时为每条 seq 写入删除截止时间；已存在记录不覆盖。
+func (m *groupMsgBurnRecordMgo) UpsertOnSend(ctx context.Context, groupID string, seqs []int64, seqSenderID map[int64]string, burnEndTimeMs int64) error {
 	if len(seqs) == 0 {
 		return nil
 	}
@@ -70,12 +68,10 @@ func (m *groupMsgBurnRecordMgo) UpsertOnRead(ctx context.Context, groupID string
 			"seq":      seq,
 		}
 		update := bson.M{
-			"$inc": bson.M{"read_count": int32(1)},
 			"$setOnInsert": bson.M{
 				"group_id":      groupID,
 				"seq":           seq,
 				"send_id":       senderID,
-				"member_count":  memberCount,
 				"burn_end_time": burnEndTimeMs,
 				"create_time":   now,
 			},
@@ -91,8 +87,7 @@ func (m *groupMsgBurnRecordMgo) UpsertOnRead(ctx context.Context, groupID string
 	return errs.Wrap(err)
 }
 
-// FindExpired 查询 burn_end_time <= nowMs 且 read_count >= member_count 的记录，
-// 按 group_id 聚合后返回每组的最大 seq 与所有 seq 列表。
+// FindExpired 查询 burn_end_time <= nowMs 的记录，按 group_id 聚合后返回每组的最大 seq 与所有 seq 列表。
 func (m *groupMsgBurnRecordMgo) FindExpired(ctx context.Context, nowMs int64, limit int) ([]*database.ExpiredGroupBurn, error) {
 	if limit <= 0 {
 		return nil, nil
@@ -100,7 +95,6 @@ func (m *groupMsgBurnRecordMgo) FindExpired(ctx context.Context, nowMs int64, li
 	pipeline := mongo.Pipeline{
 		bson.D{{Key: "$match", Value: bson.M{
 			"burn_end_time": bson.M{"$lte": nowMs},
-			"$expr":         bson.M{"$gte": bson.A{"$read_count", "$member_count"}},
 		}}},
 		bson.D{{Key: "$group", Value: bson.M{
 			"_id":     "$group_id",

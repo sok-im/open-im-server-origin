@@ -27,8 +27,8 @@ func genLinkID() string {
 }
 
 // inviteLinkToProto 将 model 转换为 proto 消息。
-func inviteLinkToProto(m *model.GroupInviteLink) *pbgroup.GroupInviteLinkInfo {
-	return &pbgroup.GroupInviteLinkInfo{
+func (s *groupServer) inviteLinkToProto(m *model.GroupInviteLink) *pbgroup.GroupInviteLinkInfo {
+	info := &pbgroup.GroupInviteLinkInfo{
 		LinkID:      m.LinkID,
 		GroupID:     m.GroupID,
 		CreatorID:   m.CreatorID,
@@ -38,11 +38,20 @@ func inviteLinkToProto(m *model.GroupInviteLink) *pbgroup.GroupInviteLinkInfo {
 		Revoked:     m.Revoked,
 		CreatedAt:   m.CreatedAt.UnixMilli(),
 	}
+	if base := s.config.RpcConfig.InviteLink.ShareLinkBaseURL; base != "" {
+		info.ShareURL = base + m.LinkID
+	}
+	return info
 }
 
 // isGroupInviteLinkEnabled 判断群是否已开启邀请链接功能。
 func isGroupInviteLinkEnabled(group *model.Group) bool {
 	return group.EnableInviteLink == model.GroupEnableInviteLinkOn
+}
+
+// inviteLinkJoinRequiresApproval 分享链接入群是否需审批：needVerification=0/1 需审批，2(Directly) 直接入群。
+func inviteLinkJoinRequiresApproval(needVerification int32) bool {
+	return needVerification != constant.Directly
 }
 
 // isLinkValid 判断链接是否仍然有效。
@@ -114,7 +123,7 @@ func (s *groupServer) CreateGroupInviteLink(ctx context.Context, req *pbgroup.Cr
 	}
 
 	return &pbgroup.CreateGroupInviteLinkResp{
-		Link: inviteLinkToProto(link),
+		Link: s.inviteLinkToProto(link),
 	}, nil
 }
 
@@ -134,7 +143,7 @@ func (s *groupServer) GetGroupInviteLink(ctx context.Context, req *pbgroup.GetGr
 		valid = false
 	}
 	resp := &pbgroup.GetGroupInviteLinkResp{
-		Link:  inviteLinkToProto(link),
+		Link:  s.inviteLinkToProto(link),
 		Valid: valid,
 	}
 	if len(groupInfos) > 0 {
@@ -144,7 +153,7 @@ func (s *groupServer) GetGroupInviteLink(ctx context.Context, req *pbgroup.GetGr
 }
 
 // JoinGroupByInviteLink 用户通过群分享/邀请链接入群（需要已登录）。
-// 是否需审批仅由群的 needVerification 决定：Directly(2) 直接入群，0/1 创建入群申请。
+// 审核默认关闭（needVerification=2 直接入群）；设为 0/1 时创建入群申请。
 func (s *groupServer) JoinGroupByInviteLink(ctx context.Context, req *pbgroup.JoinGroupByInviteLinkReq) (*pbgroup.JoinGroupByInviteLinkResp, error) {
 	opUserID := mcontext.GetOpUserID(ctx)
 
@@ -197,14 +206,12 @@ func (s *groupServer) JoinGroupByInviteLink(ctx context.Context, req *pbgroup.Jo
 	if err := s.webhookBeforeApplyJoinGroup(ctx, &s.config.WebhooksConfig.BeforeApplyJoinGroup, reqCall); err != nil && err != servererrs.ErrCallbackContinue {
 		return nil, err
 	}
-	if group.NeedVerification == constant.Directly {
-		if err := s.joinGroupDirectly(ctx, group, joinReq); err != nil {
-			return nil, err
-		}
-	} else {
+	if inviteLinkJoinRequiresApproval(group.NeedVerification) {
 		if err := s.createJoinGroupApplication(ctx, joinReq); err != nil {
 			return nil, err
 		}
+	} else if err := s.joinGroupDirectly(ctx, group, joinReq); err != nil {
+		return nil, err
 	}
 
 	return &pbgroup.JoinGroupByInviteLinkResp{}, nil
@@ -231,11 +238,24 @@ func (s *groupServer) RevokeGroupInviteLink(ctx context.Context, req *pbgroup.Re
 	return &pbgroup.RevokeGroupInviteLinkResp{}, nil
 }
 
-// ListGroupInviteLinks 分页查询群内所有邀请链接（仅群主/管理员可查看）。
+// ListGroupInviteLinks 分页查询群内邀请链接。
+// 群主/管理员可查看全部链接；普通成员在群已开启邀请链接时可查看有效链接。
 func (s *groupServer) ListGroupInviteLinks(ctx context.Context, req *pbgroup.ListGroupInviteLinksReq) (*pbgroup.ListGroupInviteLinksResp, error) {
-	if !authverify.IsAppManagerUid(ctx, s.config.Share.IMAdminUserID) {
+	isGroupAdmin := authverify.IsAppManagerUid(ctx, s.config.Share.IMAdminUserID)
+	if !isGroupAdmin {
 		if err := s.CheckGroupAdmin(ctx, req.GroupID); err != nil {
-			return nil, err
+			group, groupErr := s.db.TakeGroup(ctx, req.GroupID)
+			if groupErr != nil {
+				return nil, groupErr
+			}
+			if !isGroupInviteLinkEnabled(group) {
+				return nil, err
+			}
+			if _, memberErr := s.db.TakeGroupMember(ctx, req.GroupID, mcontext.GetOpUserID(ctx)); memberErr != nil {
+				return nil, errs.ErrNoPermission.WrapMsg("not a group member")
+			}
+		} else {
+			isGroupAdmin = true
 		}
 	}
 
@@ -246,7 +266,9 @@ func (s *groupServer) ListGroupInviteLinks(ctx context.Context, req *pbgroup.Lis
 
 	protoLinks := make([]*pbgroup.GroupInviteLinkInfo, 0, len(links))
 	for _, l := range links {
-		protoLinks = append(protoLinks, inviteLinkToProto(l))
+		if isGroupAdmin || isLinkValid(l) {
+			protoLinks = append(protoLinks, s.inviteLinkToProto(l))
+		}
 	}
 
 	return &pbgroup.ListGroupInviteLinksResp{
