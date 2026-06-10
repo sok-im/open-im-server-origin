@@ -9,4 +9,4 @@ prometheus:
   ports: [12520]
 
 verifyPadding: 8
-expireSeconds: 120
+expireSeconds: 300

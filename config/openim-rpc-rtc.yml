@@ -21,7 +21,7 @@ liveKit:
   # 与 livekit 容器同 Docker 网络时用 http://livekit:7880。也可用环境变量 OPENIM_LIVEKIT_INTERNAL_ADDRESS 覆盖。
   internalAddress: http://127.0.0.1:7880
   # 下发给客户端的 WebSocket（liveURL）。真机填本机局域网 IP；也可用 OPENIM_LIVEKIT_EXTERNAL_ADDRESS 覆盖。
-  externalAddress: ws://192.168.1.91:7880
+  externalAddress: ws://10.18.1.11:7880
   # LiveKit API key (configured in your LiveKit server)
   apiKey: devkey
   # LiveKit API secret（须 ≥32 字符，须与 config/livekit.yaml keys 中对应值一致）

@@ -266,7 +266,7 @@ friendApplicationAdded:
     ext: Somebody applies to add you as a friend
 
 friendApplicationApproved:
-  isSendMsg: true
+  isSendMsg: false
   reliabilityLevel: 1
   unreadCount: false
   offlinePush:
