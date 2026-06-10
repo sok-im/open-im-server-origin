@@ -52,13 +52,13 @@ type groupMsgBurnRecordMgo struct {
 }
 
 // UpsertOnSend 在消息发送时为每条 seq 写入删除截止时间；已存在记录不覆盖。
-func (m *groupMsgBurnRecordMgo) UpsertOnSend(ctx context.Context, groupID string, seqs []int64, seqSenderID map[int64]string, burnEndTimeMs int64) error {
-	if len(seqs) == 0 {
+func (m *groupMsgBurnRecordMgo) UpsertOnSend(ctx context.Context, groupID string, seqSenderID map[int64]string, seqBurnEndTimeMs map[int64]int64) error {
+	if len(seqBurnEndTimeMs) == 0 {
 		return nil
 	}
 	now := time.Now().UnixMilli()
-	models := make([]mongo.WriteModel, 0, len(seqs))
-	for _, seq := range seqs {
+	models := make([]mongo.WriteModel, 0, len(seqBurnEndTimeMs))
+	for seq, burnEndTimeMs := range seqBurnEndTimeMs {
 		senderID := ""
 		if seqSenderID != nil {
 			senderID = seqSenderID[seq]

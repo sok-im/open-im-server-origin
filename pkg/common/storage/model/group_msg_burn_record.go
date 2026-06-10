@@ -16,7 +16,8 @@ package model
 
 // GroupMsgBurnRecord 记录群消息定时删除的截止时间。
 //
-// 写入时机：msgtransfer 在群消息分配 seq 后写入，BurnEndTime = 发送时间 + 群 MsgBurnDuration。
+// 写入时机：msgtransfer 在群消息分配 seq 后写入。
+// BurnEndTime = 发送时间 + 群 MsgBurnDuration（群设置优先）；群未开启时回退为发送者用户 MsgBurnDuration。
 // 删除时机：cron 发现 BurnEndTime <= now 时触发删除并同步客户端。
 type GroupMsgBurnRecord struct {
 	// GroupID 群组 ID

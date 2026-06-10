@@ -263,6 +263,10 @@ func (m *msgServer) recordBurnDeadlines(ctx context.Context, conv *conversation.
 		log.ZError(ctx, "recordBurnDeadlines UpsertIfAbsent failed", err,
 			"readerUserID", readerUserID, "peerID", peerID,
 			"conversationID", conv.ConversationID, "seqs", seqs)
+	} else {
+		log.ZDebug(ctx, "recordBurnDeadlines UpsertIfAbsent success", "readerUserID", readerUserID,
+			"peerID", peerID, "burnSeconds", burnSeconds, "deadline", deadline,
+			"conversationID", conv.ConversationID, "seqs", seqs, "items", items)
 	}
 }
 

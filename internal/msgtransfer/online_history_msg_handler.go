@@ -77,6 +77,7 @@ type OnlineHistoryRedisConsumerHandler struct {
 	wg                          sync.WaitGroup
 
 	groupClient          *rpcli.GroupClient
+	userClient           *rpcli.UserClient
 	conversationClient   *rpcli.ConversationClient
 	groupMsgBurnRecordDB database.GroupMsgBurnRecord
 }
@@ -91,6 +92,10 @@ func NewOnlineHistoryRedisConsumerHandler(ctx context.Context, client discovery.
 	if err != nil {
 		return nil, err
 	}
+	userConn, err := client.GetConn(ctx, config.Share.RpcRegisterName.User)
+	if err != nil {
+		return nil, err
+	}
 	conversationConn, err := client.GetConn(ctx, config.Share.RpcRegisterName.Conversation)
 	if err != nil {
 		return nil, err
@@ -99,6 +104,7 @@ func NewOnlineHistoryRedisConsumerHandler(ctx context.Context, client discovery.
 	och.msgTransferDatabase = msgTransferDB
 	och.conversationUserHasReadChan = make(chan *userHasReadSeq, hasReadChanBuffer)
 	och.groupClient = rpcli.NewGroupClient(groupConn)
+	och.userClient = rpcli.NewUserClient(userConn)
 	och.conversationClient = rpcli.NewConversationClient(conversationConn)
 	och.groupMsgBurnRecordDB = groupMsgBurnRecordDB
 	och.wg.Add(1)

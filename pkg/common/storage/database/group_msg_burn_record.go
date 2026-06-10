@@ -34,7 +34,8 @@ type ExpiredGroupBurn struct {
 // 消费：conversation 服务 ClearGroupBurnExpiredMsgs cron 入口。
 type GroupMsgBurnRecord interface {
 	// UpsertOnSend 在消息发送时批量写入删除截止时间；已存在 (group_id, seq) 时不覆盖。
-	UpsertOnSend(ctx context.Context, groupID string, seqs []int64, seqSenderID map[int64]string, burnEndTimeMs int64) error
+	// seqBurnEndTimeMs 为每条 seq 对应的删除截止时间（毫秒）。
+	UpsertOnSend(ctx context.Context, groupID string, seqSenderID map[int64]string, seqBurnEndTimeMs map[int64]int64) error
 
 	// FindExpired 查询 burn_end_time <= nowMs 的记录并按 group_id 聚合；limit 限制返回的 group 数量。
 	FindExpired(ctx context.Context, nowMs int64, limit int) ([]*ExpiredGroupBurn, error)
