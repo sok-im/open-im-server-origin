@@ -112,7 +112,13 @@ func Start(ctx context.Context, config *Config, client discovery.SvcDiscoveryReg
 	localcache.InitLocalCache(&config.LocalCacheConfig)
 	pbconversation.RegisterConversationServer(server, &conversationServer{
 		config:                         config,
-		conversationNotificationSender: NewConversationNotificationSender(&config.NotificationConfig, msgClient),
+		conversationNotificationSender: NewConversationNotificationSender(
+			&config.NotificationConfig,
+			msgClient,
+			rpcli.NewGroupClient(groupConn),
+			rpcli.NewUserClient(userConn),
+			config.Share.IMAdminUserID,
+		),
 		conversationDatabase: controller.NewConversationDatabase(conversationDB,
 			redis.NewConversationRedis(rdb, &config.LocalCacheConfig, redis.GetRocksCacheOptions(), conversationDB), mgocli.GetTx()),
 		msgBurnDeadlineDB:    msgBurnDeadlineDB,
@@ -486,6 +492,13 @@ func (c *conversationServer) SetConversations(ctx context.Context, req *pbconver
 		for _, v := range needUpdateUsersList {
 			c.conversationNotificationSender.ConversationChangeNotification(ctx, v, []string{req.Conversation.ConversationID})
 		}
+		if req.Conversation.BurnDuration != nil &&
+			(req.Conversation.ConversationType == constant.ReadGroupChatType ||
+				req.Conversation.ConversationType == constant.WriteGroupChatType) &&
+			req.Conversation.GroupID != "" {
+			c.conversationNotificationSender.GroupBurnDurationSetNotification(
+				ctx, req.Conversation.GroupID, req.Conversation.BurnDuration.Value)
+		}
 	}
 	if req.Conversation.ConversationType == constant.SingleChatType &&
 		(req.Conversation.IsPrivateChat != nil || req.Conversation.BurnDuration != nil) {
@@ -761,12 +774,14 @@ func (c *conversationServer) GetConversationNotReceiveMessageUserIDs(ctx context
 }
 
 func (c *conversationServer) UpdateConversation(ctx context.Context, req *pbconversation.UpdateConversationReq) (*pbconversation.UpdateConversationResp, error) {
+	var convBefore *dbModel.Conversation
 	if req.BurnDuration != nil && len(req.UserIDs) > 0 {
 		convs, err := c.conversationDatabase.FindConversations(ctx, req.UserIDs[0], []string{req.ConversationID})
 		if err != nil {
 			return nil, err
 		}
 		if len(convs) > 0 {
+			convBefore = convs[0]
 			if err := c.checkGroupBurnPermissionByConversation(ctx, convs[0].ConversationType, convs[0].GroupID); err != nil {
 				return nil, err
 			}
@@ -834,6 +849,14 @@ func (c *conversationServer) UpdateConversation(ctx context.Context, req *pbconv
 				return nil, err
 			}
 		}
+	}
+	if req.BurnDuration != nil && convBefore != nil &&
+		convBefore.BurnDuration != req.BurnDuration.Value &&
+		(convBefore.ConversationType == constant.ReadGroupChatType ||
+			convBefore.ConversationType == constant.WriteGroupChatType) &&
+		convBefore.GroupID != "" {
+		c.conversationNotificationSender.GroupBurnDurationSetNotification(
+			ctx, convBefore.GroupID, req.BurnDuration.Value)
 	}
 	return &pbconversation.UpdateConversationResp{}, nil
 }
