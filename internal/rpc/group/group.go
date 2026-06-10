@@ -436,6 +436,7 @@ func (s *groupServer) GetJoinedGroupList(ctx context.Context, req *pbgroup.GetJo
 		}
 		return convert.Db2PbGroupInfo(group, userID, groupMemberNum[group.GroupID])
 	})
+	s.populateGroupInviteLinks(ctx, resp.Groups)
 	return &resp, nil
 }
 
@@ -966,13 +967,15 @@ func (s *groupServer) getGroupsInfo(ctx context.Context, groupIDs []string) ([]*
 	ownerMap := datautil.SliceToMap(owners, func(e *model.GroupMember) string {
 		return e.GroupID
 	})
-	return datautil.Slice(groups, func(e *model.Group) *sdkws.GroupInfo {
+	groupInfos := datautil.Slice(groups, func(e *model.Group) *sdkws.GroupInfo {
 		var ownerUserID string
 		if owner, ok := ownerMap[e.GroupID]; ok {
 			ownerUserID = owner.UserID
 		}
 		return convert.Db2PbGroupInfo(e, ownerUserID, groupMemberNumMap[e.GroupID])
-	}), nil
+	})
+	s.populateGroupInviteLinks(ctx, groupInfos)
+	return groupInfos, nil
 }
 
 func (s *groupServer) GroupApplicationResponse(ctx context.Context, req *pbgroup.GroupApplicationResponseReq) (*pbgroup.GroupApplicationResponseResp, error) {
