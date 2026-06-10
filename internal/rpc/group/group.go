@@ -314,6 +314,11 @@ func (s *groupServer) CreateGroup(ctx context.Context, req *pbgroup.CreateGroupR
 
 	var groupMembers []*model.GroupMember
 	group := convert.Pb2DBGroupInfo(req.GroupInfo)
+	// 创建群时默认分享链接入群免审（needVerification=Directly）；客户端可显式传 0/1 开启审核。
+	if group.NeedVerification == constant.ApplyNeedVerification {
+		group.NeedVerification = constant.Directly
+		req.GroupInfo.NeedVerification = constant.Directly
+	}
 	if err := s.GenGroupID(ctx, &group.GroupID); err != nil {
 		return nil, err
 	}
