@@ -111,14 +111,16 @@ func (och *OnlineHistoryRedisConsumerHandler) getSenderConversationBurnSeconds(c
 		}
 		if conv != nil && conv.BurnDuration > 0 {
 			senderBurnSeconds[senderID] = conv.BurnDuration
-			log.ZDebug(ctx, "getSenderConversationBurnSeconds", "reason", "senderBurnSeconds", senderBurnSeconds, "senderID", senderID)
+			log.ZDebug(ctx, "getSenderConversationBurnSeconds", "reason", "found conversation burn",
+				"burnDuration", conv.BurnDuration, "senderID", senderID, "conversationID", conversationID)
 		} else {
 			needUserFallback = append(needUserFallback, senderID)
-			log.ZDebug(ctx, "getSenderConversationBurnSeconds", "reason", "needUserFallback", needUserFallback, "senderID", senderID)
+			log.ZDebug(ctx, "getSenderConversationBurnSeconds", "reason", "no conversation burn", "senderID", senderID, "conversationID", conversationID)
 		}
 	}
 
-	log.ZDebug(ctx, "getSenderConversationBurnSeconds", "reason", "senderBurnSeconds", senderBurnSeconds, "needUserFallback", needUserFallback)
+	log.ZDebug(ctx, "getSenderConversationBurnSeconds", "reason", "after conversation lookup",
+		"senderBurnSeconds", senderBurnSeconds, "needUserFallback", needUserFallback, "conversationID", conversationID)
 
 	if len(needUserFallback) > 0 && och.userClient != nil {
 		users, err := och.userClient.GetUsersInfo(ctx, needUserFallback)
@@ -132,5 +134,9 @@ func (och *OnlineHistoryRedisConsumerHandler) getSenderConversationBurnSeconds(c
 			}
 		}
 	}
+
+	log.ZDebug(ctx, "getSenderConversationBurnSeconds", "reason", "resolved burn seconds",
+		"senderBurnSeconds", senderBurnSeconds, "needUserFallback", needUserFallback, "conversationID", conversationID)
+
 	return senderBurnSeconds, true
 }

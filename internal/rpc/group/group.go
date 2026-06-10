@@ -355,6 +355,7 @@ func (s *groupServer) CreateGroup(ctx context.Context, req *pbgroup.CreateGroupR
 	if err := s.db.CreateGroup(ctx, []*model.Group{group}, groupMembers); err != nil {
 		return nil, err
 	}
+	s.syncOwnerConversationBurnOnCreateGroup(ctx, group.GroupID, req.OwnerUserID, userMap[req.OwnerUserID])
 	// Trigger server-side MLS group initialization: notify the creator's
 	// devices to fetch key packages and create the MLS group via the DS.
 	// Fire-and-return: MLS setup failure must not block the group creation
