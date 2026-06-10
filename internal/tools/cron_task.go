@@ -167,7 +167,7 @@ func (c *cronServer) registerClearBurnExpiredMsgs() error {
 }
 
 func (c *cronServer) registerClearGroupBurnExpiredMsgs() error {
-	_, err := c.cron.AddFunc(c.config.CronTask.CronExecuteTime, c.clearGroupBurnExpiredMsgs)
+	_, err := c.cron.AddFunc(c.config.CronTask.BurnCronExecuteTime, c.clearGroupBurnExpiredMsgs)
 	return errs.WrapMsg(err, "failed to register clear group burn expired msgs cron task")
 }
 

@@ -290,7 +290,7 @@ func (och *OnlineHistoryRedisConsumerHandler) handleMsg(ctx context.Context, key
 		log.ZDebug(ctx, "handleMsg", "lastSeq", lastSeq, "isNewConversation", isNewConversation, "userSeqMap", userSeqMap)
 
 		if msg.SessionType == constant.ReadGroupChatType {
-			och.recordGroupBurnOnSend(ctx, storageMessageList)
+			och.recordGroupBurnOnSend(ctx, conversationID, storageMessageList)
 		}
 
 		err = och.msgTransferDatabase.SetHasReadSeqs(ctx, conversationID, userSeqMap)

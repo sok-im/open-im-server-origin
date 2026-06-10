@@ -11,25 +11,21 @@ import (
 
 // recordGroupBurnOnSend 在群消息分配 seq 后写入定时删除截止时间。
 //
-// 销毁时长优先级：
-//  1. 群 MsgBurnDuration（群阅后即焚设置）；
-//  2. 发送者（seqSenderID）用户全局 MsgBurnDuration。
+// 销毁时长优先级（与单聊 recordBurnDeadlines 一致）：
+//  1. 发送者在该群会话上的 BurnDuration（/conversation/set_burn 或 UpdateConversation）；
+//  2. 发送者用户全局 MsgBurnDuration。
 //
 // 失败仅记日志，不影响消息主流程。
-func (och *OnlineHistoryRedisConsumerHandler) recordGroupBurnOnSend(ctx context.Context, msgs []*sdkws.MsgData) {
+func (och *OnlineHistoryRedisConsumerHandler) recordGroupBurnOnSend(ctx context.Context, conversationID string, msgs []*sdkws.MsgData) {
 	if och.groupMsgBurnRecordDB == nil || len(msgs) == 0 {
+		log.ZDebug(ctx, "recordGroupBurnOnSend", "reason", "groupMsgBurnRecordDB is nil or msgs is empty")
 		return
 	}
 	msg := msgs[0]
 	if msg.SessionType != constant.ReadGroupChatType || msg.GroupID == "" {
+		log.ZDebug(ctx, "recordGroupBurnOnSend", "reason", "msg is not a group chat message")
 		return
 	}
-	groupInfo, err := och.groupClient.GetGroupInfo(ctx, msg.GroupID)
-	if err != nil {
-		log.ZWarn(ctx, "recordGroupBurnOnSend GetGroupInfo failed", err, "groupID", msg.GroupID)
-		return
-	}
-	groupBurnSeconds := groupInfo.GetMsgBurnDuration()
 
 	seqSenderID := make(map[int64]string, len(msgs))
 	msgSendTimeMs := make(map[int64]int64, len(msgs))
@@ -48,30 +44,31 @@ func (och *OnlineHistoryRedisConsumerHandler) recordGroupBurnOnSend(ctx context.
 		msgSendTimeMs[m.Seq] = sendTimeMs
 	}
 	if len(seqSenderID) == 0 {
+		log.ZDebug(ctx, "recordGroupBurnOnSend", "reason", "seqSenderID is empty")
+		return
+	}
+
+	senderBurnSeconds, ok := och.getSenderConversationBurnSeconds(ctx, conversationID, seqSenderID)
+	if !ok {
+		log.ZDebug(ctx, "recordGroupBurnOnSend", "reason", "getSenderConversationBurnSeconds failed",
+			"conversationID", conversationID, "groupID", msg.GroupID)
 		return
 	}
 
 	seqBurnEndTimeMs := make(map[int64]int64, len(seqSenderID))
-	if groupBurnSeconds > 0 {
-		for seq, sendTimeMs := range msgSendTimeMs {
-			seqBurnEndTimeMs[seq] = sendTimeMs + int64(groupBurnSeconds)*1000
+	for seq, senderID := range seqSenderID {
+		burnSeconds, ok := senderBurnSeconds[senderID]
+		if !ok || burnSeconds <= 0 {
+			continue
 		}
-	} else {
-		senderBurnSeconds, ok := och.getSenderBurnSeconds(ctx, seqSenderID)
-		if !ok {
-			return
-		}
-		for seq, senderID := range seqSenderID {
-			burnSeconds, ok := senderBurnSeconds[senderID]
-			if !ok || burnSeconds <= 0 {
-				continue
-			}
-			seqBurnEndTimeMs[seq] = msgSendTimeMs[seq] + int64(burnSeconds)*1000
-		}
+		seqBurnEndTimeMs[seq] = msgSendTimeMs[seq] + int64(burnSeconds)*1000
 	}
 	if len(seqBurnEndTimeMs) == 0 {
+		log.ZDebug(ctx, "recordGroupBurnOnSend", "reason", "no burn duration configured",
+			"conversationID", conversationID, "groupID", msg.GroupID, "senderBurnSeconds", senderBurnSeconds)
 		return
 	}
+
 	if err := och.groupMsgBurnRecordDB.UpsertOnSend(ctx, msg.GroupID, seqSenderID, seqBurnEndTimeMs); err != nil {
 		log.ZError(ctx, "recordGroupBurnOnSend UpsertOnSend failed", err,
 			"groupID", msg.GroupID, "seqBurnEndTimeMs", seqBurnEndTimeMs)
@@ -81,8 +78,8 @@ func (och *OnlineHistoryRedisConsumerHandler) recordGroupBurnOnSend(ctx context.
 	}
 }
 
-func (och *OnlineHistoryRedisConsumerHandler) getSenderBurnSeconds(ctx context.Context, seqSenderID map[int64]string) (map[string]int32, bool) {
-	if och.userClient == nil {
+func (och *OnlineHistoryRedisConsumerHandler) getSenderConversationBurnSeconds(ctx context.Context, conversationID string, seqSenderID map[int64]string) (map[string]int32, bool) {
+	if och.conversationClient == nil {
 		return nil, false
 	}
 	seen := make(map[string]struct{}, len(seqSenderID))
@@ -98,17 +95,41 @@ func (och *OnlineHistoryRedisConsumerHandler) getSenderBurnSeconds(ctx context.C
 		senderIDs = append(senderIDs, senderID)
 	}
 	if len(senderIDs) == 0 {
+		log.ZDebug(ctx, "getSenderConversationBurnSeconds", "reason", "senderIDs is empty")
 		return nil, false
 	}
-	users, err := och.userClient.GetUsersInfo(ctx, senderIDs)
-	if err != nil {
-		log.ZWarn(ctx, "recordGroupBurnOnSend GetUsersInfo failed", err, "senderIDs", senderIDs)
-		return nil, false
+
+	senderBurnSeconds := make(map[string]int32, len(senderIDs))
+	needUserFallback := make([]string, 0, len(senderIDs))
+	for _, senderID := range senderIDs {
+		conv, err := och.conversationClient.GetConversation(ctx, conversationID, senderID)
+		if err != nil {
+			log.ZWarn(ctx, "recordGroupBurnOnSend GetConversation failed", err,
+				"conversationID", conversationID, "senderID", senderID)
+			needUserFallback = append(needUserFallback, senderID)
+			continue
+		}
+		if conv != nil && conv.BurnDuration > 0 {
+			senderBurnSeconds[senderID] = conv.BurnDuration
+			log.ZDebug(ctx, "getSenderConversationBurnSeconds", "reason", "senderBurnSeconds", senderBurnSeconds, "senderID", senderID)
+		} else {
+			needUserFallback = append(needUserFallback, senderID)
+			log.ZDebug(ctx, "getSenderConversationBurnSeconds", "reason", "needUserFallback", needUserFallback, "senderID", senderID)
+		}
 	}
-	senderBurnSeconds := make(map[string]int32, len(users))
-	for _, u := range users {
-		if u != nil && u.MsgBurnDuration > 0 {
-			senderBurnSeconds[u.UserID] = u.MsgBurnDuration
+
+	log.ZDebug(ctx, "getSenderConversationBurnSeconds", "reason", "senderBurnSeconds", senderBurnSeconds, "needUserFallback", needUserFallback)
+
+	if len(needUserFallback) > 0 && och.userClient != nil {
+		users, err := och.userClient.GetUsersInfo(ctx, needUserFallback)
+		if err != nil {
+			log.ZWarn(ctx, "recordGroupBurnOnSend GetUsersInfo failed", err, "senderIDs", needUserFallback)
+		} else {
+			for _, u := range users {
+				if u != nil && u.MsgBurnDuration > 0 {
+					senderBurnSeconds[u.UserID] = u.MsgBurnDuration
+				}
+			}
 		}
 	}
 	return senderBurnSeconds, true

@@ -93,6 +93,16 @@ func (m *msgServer) messageVerification(ctx context.Context, data *msg.SendMsgRe
 	case constant.SingleChatType:
 		return nil
 	case constant.ReadGroupChatType:
+		// Admin and system notifications (e.g. DeleteMsgsNotification from burn cron)
+		// must not depend on group RPC; otherwise a slow/unavailable group service
+		// blocks client sync even after messages are physically deleted.
+		if datautil.Contain(data.MsgData.SendID, m.config.Share.IMAdminUserID...) {
+			return nil
+		}
+		if data.MsgData.ContentType <= constant.NotificationEnd &&
+			data.MsgData.ContentType >= constant.NotificationBegin {
+			return nil
+		}
 		groupInfo, err := m.GroupLocalCache.GetGroupInfo(ctx, data.MsgData.GroupID)
 		if err != nil {
 			log.ZError(ctx, "messageVerification group: GetGroupInfo failed", err,
@@ -105,14 +115,6 @@ func (m *msgServer) messageVerification(ctx context.Context, data *msg.SendMsgRe
 			return servererrs.ErrDismissedAlready.Wrap()
 		}
 		if groupInfo.GroupType == constant.SuperGroup {
-			return nil
-		}
-
-		if datautil.Contain(data.MsgData.SendID, m.config.Share.IMAdminUserID...) {
-			return nil
-		}
-		if data.MsgData.ContentType <= constant.NotificationEnd &&
-			data.MsgData.ContentType >= constant.NotificationBegin {
 			return nil
 		}
 		memberIDs, err := m.GroupLocalCache.GetGroupMemberIDMap(ctx, data.MsgData.GroupID)

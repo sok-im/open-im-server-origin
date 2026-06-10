@@ -40,6 +40,6 @@ type GroupMsgBurnRecord interface {
 	// FindExpired 查询 burn_end_time <= nowMs 的记录并按 group_id 聚合；limit 限制返回的 group 数量。
 	FindExpired(ctx context.Context, nowMs int64, limit int) ([]*ExpiredGroupBurn, error)
 
-	// DeleteByGroupSeqs 删除指定群下一批 seq 的记录，在成功推进 min_seq 后调用。
+	// DeleteByGroupSeqs 删除指定群下一批 seq 的记录，在 DeleteMsgs 成功后调用。
 	DeleteByGroupSeqs(ctx context.Context, groupID string, seqs []int64) error
 }
