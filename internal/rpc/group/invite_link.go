@@ -68,7 +68,8 @@ func isLinkValid(link *model.GroupInviteLink) bool {
 	return true
 }
 
-// CreateGroupInviteLink 为指定群生成一条邀请链接（仅群主/管理员可创建）。
+// CreateGroupInviteLink 为指定群生成或返回唯一邀请链接（仅群主/管理员可操作）。
+// 若群已有有效链接则直接返回；否则创建或覆盖该群唯一链接。
 func (s *groupServer) CreateGroupInviteLink(ctx context.Context, req *pbgroup.CreateGroupInviteLinkReq) (*pbgroup.CreateGroupInviteLinkResp, error) {
 	if err := s.CheckGroupAdmin(ctx, req.GroupID); err != nil {
 		return nil, err
@@ -80,6 +81,16 @@ func (s *groupServer) CreateGroupInviteLink(ctx context.Context, req *pbgroup.Cr
 	}
 	if !isGroupInviteLinkEnabled(group) {
 		return nil, errs.ErrNoPermission.WrapMsg("group invite link is disabled")
+	}
+
+	existing, err := s.inviteLinkDB.GetByGroupID(ctx, req.GroupID)
+	if err == nil && isLinkValid(existing) {
+		return &pbgroup.CreateGroupInviteLinkResp{
+			Link: s.inviteLinkToProto(existing),
+		}, nil
+	}
+	if err != nil && !s.IsNotFound(err) && errs.Unwrap(err) != errs.ErrRecordNotFound {
+		return nil, err
 	}
 
 	cfg := s.config.RpcConfig.InviteLink
@@ -118,7 +129,7 @@ func (s *groupServer) CreateGroupInviteLink(ctx context.Context, req *pbgroup.Cr
 		CreatedAt:   time.Now(),
 	}
 
-	if err := s.inviteLinkDB.Create(ctx, link); err != nil {
+	if err := s.inviteLinkDB.Save(ctx, link); err != nil {
 		return nil, err
 	}
 
@@ -238,8 +249,8 @@ func (s *groupServer) RevokeGroupInviteLink(ctx context.Context, req *pbgroup.Re
 	return &pbgroup.RevokeGroupInviteLinkResp{}, nil
 }
 
-// ListGroupInviteLinks 分页查询群内邀请链接。
-// 群主/管理员可查看全部链接；普通成员在群已开启邀请链接时可查看有效链接。
+// ListGroupInviteLinks 查询群内邀请链接（每群最多一条，接口仍返回 links 数组）。
+// 群主/管理员可查看（含已吊销）；普通成员在群已开启邀请链接时可查看有效链接。
 func (s *groupServer) ListGroupInviteLinks(ctx context.Context, req *pbgroup.ListGroupInviteLinksReq) (*pbgroup.ListGroupInviteLinksResp, error) {
 	isGroupAdmin := authverify.IsAppManagerUid(ctx, s.config.Share.IMAdminUserID)
 	if !isGroupAdmin {

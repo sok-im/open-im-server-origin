@@ -6,7 +6,6 @@ import (
 
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/database"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/model"
-	"github.com/openimsdk/tools/db/mongoutil"
 	"github.com/openimsdk/tools/db/pagination"
 	"github.com/openimsdk/tools/errs"
 	"go.mongodb.org/mongo-driver/bson"
@@ -22,7 +21,8 @@ func NewGroupInviteLinkMongo(db *mongo.Database) (database.GroupInviteLink, erro
 			Options: options.Index().SetUnique(true),
 		},
 		{
-			Keys: bson.D{{Key: "group_id", Value: 1}},
+			Keys:    bson.D{{Key: "group_id", Value: 1}},
+			Options: options.Index().SetUnique(true),
 		},
 		{
 			Keys: bson.D{{Key: "created_at", Value: -1}},
@@ -43,12 +43,33 @@ func (m *groupInviteLinkMgo) Create(ctx context.Context, link *model.GroupInvite
 	return err
 }
 
+func (m *groupInviteLinkMgo) Save(ctx context.Context, link *model.GroupInviteLink) error {
+	_, err := m.coll.UpdateOne(ctx,
+		bson.M{"group_id": link.GroupID},
+		bson.M{"$set": link},
+		options.Update().SetUpsert(true),
+	)
+	return err
+}
+
 func (m *groupInviteLinkMgo) GetByLinkID(ctx context.Context, linkID string) (*model.GroupInviteLink, error) {
 	var link model.GroupInviteLink
 	err := m.coll.FindOne(ctx, bson.M{"link_id": linkID}).Decode(&link)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return nil, errs.ErrRecordNotFound.WrapMsg("invite link not found", "linkID", linkID)
+		}
+		return nil, err
+	}
+	return &link, nil
+}
+
+func (m *groupInviteLinkMgo) GetByGroupID(ctx context.Context, groupID string) (*model.GroupInviteLink, error) {
+	var link model.GroupInviteLink
+	err := m.coll.FindOne(ctx, bson.M{"group_id": groupID}).Decode(&link)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, errs.ErrRecordNotFound.WrapMsg("invite link not found", "groupID", groupID)
 		}
 		return nil, err
 	}
@@ -84,7 +105,15 @@ func (m *groupInviteLinkMgo) Revoke(ctx context.Context, linkID string) error {
 }
 
 func (m *groupInviteLinkMgo) ListByGroupID(ctx context.Context, groupID string, pg pagination.Pagination) (int64, []*model.GroupInviteLink, error) {
-	filter := bson.M{"group_id": groupID}
-	opt := options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}})
-	return mongoutil.FindPage[*model.GroupInviteLink](ctx, m.coll, filter, pg, opt)
+	link, err := m.GetByGroupID(ctx, groupID)
+	if err != nil {
+		if errs.Unwrap(err) == errs.ErrRecordNotFound {
+			return 0, nil, nil
+		}
+		return 0, nil, err
+	}
+	if pg != nil && pg.GetPageNumber() > 1 {
+		return 1, nil, nil
+	}
+	return 1, []*model.GroupInviteLink{link}, nil
 }
