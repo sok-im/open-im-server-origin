@@ -17,7 +17,7 @@ prometheus:
   ports: [ 12170, 12171, 12172, 12173, 12174, 12175, 12176, 12177, 12178, 12179, 12180, 12182, 12183, 12184, 12185, 12186 ]
 
 maxConcurrentWorkers: 3
-#Use geTui for offline push notifications, or choose fcm or jpush; corresponding configuration settings must be specified.
+# Use geTui, fcm, jpush, or engagelab for offline push notifications; corresponding configuration settings must be specified.
 enable:
 geTui:
   pushUrl: https://restapi.getui.com/v2/$appId
@@ -34,6 +34,13 @@ jpush:
   appKey:
   masterSecret:
   pushURL:
+  pushIntent:
+engagelab:
+  appKey:
+  masterSecret:
+  # Data center base URLs: sgp=https://pushapi-sgp.engagelab.com/v4/push
+  # usva=https://pushapi-usva.engagelab.com/v4/push, hk=https://pushapi-hk.engagelab.com/v4/push
+  pushURL: https://pushapi-sgp.engagelab.com/v4/push
   pushIntent:
 
 # iOS system push sound and badge count

@@ -17,6 +17,7 @@ package offlinepush
 import (
 	"context"
 	"github.com/openimsdk/open-im-server/v3/internal/push/offlinepush/dummy"
+	"github.com/openimsdk/open-im-server/v3/internal/push/offlinepush/engagelab"
 	"github.com/openimsdk/open-im-server/v3/internal/push/offlinepush/fcm"
 	"github.com/openimsdk/open-im-server/v3/internal/push/offlinepush/getui"
 	"github.com/openimsdk/open-im-server/v3/internal/push/offlinepush/jpush"
@@ -27,9 +28,10 @@ import (
 )
 
 const (
-	geTUI    = "getui"
-	firebase = "fcm"
-	jPush    = "jpush"
+	geTUI     = "getui"
+	firebase  = "fcm"
+	jPush     = "jpush"
+	engageLab = "engagelab"
 )
 
 // OfflinePusher Offline Pusher.
@@ -47,6 +49,8 @@ func NewOfflinePusher(pushConf *config.Push, cache cache.ThirdCache, fcmConfigPa
 		return fcm.NewClient(pushConf, cache, fcmConfigPath)
 	case jPush:
 		offlinePusher = jpush.NewClient(pushConf)
+	case engageLab:
+		offlinePusher = engagelab.NewClient(pushConf)
 	default:
 		offlinePusher = dummy.NewClient()
 	}

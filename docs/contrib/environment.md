@@ -466,7 +466,7 @@ This section involves setting up additional configuration variables for Websocke
 | WEBSOCKET_MAX_CONN_NUM  | "100000"          | Maximum Websocket connections    |
 | WEBSOCKET_MAX_MSG_LEN   | "4096"            | Maximum Websocket message length |
 | WEBSOCKET_TIMEOUT       | "10"              | Websocket timeout                |
-| PUSH_ENABLE             | "getui"           | Push notification enable status  |
+| PUSH_ENABLE             | "getui"           | Push notification enable status (getui/fcm/jpush/engagelab) |
 | GETUI_PUSH_URL          | [Generated URL]   | GeTui Push Notification URL      |
 | GETUI_MASTER_SECRET     | [User Defined]    | GeTui Master Secret              |
 | GETUI_APP_KEY           | [User Defined]    | GeTui Application Key            |
@@ -478,6 +478,10 @@ This section involves setting up additional configuration variables for Websocke
 | JPUSH_MASTER_SECRET      | [User Defined]    | JPUSH Master Secret               |
 | JPUSH_PUSH_URL           | [User Defined]    | JPUSH Push Notification URL       |
 | JPUSH_PUSH_INTENT        | [User Defined]    | JPUSH Push Intent                 |
+| ENGAGELAB_APP_KEY        | [User Defined]    | EngageLab Application Key         |
+| ENGAGELAB_MASTER_SECRET  | [User Defined]    | EngageLab Master Secret           |
+| ENGAGELAB_PUSH_URL       | [User Defined]    | EngageLab Push API URL (v4/push)  |
+| ENGAGELAB_PUSH_INTENT    | [User Defined]    | EngageLab Android push intent     |
 | IM_ADMIN_USERID         | "imAdmin"         | IM Administrator ID              |
 | IM_ADMIN_NAME           | "imAdmin"         | IM Administrator Nickname        |
 | MULTILOGIN_POLICY       | "1"               | Multi-login Policy               |

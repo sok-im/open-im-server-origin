@@ -244,6 +244,12 @@ type Push struct {
 		PushURL      string `mapstructure:"pushURL"`
 		PushIntent   string `mapstructure:"pushIntent"`
 	} `mapstructure:"jpush"`
+	EngageLab struct {
+		AppKey       string `mapstructure:"appKey"`
+		MasterSecret string `mapstructure:"masterSecret"`
+		PushURL      string `mapstructure:"pushURL"`
+		PushIntent   string `mapstructure:"pushIntent"`
+	} `mapstructure:"engagelab"`
 	IOSPush struct {
 		PushSound  string `mapstructure:"pushSound"`
 		BadgeCount bool   `mapstructure:"badgeCount"`

@@ -15,6 +15,9 @@ import (
 
 func NewGroupInviteLinkMongo(db *mongo.Database) (database.GroupInviteLink, error) {
 	coll := db.Collection("group_invite_link")
+	// Early releases created a non-unique group_id_1 index; drop it before the unique index.
+	_, _ = coll.Indexes().DropOne(context.Background(), "group_id_1")
+
 	_, err := coll.Indexes().CreateMany(context.Background(), []mongo.IndexModel{
 		{
 			Keys:    bson.D{{Key: "link_id", Value: 1}},
@@ -22,7 +25,7 @@ func NewGroupInviteLinkMongo(db *mongo.Database) (database.GroupInviteLink, erro
 		},
 		{
 			Keys:    bson.D{{Key: "group_id", Value: 1}},
-			Options: options.Index().SetUnique(true),
+			Options: options.Index().SetUnique(true).SetName("group_id_unique"),
 		},
 		{
 			Keys: bson.D{{Key: "created_at", Value: -1}},
