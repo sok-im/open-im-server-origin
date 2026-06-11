@@ -314,7 +314,7 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 		groupRouterGroup.POST("/get_invite_link", g.GetGroupInviteLink)
 		groupRouterGroup.POST("/join_by_invite_link", g.JoinGroupByInviteLink)
 		groupRouterGroup.POST("/revoke_invite_link", g.RevokeGroupInviteLink)
-		groupRouterGroup.POST("/get_group_invite_link_by_group", g.GetGroupInviteLinkByGroupID)
+		groupRouterGroup.POST("/list_invite_links", g.ListGroupInviteLinks)
 	}
 	// certificate
 	{

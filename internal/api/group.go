@@ -17,6 +17,7 @@ package api
 import (
 	"github.com/gin-gonic/gin"
 	"github.com/openimsdk/protocol/group"
+	"github.com/openimsdk/protocol/sdkws"
 	"github.com/openimsdk/protocol/wrapperspb"
 	"github.com/openimsdk/tools/a2r"
 	"github.com/openimsdk/tools/apiresp"
@@ -200,7 +201,7 @@ func (o *GroupApi) SetEditSetting(c *gin.Context) {
 // allowEditGroupInfo：0=全员可编辑群资料，1=仅群主/管理员。
 // allowMemberBurn：是否允许群成员设置阅后即焚，0=不允许（仅群主，默认），1=允许。
 // enableInviteLink：0=关闭群邀请链接，1=开启。
-// inviteLink：群内唯一邀请链接（开启时返回；普通成员仅含有效链接）。
+// inviteLink：群内邀请链接列表（开启时返回；普通成员仅含有效链接）。
 func (o *GroupApi) GetGroupSetting(c *gin.Context) {
 	var req struct {
 		GroupID string `json:"groupID"`
@@ -225,24 +226,28 @@ func (o *GroupApi) GetGroupSetting(c *gin.Context) {
 		return
 	}
 	gi := resp.GroupInfos[0]
-	var inviteLink *group.GroupInviteLinkInfo
+	inviteLinks := make([]*group.GroupInviteLinkInfo, 0)
 	if gi.GetEnableInviteLink() == 1 {
-		linkResp, linkErr := o.Client.GetGroupInviteLinkByGroupID(c, &group.GetGroupInviteLinkByGroupIDReq{
+		linkResp, linkErr := o.Client.ListGroupInviteLinks(c, &group.ListGroupInviteLinksReq{
 			GroupID: req.GroupID,
+			Pagination: &sdkws.RequestPagination{
+				PageNumber: 1,
+				ShowNumber: 100,
+			},
 		})
 		if linkErr == nil {
-			inviteLink = linkResp.Link
+			inviteLinks = linkResp.Links
 		}
 	}
 	apiresp.GinSuccess(c, struct {
-		GroupID            string                     `json:"groupID"`
-		AllowSendMsg       int32                      `json:"allowSendMsg"`
-		AllowAddMember     int32                      `json:"allowAddMember"`
-		AllowPinMsg        int32                      `json:"allowPinMsg"`
-		AllowEditGroupInfo int32                      `json:"allowEditGroupInfo"`
-		AllowMemberBurn    int32                      `json:"allowMemberBurn"`
-		EnableInviteLink   int32                      `json:"enableInviteLink"`
-		InviteLink         *group.GroupInviteLinkInfo `json:"inviteLink"`
+		GroupID            string                       `json:"groupID"`
+		AllowSendMsg       int32                        `json:"allowSendMsg"`
+		AllowAddMember     int32                        `json:"allowAddMember"`
+		AllowPinMsg        int32                        `json:"allowPinMsg"`
+		AllowEditGroupInfo int32                        `json:"allowEditGroupInfo"`
+		AllowMemberBurn    int32                        `json:"allowMemberBurn"`
+		EnableInviteLink   int32                        `json:"enableInviteLink"`
+		InviteLink         []*group.GroupInviteLinkInfo `json:"inviteLink"`
 	}{
 		GroupID:            gi.GroupID,
 		AllowSendMsg:       gi.GetAllowSendMsg(),
@@ -251,7 +256,7 @@ func (o *GroupApi) GetGroupSetting(c *gin.Context) {
 		AllowEditGroupInfo: gi.GetAllowEditGroupInfo(),
 		AllowMemberBurn:    gi.GetAllowBurn(),
 		EnableInviteLink:   gi.GetEnableInviteLink(),
-		InviteLink:         inviteLink,
+		InviteLink:         inviteLinks,
 	})
 }
 
@@ -563,7 +568,7 @@ func (o *GroupApi) RevokeGroupInviteLink(c *gin.Context) {
 	a2r.Call(c, group.GroupClient.RevokeGroupInviteLink, o.Client)
 }
 
-// GetGroupInviteLinkByGroupID 查询群内唯一邀请链接（群主/管理员查看全部；普通成员在已开启时查看有效链接）。
-func (o *GroupApi) GetGroupInviteLinkByGroupID(c *gin.Context) {
-	a2r.Call(c, group.GroupClient.GetGroupInviteLinkByGroupID, o.Client)
+// ListGroupInviteLinks 分页查询群内邀请链接（群主/管理员查看全部；普通成员在已开启时查看有效链接）。
+func (o *GroupApi) ListGroupInviteLinks(c *gin.Context) {
+	a2r.Call(c, group.GroupClient.ListGroupInviteLinks, o.Client)
 }

@@ -68,8 +68,7 @@ func isLinkValid(link *model.GroupInviteLink) bool {
 	return true
 }
 
-// CreateGroupInviteLink 为指定群生成或返回唯一邀请链接（仅群主/管理员可操作）。
-// 若群已有有效链接则直接返回；否则创建或覆盖该群唯一链接。
+// CreateGroupInviteLink 为指定群生成一条邀请链接（仅群主/管理员可创建）。
 func (s *groupServer) CreateGroupInviteLink(ctx context.Context, req *pbgroup.CreateGroupInviteLinkReq) (*pbgroup.CreateGroupInviteLinkResp, error) {
 	if err := s.CheckGroupAdmin(ctx, req.GroupID); err != nil {
 		return nil, err
@@ -83,18 +82,9 @@ func (s *groupServer) CreateGroupInviteLink(ctx context.Context, req *pbgroup.Cr
 		return nil, errs.ErrNoPermission.WrapMsg("group invite link is disabled")
 	}
 
-	existing, err := s.inviteLinkDB.GetByGroupID(ctx, req.GroupID)
-	if err == nil && isLinkValid(existing) {
-		return &pbgroup.CreateGroupInviteLinkResp{
-			Link: s.inviteLinkToProto(existing),
-		}, nil
-	}
-	if err != nil && !s.IsNotFound(err) && errs.Unwrap(err) != errs.ErrRecordNotFound {
-		return nil, err
-	}
-
 	cfg := s.config.RpcConfig.InviteLink
 
+	// 计算过期时间：请求值 > 0 则使用请求值，否则使用配置默认值；0 表示永不过期。
 	expireSeconds := req.ExpireSeconds
 	if expireSeconds == 0 && cfg.DefaultExpireSeconds > 0 {
 		expireSeconds = int64(cfg.DefaultExpireSeconds)
@@ -108,6 +98,7 @@ func (s *groupServer) CreateGroupInviteLink(ctx context.Context, req *pbgroup.Cr
 		expireAt = time.Now().Add(time.Duration(expireSeconds) * time.Second).UnixMilli()
 	}
 
+	// 计算最大使用次数。
 	maxUseCount := req.MaxUseCount
 	if maxUseCount == 0 && cfg.DefaultMaxUseCount > 0 {
 		maxUseCount = int32(cfg.DefaultMaxUseCount)
@@ -127,7 +118,7 @@ func (s *groupServer) CreateGroupInviteLink(ctx context.Context, req *pbgroup.Cr
 		CreatedAt:   time.Now(),
 	}
 
-	if err := s.inviteLinkDB.Save(ctx, link); err != nil {
+	if err := s.inviteLinkDB.Create(ctx, link); err != nil {
 		return nil, err
 	}
 
@@ -247,9 +238,9 @@ func (s *groupServer) RevokeGroupInviteLink(ctx context.Context, req *pbgroup.Re
 	return &pbgroup.RevokeGroupInviteLinkResp{}, nil
 }
 
-// GetGroupInviteLinkByGroupID 查询群内唯一邀请链接。
-// 群主/管理员可查看（含已吊销）；普通成员在群已开启邀请链接时可查看有效链接。
-func (s *groupServer) GetGroupInviteLinkByGroupID(ctx context.Context, req *pbgroup.GetGroupInviteLinkByGroupIDReq) (*pbgroup.GetGroupInviteLinkByGroupIDResp, error) {
+// ListGroupInviteLinks 分页查询群内邀请链接。
+// 群主/管理员可查看全部链接；普通成员在群已开启邀请链接时可查看有效链接。
+func (s *groupServer) ListGroupInviteLinks(ctx context.Context, req *pbgroup.ListGroupInviteLinksReq) (*pbgroup.ListGroupInviteLinksResp, error) {
 	isGroupAdmin := authverify.IsAppManagerUid(ctx, s.config.Share.IMAdminUserID)
 	if !isGroupAdmin {
 		if err := s.CheckGroupAdmin(ctx, req.GroupID); err != nil {
@@ -268,15 +259,20 @@ func (s *groupServer) GetGroupInviteLinkByGroupID(ctx context.Context, req *pbgr
 		}
 	}
 
-	link, err := s.inviteLinkDB.GetByGroupID(ctx, req.GroupID)
+	total, links, err := s.inviteLinkDB.ListByGroupID(ctx, req.GroupID, req.Pagination)
 	if err != nil {
 		return nil, err
 	}
-	if !isGroupAdmin && !isLinkValid(link) {
-		return &pbgroup.GetGroupInviteLinkByGroupIDResp{}, nil
+
+	protoLinks := make([]*pbgroup.GroupInviteLinkInfo, 0, len(links))
+	for _, l := range links {
+		if isGroupAdmin || isLinkValid(l) {
+			protoLinks = append(protoLinks, s.inviteLinkToProto(l))
+		}
 	}
 
-	return &pbgroup.GetGroupInviteLinkByGroupIDResp{
-		Link: s.inviteLinkToProto(link),
+	return &pbgroup.ListGroupInviteLinksResp{
+		Total: uint32(total),
+		Links: protoLinks,
 	}, nil
 }
