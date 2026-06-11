@@ -1050,6 +1050,7 @@ func (c *conversationServer) ClearGroupBurnExpiredMsgs(ctx context.Context, req 
 	if err != nil {
 		return nil, err
 	}
+
 	var processed int32
 	for _, g := range groups {
 		if g.GroupID == "" || g.MaxSeq <= 0 {
@@ -1084,6 +1085,9 @@ func (c *conversationServer) ClearGroupBurnExpiredMsgs(ctx context.Context, req 
 			"groupID", g.GroupID, "conversationID", conversationID, "seqs", g.Seqs)
 		processed++
 	}
+
+	log.ZDebug(ctx, "ClearGroupBurnExpiredMsgs processed groups", "groups", groups, "processed", processed)
+
 	return &pbconversation.ClearGroupBurnExpiredMsgsResp{Count: processed}, nil
 }
 
