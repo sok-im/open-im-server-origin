@@ -11,10 +11,8 @@ import (
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/model"
 	"github.com/openimsdk/protocol/constant"
 	pbgroup "github.com/openimsdk/protocol/group"
-	"github.com/openimsdk/protocol/sdkws"
 	"github.com/openimsdk/tools/errs"
 	"github.com/openimsdk/tools/mcontext"
-	"github.com/openimsdk/tools/utils/datautil"
 )
 
 const inviteLinkChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -277,46 +275,4 @@ func (s *groupServer) ListGroupInviteLinks(ctx context.Context, req *pbgroup.Lis
 		Total: uint32(total),
 		Links: protoLinks,
 	}, nil
-}
-
-func groupInviteLinkProtoToSdkws(link *pbgroup.GroupInviteLinkInfo) *sdkws.GroupInviteLinkInfo {
-	if link == nil {
-		return nil
-	}
-	return &sdkws.GroupInviteLinkInfo{
-		LinkID:      link.LinkID,
-		GroupID:     link.GroupID,
-		CreatorID:   link.CreatorID,
-		ExpireAt:    link.ExpireAt,
-		MaxUseCount: link.MaxUseCount,
-		UsedCount:   link.UsedCount,
-		Revoked:     link.Revoked,
-		CreatedAt:   link.CreatedAt,
-		ShareURL:    link.ShareURL,
-	}
-}
-
-func (s *groupServer) populateGroupInviteLinks(ctx context.Context, groupInfos []*sdkws.GroupInfo) {
-	for _, gi := range groupInfos {
-		if gi == nil || gi.EnableInviteLink != model.GroupEnableInviteLinkOn {
-			if gi != nil {
-				gi.InviteLink = nil
-			}
-			continue
-		}
-		if len(gi.InviteLink) > 0 {
-			continue
-		}
-		linkResp, err := s.ListGroupInviteLinks(ctx, &pbgroup.ListGroupInviteLinksReq{
-			GroupID: gi.GroupID,
-			Pagination: &sdkws.RequestPagination{
-				PageNumber: 1,
-				ShowNumber: 100,
-			},
-		})
-		if err != nil {
-			continue
-		}
-		gi.InviteLink = datautil.Batch(groupInviteLinkProtoToSdkws, linkResp.GetLinks())
-	}
 }

@@ -442,7 +442,6 @@ func (s *groupServer) GetJoinedGroupList(ctx context.Context, req *pbgroup.GetJo
 		}
 		return convert.Db2PbGroupInfo(group, userID, groupMemberNum[group.GroupID])
 	})
-	s.populateGroupInviteLinks(ctx, resp.Groups)
 	return &resp, nil
 }
 
@@ -980,7 +979,6 @@ func (s *groupServer) getGroupsInfo(ctx context.Context, groupIDs []string) ([]*
 		}
 		return convert.Db2PbGroupInfo(e, ownerUserID, groupMemberNumMap[e.GroupID])
 	})
-	s.populateGroupInviteLinks(ctx, groupInfos)
 	return groupInfos, nil
 }
 
