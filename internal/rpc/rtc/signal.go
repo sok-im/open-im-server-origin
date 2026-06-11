@@ -500,7 +500,7 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 
 		s.sendCallRecordChatMsg(ctx, dbInv, callStatusRejected, 0)
 
-		log.ZInfo(ctx, "lintao handleReject: sendCallRecordChatMsg", "dbInv", dbInv)
+		log.ZInfo(ctx, "lintao handleReject", "dbInv", dbInv)
 
 		go s.broadcastGroupCallStatusToNonInvited(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
 
@@ -512,7 +512,7 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 
 		s.sendCallRecordChatMsg(ctx, dbInv, callStatusRejected, 0)
 
-		log.ZInfo(ctx, "lintao handleReject: sendCallRecordChatMsg", "dbInv", dbInv)
+		log.ZInfo(ctx, "lintao handleReject", "dbInv", dbInv)
 	}
 
 	return &rtc.SignalRejectResp{}, nil
@@ -558,7 +558,7 @@ func (s *rtcServer) handleCancel(ctx context.Context, req *rtc.SignalCancelReq, 
 
 	s.sendCallRecordChatMsg(ctx, dbInv, callStatusCancelled, 0)
 
-	log.ZInfo(ctx, "lintao handleCancel: sendCallRecordChatMsg", "dbInv", dbInv)
+	log.ZInfo(ctx, "lintao handleCancel", "dbInv", dbInv)
 
 	return &rtc.SignalCancelResp{}, nil
 }
@@ -652,7 +652,7 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 
 	s.sendCallRecordChatMsg(ctx, dbInv, callStatusAnswered, duration)
 
-	log.ZInfo(ctx, "lintao handleHungUp: sendCallRecordChatMsg", "dbInv", dbInv, "duration", duration)
+	log.ZInfo(ctx, "lintao handleHungUp", "dbInv", dbInv, "duration", duration)
 
 	// Send a group-chat timeline notification to all members with duration, e.g.
 	// "Alice ended an audio/video call (10 minutes 30 seconds)".
@@ -1477,7 +1477,7 @@ func (s *rtcServer) sendCallRecordChatMsg(ctx context.Context, inv *model.Signal
 		Options:     callRecordMsgOptions(),
 	}
 
-	log.ZInfo(ctx, "lintao sendCallRecordChatMsg: sendCallRecordChatMsg", "msgData", msgData)
+	log.ZInfo(ctx, "lintao sendCallRecordChatMsg", "msgData", msgData, "inv", inv)
 
 	if _, err := s.msgClient.MsgClient.SendMsg(ctx, &pbmsg.SendMsgReq{MsgData: msgData}); err != nil {
 		log.ZWarn(ctx, "lintao sendCallRecordChatMsg: SendMsg failed", err, "roomID", inv.RoomID, "status", status)
@@ -1529,7 +1529,7 @@ func (s *rtcServer) handleTimeout(ctx context.Context, req *rtc.SignalTimeoutReq
 
 	s.sendCallRecordChatMsg(ctx, dbInv, callStatusNotConnected, 0)
 
-	log.ZInfo(ctx, "lintao handleTimeout: sendCallRecordChatMsg", "dbInv", dbInv)
+	log.ZInfo(ctx, "lintao handleTimeout", "dbInv", dbInv)
 
 	return &rtc.SignalTimeoutResp{}, nil
 }
