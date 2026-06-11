@@ -13,10 +13,9 @@ import (
 // recordGroupBurnOnSend 在群消息分配 seq 后写入定时删除截止时间。
 //
 // 销毁时长优先级：
-//  1. 发送者在该群会话上的 BurnDuration（/conversation/set_burn 或 UpdateConversation）；
-//  2. 发送者用户全局 MsgBurnDuration；
-//  3. 群主会话的 BurnDuration（群主通过 set_conversation 设置群级阅后即焚策略，
-//     适用于未单独设置的群成员）。
+//  1. 群主会话的 BurnDuration（群级强制策略，覆盖所有成员的个人设置）；
+//  2. 发送者在该群会话上的 BurnDuration（/conversation/set_burn 或 UpdateConversation）；
+//  3. 发送者用户全局 MsgBurnDuration。
 //
 // 通知类消息（ContentType 1000~5000，含群内 tips）不参与阅后即焚。
 // 失败仅记日志，不影响消息主流程。
@@ -89,6 +88,8 @@ func (och *OnlineHistoryRedisConsumerHandler) getSenderConversationBurnSeconds(c
 	if och.conversationClient == nil {
 		return nil, false
 	}
+
+	// De-duplicate sender IDs.
 	seen := make(map[string]struct{}, len(seqSenderID))
 	senderIDs := make([]string, 0, len(seqSenderID))
 	for _, senderID := range seqSenderID {
@@ -106,6 +107,41 @@ func (och *OnlineHistoryRedisConsumerHandler) getSenderConversationBurnSeconds(c
 		return nil, false
 	}
 
+	// Priority 1: group owner's conversation BurnDuration (group-wide policy, overrides all members).
+	ownerBurnDuration := int32(0)
+	if groupID != "" && och.groupClient != nil {
+		groupInfo, err := och.groupClient.GetGroupInfoCache(ctx, groupID)
+		if err != nil {
+			log.ZWarn(ctx, "getSenderConversationBurnSeconds GetGroupInfoCache failed", err, "groupID", groupID)
+		} else if groupInfo != nil && groupInfo.OwnerUserID != "" {
+			ownerConv, err := och.conversationClient.GetConversation(ctx, conversationID, groupInfo.OwnerUserID)
+			if err != nil {
+				log.ZWarn(ctx, "getSenderConversationBurnSeconds GetConversation for group owner failed", err,
+					"conversationID", conversationID, "ownerUserID", groupInfo.OwnerUserID)
+			} else if ownerConv != nil {
+				ownerBurnDuration = ownerConv.BurnDuration
+			}
+			log.ZDebug(ctx, "getSenderConversationBurnSeconds", "reason", "group owner burn resolved",
+				"groupID", groupID, "ownerUserID", groupInfo.OwnerUserID,
+				"ownerBurnDuration", ownerBurnDuration, "conversationID", conversationID)
+		} else {
+			log.ZDebug(ctx, "getSenderConversationBurnSeconds", "reason", "group owner not found",
+				"groupID", groupID, "groupInfoNil", groupInfo == nil, "conversationID", conversationID)
+		}
+	}
+
+	// If owner has set a group-wide burn, apply it to every sender and return immediately.
+	if ownerBurnDuration > 0 {
+		senderBurnSeconds := make(map[string]int32, len(senderIDs))
+		for _, senderID := range senderIDs {
+			senderBurnSeconds[senderID] = ownerBurnDuration
+		}
+		log.ZDebug(ctx, "getSenderConversationBurnSeconds", "reason", "applied group owner burn to all senders",
+			"ownerBurnDuration", ownerBurnDuration, "senderIDs", senderIDs, "conversationID", conversationID)
+		return senderBurnSeconds, true
+	}
+
+	// Priority 2: sender's own conversation BurnDuration.
 	senderBurnSeconds := make(map[string]int32, len(senderIDs))
 	needUserFallback := make([]string, 0, len(senderIDs))
 	for _, senderID := range senderIDs {
@@ -119,16 +155,18 @@ func (och *OnlineHistoryRedisConsumerHandler) getSenderConversationBurnSeconds(c
 		if conv != nil && conv.BurnDuration > 0 {
 			senderBurnSeconds[senderID] = conv.BurnDuration
 			log.ZDebug(ctx, "getSenderConversationBurnSeconds", "reason", "found conversation burn",
-				"burnDuration", conv.BurnDuration, "senderID", senderID, "conversationID", conversationID, "conv", conv)
+				"burnDuration", conv.BurnDuration, "senderID", senderID, "conversationID", conversationID)
 		} else {
 			needUserFallback = append(needUserFallback, senderID)
-			log.ZDebug(ctx, "getSenderConversationBurnSeconds", "reason", "no conversation burn", "senderID", senderID, "conversationID", conversationID, "conv", conv)
+			log.ZDebug(ctx, "getSenderConversationBurnSeconds", "reason", "no conversation burn",
+				"senderID", senderID, "conversationID", conversationID, "conv", conv)
 		}
 	}
 
 	log.ZDebug(ctx, "getSenderConversationBurnSeconds", "reason", "after conversation lookup",
 		"senderBurnSeconds", senderBurnSeconds, "needUserFallback", needUserFallback, "conversationID", conversationID)
 
+	// Priority 3: sender's global MsgBurnDuration.
 	if len(needUserFallback) > 0 && och.userClient != nil {
 		users, err := och.userClient.GetUsersInfo(ctx, needUserFallback)
 		if err != nil {
@@ -137,38 +175,6 @@ func (och *OnlineHistoryRedisConsumerHandler) getSenderConversationBurnSeconds(c
 			for _, u := range users {
 				if u != nil && u.MsgBurnDuration > 0 {
 					senderBurnSeconds[u.UserID] = u.MsgBurnDuration
-				}
-			}
-		}
-	}
-
-	// Group-owner burn fallback: for any sender that still has no burn setting, check the group
-	// owner's conversation burn duration and treat it as the group-wide policy. This covers the
-	// case where the owner enabled burn via set_conversation but the member's conversation record
-	// was never explicitly updated.
-	if groupID != "" && och.groupClient != nil && och.conversationClient != nil {
-		stillNeedFallback := make([]string, 0, len(needUserFallback))
-		for _, senderID := range needUserFallback {
-			if _, ok := senderBurnSeconds[senderID]; !ok {
-				stillNeedFallback = append(stillNeedFallback, senderID)
-			}
-		}
-		if len(stillNeedFallback) > 0 {
-			groupInfo, err := och.groupClient.GetGroupInfoCache(ctx, groupID)
-			if err != nil {
-				log.ZWarn(ctx, "getSenderConversationBurnSeconds GetGroupInfoCache failed", err, "groupID", groupID)
-			} else if groupInfo != nil && groupInfo.OwnerUserID != "" {
-				ownerConv, err := och.conversationClient.GetConversation(ctx, conversationID, groupInfo.OwnerUserID)
-				if err != nil {
-					log.ZWarn(ctx, "getSenderConversationBurnSeconds GetConversation for group owner failed", err,
-						"conversationID", conversationID, "ownerUserID", groupInfo.OwnerUserID)
-				} else if ownerConv != nil && ownerConv.BurnDuration > 0 {
-					for _, senderID := range stillNeedFallback {
-						senderBurnSeconds[senderID] = ownerConv.BurnDuration
-					}
-					log.ZDebug(ctx, "getSenderConversationBurnSeconds", "reason", "applied group owner burn duration to senders",
-						"ownerUserID", groupInfo.OwnerUserID, "ownerBurnDuration", ownerConv.BurnDuration,
-						"appliedToSenders", stillNeedFallback, "conversationID", conversationID)
 				}
 			}
 		}
