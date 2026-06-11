@@ -12,9 +12,11 @@ import (
 
 // recordGroupBurnOnSend 在群消息分配 seq 后写入定时删除截止时间。
 //
-// 销毁时长优先级（与单聊 recordBurnDeadlines 一致）：
+// 销毁时长优先级：
 //  1. 发送者在该群会话上的 BurnDuration（/conversation/set_burn 或 UpdateConversation）；
-//  2. 发送者用户全局 MsgBurnDuration。
+//  2. 发送者用户全局 MsgBurnDuration；
+//  3. 群主会话的 BurnDuration（群主通过 set_conversation 设置群级阅后即焚策略，
+//     适用于未单独设置的群成员）。
 //
 // 通知类消息（ContentType 1000~5000，含群内 tips）不参与阅后即焚。
 // 失败仅记日志，不影响消息主流程。
@@ -53,7 +55,7 @@ func (och *OnlineHistoryRedisConsumerHandler) recordGroupBurnOnSend(ctx context.
 		return
 	}
 
-	senderBurnSeconds, ok := och.getSenderConversationBurnSeconds(ctx, conversationID, seqSenderID)
+	senderBurnSeconds, ok := och.getSenderConversationBurnSeconds(ctx, conversationID, msg.GroupID, seqSenderID)
 	if !ok {
 		log.ZDebug(ctx, "recordGroupBurnOnSend", "reason", "getSenderConversationBurnSeconds failed",
 			"conversationID", conversationID, "groupID", msg.GroupID)
@@ -83,7 +85,7 @@ func (och *OnlineHistoryRedisConsumerHandler) recordGroupBurnOnSend(ctx context.
 	}
 }
 
-func (och *OnlineHistoryRedisConsumerHandler) getSenderConversationBurnSeconds(ctx context.Context, conversationID string, seqSenderID map[int64]string) (map[string]int32, bool) {
+func (och *OnlineHistoryRedisConsumerHandler) getSenderConversationBurnSeconds(ctx context.Context, conversationID string, groupID string, seqSenderID map[int64]string) (map[string]int32, bool) {
 	if och.conversationClient == nil {
 		return nil, false
 	}
@@ -135,6 +137,38 @@ func (och *OnlineHistoryRedisConsumerHandler) getSenderConversationBurnSeconds(c
 			for _, u := range users {
 				if u != nil && u.MsgBurnDuration > 0 {
 					senderBurnSeconds[u.UserID] = u.MsgBurnDuration
+				}
+			}
+		}
+	}
+
+	// Group-owner burn fallback: for any sender that still has no burn setting, check the group
+	// owner's conversation burn duration and treat it as the group-wide policy. This covers the
+	// case where the owner enabled burn via set_conversation but the member's conversation record
+	// was never explicitly updated.
+	if groupID != "" && och.groupClient != nil && och.conversationClient != nil {
+		stillNeedFallback := make([]string, 0, len(needUserFallback))
+		for _, senderID := range needUserFallback {
+			if _, ok := senderBurnSeconds[senderID]; !ok {
+				stillNeedFallback = append(stillNeedFallback, senderID)
+			}
+		}
+		if len(stillNeedFallback) > 0 {
+			groupInfo, err := och.groupClient.GetGroupInfoCache(ctx, groupID)
+			if err != nil {
+				log.ZWarn(ctx, "getSenderConversationBurnSeconds GetGroupInfoCache failed", err, "groupID", groupID)
+			} else if groupInfo != nil && groupInfo.OwnerUserID != "" {
+				ownerConv, err := och.conversationClient.GetConversation(ctx, conversationID, groupInfo.OwnerUserID)
+				if err != nil {
+					log.ZWarn(ctx, "getSenderConversationBurnSeconds GetConversation for group owner failed", err,
+						"conversationID", conversationID, "ownerUserID", groupInfo.OwnerUserID)
+				} else if ownerConv != nil && ownerConv.BurnDuration > 0 {
+					for _, senderID := range stillNeedFallback {
+						senderBurnSeconds[senderID] = ownerConv.BurnDuration
+					}
+					log.ZDebug(ctx, "getSenderConversationBurnSeconds", "reason", "applied group owner burn duration to senders",
+						"ownerUserID", groupInfo.OwnerUserID, "ownerBurnDuration", ownerConv.BurnDuration,
+						"appliedToSenders", stillNeedFallback, "conversationID", conversationID)
 				}
 			}
 		}
