@@ -13,7 +13,7 @@ import (
 // recordGroupBurnOnSend 在群消息分配 seq 后写入定时删除截止时间。
 //
 // 销毁时长优先级：
-//  1. 群主会话的 BurnDuration（群级强制策略，覆盖所有成员的个人设置）；
+//  1. 群主阅后即焚策略（群级强制，覆盖所有成员）：group.MsgBurnDuration 或群主会话 BurnDuration；
 //  2. 发送者在该群会话上的 BurnDuration（/conversation/set_burn 或 UpdateConversation）；
 //  3. 发送者用户全局 MsgBurnDuration。
 //
@@ -107,26 +107,30 @@ func (och *OnlineHistoryRedisConsumerHandler) getSenderConversationBurnSeconds(c
 		return nil, false
 	}
 
-	// Priority 1: group owner's conversation BurnDuration (group-wide policy, overrides all members).
+	// Priority 1: group owner's burn policy (group-wide, overrides all members).
+	// Sources: group.MsgBurnDuration (set_group_info_ex) or owner conversation BurnDuration (set_conversation).
+	// Note: GetGroupInfoCache does not populate OwnerUserID; use GetGroupInfo instead.
 	ownerBurnDuration := int32(0)
 	if groupID != "" && och.groupClient != nil {
-		groupInfo, err := och.groupClient.GetGroupInfoCache(ctx, groupID)
+		groupInfo, err := och.groupClient.GetGroupInfo(ctx, groupID)
 		if err != nil {
-			log.ZWarn(ctx, "getSenderConversationBurnSeconds GetGroupInfoCache failed", err, "groupID", groupID)
-		} else if groupInfo != nil && groupInfo.OwnerUserID != "" {
-			ownerConv, err := och.conversationClient.GetConversation(ctx, conversationID, groupInfo.OwnerUserID)
-			if err != nil {
-				log.ZWarn(ctx, "getSenderConversationBurnSeconds GetConversation for group owner failed", err,
-					"conversationID", conversationID, "ownerUserID", groupInfo.OwnerUserID)
-			} else if ownerConv != nil {
-				ownerBurnDuration = ownerConv.BurnDuration
+			log.ZWarn(ctx, "getSenderConversationBurnSeconds GetGroupInfo failed", err, "groupID", groupID)
+		} else if groupInfo != nil {
+			ownerBurnDuration = groupInfo.MsgBurnDuration
+			ownerUserID := groupInfo.OwnerUserID
+			if ownerBurnDuration <= 0 && ownerUserID != "" {
+				ownerConv, err := och.conversationClient.GetConversation(ctx, conversationID, ownerUserID)
+				if err != nil {
+					log.ZWarn(ctx, "getSenderConversationBurnSeconds GetConversation for group owner failed", err,
+						"conversationID", conversationID, "ownerUserID", ownerUserID)
+				} else if ownerConv != nil {
+					ownerBurnDuration = ownerConv.BurnDuration
+				}
 			}
 			log.ZDebug(ctx, "getSenderConversationBurnSeconds", "reason", "group owner burn resolved",
-				"groupID", groupID, "ownerUserID", groupInfo.OwnerUserID,
+				"groupID", groupID, "ownerUserID", ownerUserID,
+				"groupMsgBurnDuration", groupInfo.MsgBurnDuration,
 				"ownerBurnDuration", ownerBurnDuration, "conversationID", conversationID)
-		} else {
-			log.ZDebug(ctx, "getSenderConversationBurnSeconds", "reason", "group owner not found",
-				"groupID", groupID, "groupInfoNil", groupInfo == nil, "conversationID", conversationID)
 		}
 	}
 
