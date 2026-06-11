@@ -122,6 +122,11 @@ func IsNotificationByMsg(msg *sdkws.MsgData) bool {
 	return !Options(msg.Options).IsNotNotification()
 }
 
+// IsNotificationContentType 判断消息类型是否为系统/业务通知（阅后即焚等场景需排除）。
+func IsNotificationContentType(contentType int32) bool {
+	return contentType >= constant.NotificationBegin && contentType <= constant.NotificationEnd
+}
+
 type MsgBySeq []*sdkws.MsgData
 
 func (s MsgBySeq) Len() int {

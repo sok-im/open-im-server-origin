@@ -21,6 +21,7 @@ import (
 
 	cbapi "github.com/openimsdk/open-im-server/v3/pkg/callbackstruct"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/model"
+	"github.com/openimsdk/open-im-server/v3/pkg/msgprocessor"
 	"github.com/openimsdk/protocol/constant"
 	"github.com/openimsdk/protocol/conversation"
 	"github.com/openimsdk/protocol/msg"
@@ -217,12 +218,17 @@ func (m *msgServer) MarkConversationAsRead(ctx context.Context, req *msg.MarkCon
 //  1. 仅单聊。
 //  2. $setOnInsert 确保同一 (UserID, ConversationID, Seq) 已存在时不覆盖，
 //     以「首次阅读时刻」为 deadline 基准，多端重复 MarkAsRead 不会往后推。
-//  3. 失败仅记录日志，不影响已读主流程。
+//  3. 通知类消息（ContentType 1000~5000）不参与阅后即焚。
+//  4. 失败仅记录日志，不影响已读主流程。
 func (m *msgServer) recordBurnDeadlines(ctx context.Context, conv *conversation.Conversation, readerUserID string, seqs []int64) {
 	if len(seqs) == 0 {
 		return
 	}
 	if conv.ConversationType != constant.SingleChatType {
+		return
+	}
+	seqs = m.filterBurnableSeqs(ctx, readerUserID, conv.ConversationID, seqs)
+	if len(seqs) == 0 {
 		return
 	}
 	peerID := m.conversationAndGetRecvID(conv, readerUserID)
@@ -268,6 +274,27 @@ func (m *msgServer) recordBurnDeadlines(ctx context.Context, conv *conversation.
 			"peerID", peerID, "burnSeconds", burnSeconds, "deadline", deadline,
 			"conversationID", conv.ConversationID, "seqs", seqs, "items", items)
 	}
+}
+
+// filterBurnableSeqs 从已读 seq 中排除通知类消息。
+func (m *msgServer) filterBurnableSeqs(ctx context.Context, userID, conversationID string, seqs []int64) []int64 {
+	_, _, msgs, err := m.MsgDatabase.GetMsgBySeqs(ctx, userID, conversationID, seqs)
+	if err != nil {
+		log.ZWarn(ctx, "filterBurnableSeqs GetMsgBySeqs failed", err,
+			"userID", userID, "conversationID", conversationID, "seqs", seqs)
+		return nil
+	}
+	burnable := make([]int64, 0, len(seqs))
+	for _, msg := range msgs {
+		if msg == nil || msg.Seq <= 0 {
+			continue
+		}
+		if msgprocessor.IsNotificationContentType(msg.ContentType) {
+			continue
+		}
+		burnable = append(burnable, msg.Seq)
+	}
+	return burnable
 }
 
 func (m *msgServer) sendMarkAsReadNotification(ctx context.Context, conversationID string, sessionType int32, sendID, recvID string, seqs []int64, hasReadSeq int64) {

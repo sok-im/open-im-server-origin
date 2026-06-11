@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/openimsdk/open-im-server/v3/pkg/msgprocessor"
 	"github.com/openimsdk/protocol/constant"
 	"github.com/openimsdk/protocol/sdkws"
 	"github.com/openimsdk/tools/log"
@@ -15,6 +16,7 @@ import (
 //  1. 发送者在该群会话上的 BurnDuration（/conversation/set_burn 或 UpdateConversation）；
 //  2. 发送者用户全局 MsgBurnDuration。
 //
+// 通知类消息（ContentType 1000~5000，含群内 tips）不参与阅后即焚。
 // 失败仅记日志，不影响消息主流程。
 func (och *OnlineHistoryRedisConsumerHandler) recordGroupBurnOnSend(ctx context.Context, conversationID string, msgs []*sdkws.MsgData) {
 	if och.groupMsgBurnRecordDB == nil || len(msgs) == 0 {
@@ -31,6 +33,9 @@ func (och *OnlineHistoryRedisConsumerHandler) recordGroupBurnOnSend(ctx context.
 	msgSendTimeMs := make(map[int64]int64, len(msgs))
 	for _, m := range msgs {
 		if m == nil || m.Seq <= 0 {
+			continue
+		}
+		if msgprocessor.IsNotificationContentType(m.ContentType) {
 			continue
 		}
 		seqSenderID[m.Seq] = m.SendID

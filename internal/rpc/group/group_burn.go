@@ -9,6 +9,7 @@ import (
 	"github.com/openimsdk/protocol/sdkws"
 	"github.com/openimsdk/protocol/wrapperspb"
 	"github.com/openimsdk/tools/log"
+	"github.com/openimsdk/tools/mcontext"
 )
 
 // syncOwnerConversationBurnOnCreateGroup 群主若已设置个人阅后即焚（用户全局 MsgBurnDuration），
@@ -23,7 +24,12 @@ func (s *groupServer) syncOwnerConversationBurnOnCreateGroup(ctx context.Context
 		GroupID:          groupID,
 		BurnDuration:     &wrapperspb.Int32Value{Value: owner.MsgBurnDuration},
 	}
-	if err := s.conversationClient.SetConversations(ctx, []string{ownerUserID}, conv); err != nil {
+	// 服务端内部同步，使用 admin 身份绕过阅后即焚权限校验（操作者未必是群主）。
+	adminCtx := ctx
+	if len(s.config.Share.IMAdminUserID) > 0 {
+		adminCtx = mcontext.WithOpUserIDContext(ctx, s.config.Share.IMAdminUserID[0])
+	}
+	if err := s.conversationClient.SetConversations(adminCtx, []string{ownerUserID}, conv); err != nil {
 		log.ZWarn(ctx, "syncOwnerConversationBurnOnCreateGroup SetConversations failed", err,
 			"groupID", groupID, "ownerUserID", ownerUserID, "burnDuration", owner.MsgBurnDuration)
 	}
