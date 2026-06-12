@@ -31,6 +31,7 @@ require github.com/google/uuid v1.6.0
 require (
 	github.com/IBM/sarama v1.43.0
 	github.com/VirgilSecurity/virgil-sdk-go v5.2.1+incompatible
+	github.com/engagelab-mt/engagelab-apppush-go v0.1.0
 	github.com/ethereum/go-ethereum v1.14.12
 	github.com/fatih/color v1.16.0
 	github.com/gin-contrib/gzip v1.0.1
@@ -289,6 +290,6 @@ require (
 	github.com/spf13/cobra v1.8.0
 	github.com/ugorji/go/codec v1.2.12 // indirect
 	go.uber.org/zap v1.27.1 // indirect
-	golang.org/x/crypto v0.48.0 // indirect
+	golang.org/x/crypto v0.48.0
 	gopkg.in/ini.v1 v1.67.0 // indirect
 )
