@@ -29,6 +29,7 @@ type SignalInvitation struct {
 	PlatformID         int32    `bson:"platform_id"`
 	SessionType        int32    `bson:"session_type"`
 	InitiateTime       int64    `bson:"initiate_time"`
+	AcceptTime         int64    `bson:"accept_time"` // Unix ms; first callee accept, 0 if not answered
 	BusyLineUserIDList []string `bson:"busy_line_user_id_list"`
 	OfflinePushTitle   string   `bson:"offline_push_title"`
 	OfflinePushDesc    string   `bson:"offline_push_desc"`

@@ -36,6 +36,8 @@ type SignalDatabase interface {
 	RemoveInvitee(ctx context.Context, roomID string, userID string) error
 	// AddInvitee appends a user to the invitee list (e.g. user joined without prior invite).
 	AddInvitee(ctx context.Context, roomID string, userID string) error
+	// SetAcceptTime records the first accept timestamp for a call (no-op if already set).
+	SetAcceptTime(ctx context.Context, roomID string, acceptTime int64) error
 	// GetInvitationByGroupID retrieves the active invitation for a group.
 	GetInvitationByGroupID(ctx context.Context, groupID string) (*model.SignalInvitation, error)
 	// GetInvitationsByRoomIDs retrieves invitations for the given room IDs.

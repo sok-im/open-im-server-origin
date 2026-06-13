@@ -114,6 +114,18 @@ func (s *signalMgo) AddInvitee(ctx context.Context, roomID string, userID string
 	return mongoutil.UpdateOne(ctx, s.invColl, filter, update, false)
 }
 
+func (s *signalMgo) SetAcceptTime(ctx context.Context, roomID string, acceptTime int64) error {
+	filter := bson.M{
+		"room_id": roomID,
+		"$or": bson.A{
+			bson.M{"accept_time": bson.M{"$exists": false}},
+			bson.M{"accept_time": int64(0)},
+		},
+	}
+	update := bson.M{"$set": bson.M{"accept_time": acceptTime}}
+	return mongoutil.UpdateOne(ctx, s.invColl, filter, update, false)
+}
+
 func (s *signalMgo) GetInvitationByGroupID(ctx context.Context, groupID string) (*model.SignalInvitation, error) {
 	opts := options.FindOne().SetSort(bson.M{"create_time": -1})
 	return mongoutil.FindOne[*model.SignalInvitation](ctx, s.invColl, bson.M{"group_id": groupID}, opts)
