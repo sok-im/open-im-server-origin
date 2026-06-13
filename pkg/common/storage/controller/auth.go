@@ -160,6 +160,10 @@ func (a *authDatabase) checkToken(ctx context.Context, tokens map[int]map[string
 				kickToken = append(kickToken, ts[:l-limit]...)
 			}
 		}
+	case constant.AllKick:
+		for _, ts := range loginTokenMap {
+			kickToken = append(kickToken, ts...)
+		}
 	case constant.AllLoginButSameTermKick:
 		for plt, ts := range loginTokenMap {
 			kickToken = append(kickToken, ts[:len(ts)-1]...)

@@ -374,6 +374,13 @@ func (ws *WsServer) multiTerminalLoginChecker(clientOK bool, oldClients []*Clien
 
 	switch ws.msgGatewayConfig.Share.MultiLogin.Policy {
 	case constant.DefalutNotKick:
+	case constant.AllKick:
+		clients, ok := ws.clients.GetAll(newClient.UserID)
+		if !ok {
+			return
+		}
+		kickClients := checkSameTokenFunc(clients)
+		kickTokenFunc(kickClients)
 	case constant.PCAndOther:
 		if constant.PlatformIDToClass(newClient.PlatformID) == constant.TerminalPC {
 			return

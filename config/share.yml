@@ -19,9 +19,9 @@ rpcRegisterName:
 
 imAdminUserID: [ imAdmin ]
 
-# 1: For Android, iOS, Windows, Mac, and web platforms, only one instance can be online at a time
+# 2: New login kicks all existing sessions across all platforms; only one session allowed at any time
 multiLogin:
-  policy: 1
+  policy: 2
   maxNumOneEnd: 30
 
 rpcMaxBodySize:
