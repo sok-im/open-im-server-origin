@@ -360,7 +360,7 @@ func (s *groupServer) CreateGroup(ctx context.Context, req *pbgroup.CreateGroupR
 	// devices to fetch key packages and create the MLS group via the DS.
 	// Fire-and-return: MLS setup failure must not block the group creation
 	// response.
-	go s.openMLSClient.InitGroupTrigger(ctx, group.GroupID, req.OwnerUserID, userIDs)
+	go s.openMLSClient.InitGroupTrigger(context.WithoutCancel(ctx), group.GroupID, req.OwnerUserID, userIDs)
 	resp := &pbgroup.CreateGroupResp{GroupInfo: &sdkws.GroupInfo{}}
 
 	resp.GroupInfo = convert.Db2PbGroupInfo(group, req.OwnerUserID, uint32(len(userIDs)))
@@ -626,7 +626,7 @@ func (s *groupServer) InviteUserToGroup(ctx context.Context, req *pbgroup.Invite
 		}
 	}
 	//s.cryptoClient.BumpGroupKeyVersion(ctx, req.GroupID, opUserID, "member_added")
-	go s.openMLSClient.AddMemberTrigger(ctx, req.GroupID, opUserID, req.InvitedUserIDs)
+	go s.openMLSClient.AddMemberTrigger(context.WithoutCancel(ctx), req.GroupID, opUserID, req.InvitedUserIDs)
 	return &pbgroup.InviteUserToGroupResp{}, nil
 }
 
@@ -797,7 +797,7 @@ func (s *groupServer) KickGroupMember(ctx context.Context, req *pbgroup.KickGrou
 	}
 	s.webhookAfterKickGroupMember(ctx, &s.config.WebhooksConfig.AfterKickGroupMember, req)
 	//s.cryptoClient.BumpGroupKeyVersion(ctx, req.GroupID, opUserID, "member_removed")
-	go s.openMLSClient.RemoveMemberTrigger(ctx, req.GroupID, opUserID, req.KickedUserIDs)
+	go s.openMLSClient.RemoveMemberTrigger(context.WithoutCancel(ctx), req.GroupID, opUserID, req.KickedUserIDs)
 
 	return &pbgroup.KickGroupMemberResp{}, nil
 }
@@ -1060,7 +1060,7 @@ func (s *groupServer) GroupApplicationResponse(ctx context.Context, req *pbgroup
 			// Notify the approver's devices to perform the MLS Add-Commit + Welcome
 			// flow for the newly admitted member.
 			opUserID := mcontext.GetOpUserID(ctx)
-			go s.openMLSClient.AddMemberTrigger(ctx, req.GroupID, opUserID, []string{req.FromUserID})
+			go s.openMLSClient.AddMemberTrigger(context.WithoutCancel(ctx), req.GroupID, opUserID, []string{req.FromUserID})
 		}
 	case constant.GroupResponseRefuse:
 		s.notification.GroupApplicationRejectedNotification(ctx, req)
@@ -1152,11 +1152,12 @@ func (s *groupServer) JoinGroup(ctx context.Context, req *pbgroup.JoinGroupReq) 
 	// Notify the group owner's devices to perform the MLS Add-Commit + Welcome
 	// flow so the new member can be added to the encrypted group.
 	go func() {
-		owner, err := s.db.TakeGroupOwner(ctx, req.GroupID)
+		noCancelCtx := context.WithoutCancel(ctx)
+		owner, err := s.db.TakeGroupOwner(noCancelCtx, req.GroupID)
 		if err != nil {
 			return
 		}
-		s.openMLSClient.AddMemberTrigger(ctx, req.GroupID, owner.UserID, []string{req.InviterUserID})
+		s.openMLSClient.AddMemberTrigger(noCancelCtx, req.GroupID, owner.UserID, []string{req.InviterUserID})
 	}()
 	return &pbgroup.JoinGroupResp{}, nil
 }
@@ -1193,7 +1194,7 @@ func (s *groupServer) QuitGroup(ctx context.Context, req *pbgroup.QuitGroupReq) 
 	// before losing their MLS group state. The quitting user is guaranteed to be
 	// online (they just called QuitGroup), making this more reliable than
 	// triggering the group owner who may be offline.
-	go s.openMLSClient.RemoveMemberTrigger(ctx, req.GroupID, req.UserID, []string{req.UserID})
+	go s.openMLSClient.RemoveMemberTrigger(context.WithoutCancel(ctx), req.GroupID, req.UserID, []string{req.UserID})
 
 	return &pbgroup.QuitGroupResp{}, nil
 }
