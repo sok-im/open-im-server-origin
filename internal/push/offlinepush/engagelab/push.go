@@ -96,6 +96,6 @@ func (e *EngageLab) Push(ctx context.Context, userIDs []string, title, content s
 		log.ZError(ctx, "lintao engagelab push failed", err, "param", param)
 		return err
 	}
-	log.ZInfo(ctx, "lintao engagelab push success", "resp", resp)
+	log.ZInfo(ctx, "lintao engagelab push success", "userIDs", userIDs, "title", title, "content", content, "resp", resp)
 	return nil
 }

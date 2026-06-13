@@ -650,9 +650,13 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 	duration := int64(0)
 	if dbInv.GroupID == "" {
 		callStatus := callStatusAnswered
-		duration, callStatus = singleChatCallDuration(dbInv)
+		if req.CallDuration > 0 {
+			duration = req.CallDuration
+		} else {
+			duration, callStatus = singleChatCallDuration(dbInv)
+		}
 		s.sendCallRecordChatMsg(ctx, dbInv, callStatus, duration)
-		log.ZInfo(ctx, "lintao handleHungUp", "dbInv", dbInv, "duration", duration, "status", callStatus)
+		log.ZInfo(ctx, "lintao handleHungUp", "dbInv", dbInv, "duration", duration, "status", callStatus, "clientDuration", req.CallDuration)
 	} else {
 		if dbInv.InitiateTime > 0 {
 			if nowMs := time.Now().UnixMilli(); nowMs > dbInv.InitiateTime {
