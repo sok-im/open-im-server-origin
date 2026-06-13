@@ -1422,12 +1422,16 @@ func callRecordDescription(mediaType, status string, duration int64) string {
 	}
 }
 
-// sendCallRecordChatMsg sends a Custom (110) chat message to the si_/sg_ conversation
-// representing a completed call. Errors are non-fatal and only logged.
+// sendCallRecordChatMsg sends a Custom (110) chat message to the si_ conversation
+// representing a completed 1v1 call. Errors are non-fatal and only logged.
 //
-// For 1v1: SendID=inviterUserID, RecvID=inviteeUserID, SessionType=SingleChatType.
-// For group: SendID=inviterUserID, GroupID=groupID, SessionType=ReadGroupChatType.
+// Group calls use sendGroupCallStartedNotification / sendGroupCallEndedNotification
+// instead and do not write rtcCallRecord messages to the group timeline.
 func (s *rtcServer) sendCallRecordChatMsg(ctx context.Context, inv *model.SignalInvitation, status string, duration int64) {
+	if inv.GroupID != "" {
+		return
+	}
+
 	inner, err := json.Marshal(callRecordData{
 		CustomType:        "rtcCallRecord",
 		MediaType:         inv.MediaType,
@@ -1452,21 +1456,15 @@ func (s *rtcServer) sendCallRecordChatMsg(ctx context.Context, inv *model.Signal
 	}
 
 	now := time.Now().UnixMilli()
-	sessionType := int32(constant.SingleChatType)
 	recvID := ""
-	groupID := ""
-	if inv.GroupID != "" {
-		sessionType = int32(constant.ReadGroupChatType)
-		groupID = inv.GroupID
-	} else if len(inv.InviteeUserIDList) > 0 {
+	if len(inv.InviteeUserIDList) > 0 {
 		recvID = inv.InviteeUserIDList[0]
 	}
 
 	msgData := &sdkws.MsgData{
 		SendID:      inv.InviterUserID,
 		RecvID:      recvID,
-		GroupID:     groupID,
-		SessionType: sessionType,
+		SessionType: int32(constant.SingleChatType),
 		ContentType: int32(constant.Custom),
 		MsgFrom:     int32(constant.SysMsgType),
 		Content:     content,
@@ -1525,6 +1523,7 @@ func (s *rtcServer) handleTimeout(ctx context.Context, req *rtc.SignalTimeoutReq
 	// For group calls, notify non-invited members that the call timed out.
 	if dbInv.GroupID != "" {
 		go s.broadcastGroupCallStatusToNonInvited(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
+		go s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, 0)
 	}
 
 	s.sendCallRecordChatMsg(ctx, dbInv, callStatusNotConnected, 0)
