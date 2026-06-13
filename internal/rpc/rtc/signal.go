@@ -629,6 +629,13 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 		// remaining == 0: fall through to tear-down logic below.
 	}
 
+	// Snapshot LiveKit participant join times before the room is torn down.
+	var singleChatDuration int64
+	var singleChatAnswered bool
+	if dbInv.GroupID == "" {
+		singleChatDuration, singleChatAnswered = s.livekitSingleChatCallDuration(ctx, dbInv.RoomID, dbInv, req.UserID)
+	}
+
 	// Terminate the LiveKit room (1:1 always; group only when last participant left).
 	if _, err := s.roomClient.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: dbInv.RoomID}); err != nil {
 		log.ZWarn(ctx, "LiveKit DeleteRoom failed", err, "roomID", dbInv.RoomID)
@@ -643,20 +650,24 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 		go s.broadcastGroupCallStatusToNonInvited(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
 	}
 
-	duration := int64(0)
-	if dbInv.InitiateTime > 0 {
-		if nowMs := time.Now().UnixMilli(); nowMs > dbInv.InitiateTime {
-			duration = (nowMs - dbInv.InitiateTime) / 1000
+	if dbInv.GroupID == "" {
+		callStatus := callStatusAnswered
+		if !singleChatAnswered {
+			callStatus = callStatusNotConnected
 		}
+		s.sendCallRecordChatMsg(ctx, dbInv, callStatus, singleChatDuration)
+		log.ZInfo(ctx, "lintao handleHungUp", "dbInv", dbInv, "duration", singleChatDuration, "answered", singleChatAnswered)
 	}
-
-	s.sendCallRecordChatMsg(ctx, dbInv, callStatusAnswered, duration)
-
-	log.ZInfo(ctx, "lintao handleHungUp", "dbInv", dbInv, "duration", duration)
 
 	// Send a group-chat timeline notification to all members with duration, e.g.
 	// "Alice ended an audio/video call (10 minutes 30 seconds)".
 	if dbInv.GroupID != "" {
+		duration := int64(0)
+		if dbInv.InitiateTime > 0 {
+			if nowMs := time.Now().UnixMilli(); nowMs > dbInv.InitiateTime {
+				duration = (nowMs - dbInv.InitiateTime) / 1000
+			}
+		}
 		go s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, duration)
 	}
 
@@ -737,6 +748,92 @@ func (s *rtcServer) livekitRoomParticipantsMeta(ctx context.Context, roomID stri
 		out = append(out, &rtc.ParticipantMetaData{UserInfo: ui})
 	}
 	return out, true, nil
+}
+
+// participantJoinMs returns the LiveKit join timestamp in milliseconds.
+func participantJoinMs(p *livekit.ParticipantInfo) int64 {
+	if ms := p.GetJoinedAtMs(); ms > 0 {
+		return ms
+	}
+	if s := p.GetJoinedAt(); s > 0 {
+		return s * 1000
+	}
+	return 0
+}
+
+// livekitSingleChatCallDuration queries LiveKit (ListParticipants + GetParticipant)
+// before the room is deleted to compute 1:1 talk duration.
+//
+// Talk duration = hangUpTime - max(participant join times), i.e. the overlap period
+// after the second party connects. answered is true when the callee joined LiveKit,
+// or when the hanging-up user is the callee (already disconnected from LiveKit).
+func (s *rtcServer) livekitSingleChatCallDuration(ctx context.Context, roomID string, inv *model.SignalInvitation, hangUpUserID string) (duration int64, answered bool) {
+	joinMsByUser := make(map[string]int64)
+
+	lp, err := s.roomClient.ListParticipants(ctx, &livekit.ListParticipantsRequest{Room: roomID})
+	if err != nil {
+		log.ZWarn(ctx, "livekitSingleChatCallDuration: ListParticipants failed", err, "roomID", roomID)
+	} else {
+		for _, p := range lp.Participants {
+			if id := p.GetIdentity(); id != "" {
+				if ms := participantJoinMs(p); ms > 0 {
+					joinMsByUser[id] = ms
+				}
+			}
+		}
+	}
+
+	lookupIDs := make([]string, 0, 1+len(inv.InviteeUserIDList))
+	lookupIDs = append(lookupIDs, inv.InviterUserID)
+	lookupIDs = append(lookupIDs, inv.InviteeUserIDList...)
+	for _, uid := range lookupIDs {
+		if uid == "" || joinMsByUser[uid] > 0 {
+			continue
+		}
+		p, getErr := s.roomClient.GetParticipant(ctx, &livekit.RoomParticipantIdentity{Room: roomID, Identity: uid})
+		if getErr != nil {
+			continue
+		}
+		if ms := participantJoinMs(p); ms > 0 {
+			joinMsByUser[uid] = ms
+		}
+	}
+
+	var latestJoinMs int64
+	for _, inviteeID := range inv.InviteeUserIDList {
+		if ms := joinMsByUser[inviteeID]; ms > 0 {
+			answered = true
+			if ms > latestJoinMs {
+				latestJoinMs = ms
+			}
+		}
+	}
+	if !answered && len(joinMsByUser) >= 2 {
+		answered = true
+		for _, ms := range joinMsByUser {
+			if ms > latestJoinMs {
+				latestJoinMs = ms
+			}
+		}
+	}
+	// Callee may disconnect from LiveKit before HungUp reaches the server.
+	if !answered && datautil.Contain(hangUpUserID, inv.InviteeUserIDList...) && joinMsByUser[inv.InviterUserID] > 0 {
+		answered = true
+		for _, ms := range joinMsByUser {
+			if ms > latestJoinMs {
+				latestJoinMs = ms
+			}
+		}
+	}
+
+	if !answered || latestJoinMs <= 0 {
+		return 0, answered
+	}
+	nowMs := time.Now().UnixMilli()
+	if nowMs <= latestJoinMs {
+		return 0, answered
+	}
+	return (nowMs - latestJoinMs) / 1000, answered
 }
 
 // SignalGetTokenByRoomID returns a token for joining a room directly (HTTP API path).
