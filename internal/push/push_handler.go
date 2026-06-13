@@ -153,10 +153,10 @@ func (c *ConsumerHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim s
 
 // Push2User Suitable for two types of conversations, one is SingleChatType and the other is NotificationChatType.
 func (c *ConsumerHandler) Push2User(ctx context.Context, userIDs []string, msg *sdkws.MsgData) (err error) {
-	log.ZInfo(ctx, "Get msg from msg_transfer And push msg", "userIDs", userIDs, "msg", msg.String())
+	log.ZInfo(ctx, "lintao Get msg from msg_transfer And push msg", "userIDs", userIDs, "msg", msg.String())
 	defer func(duration time.Time) {
 		t := time.Since(duration)
-		log.ZInfo(ctx, "Get msg from msg_transfer And push msg end", "msg", msg.String(), "time cost", t)
+		log.ZInfo(ctx, "lintao Get msg from msg_transfer And push msg end", "msg", msg.String(), "time cost", t)
 	}(time.Now())
 	if err := c.webhookBeforeOnlinePush(ctx, &c.config.WebhooksConfig.BeforeOnlinePush, userIDs, msg); err != nil {
 		return err
@@ -173,7 +173,7 @@ func (c *ConsumerHandler) Push2User(ctx context.Context, userIDs []string, msg *
 	if !c.shouldPushOffline(ctx, msg) {
 		return nil
 	}
-	log.ZInfo(ctx, "pushOffline start")
+	log.ZInfo(ctx, "lintao pushOffline start", "userIDs", userIDs, "msg", msg.String())
 
 	for _, v := range wsResults {
 		//message sender do not need offline push
@@ -182,6 +182,7 @@ func (c *ConsumerHandler) Push2User(ctx context.Context, userIDs []string, msg *
 		}
 		//receiver online push success
 		if v.OnlinePush {
+			log.ZDebug(ctx, "lintao offline push skipped: receiver already received via online push", "userID", v.UserID, "clientMsgID", msg.ClientMsgID)
 			return nil
 		}
 	}
@@ -205,15 +206,18 @@ func (c *ConsumerHandler) Push2User(ctx context.Context, userIDs []string, msg *
 	return nil
 }
 
-func (c *ConsumerHandler) shouldPushOffline(_ context.Context, msg *sdkws.MsgData) bool {
+func (c *ConsumerHandler) shouldPushOffline(ctx context.Context, msg *sdkws.MsgData) bool {
 	isOfflinePush := datautil.GetSwitchFromOptions(msg.Options, constant.IsOfflinePush)
 	if !isOfflinePush {
+		log.ZDebug(ctx, "lintao offline push skipped: IsOfflinePush option not set", "clientMsgID", msg.ClientMsgID, "contentType", msg.ContentType)
 		return false
 	}
 	switch msg.ContentType {
 	case constant.RoomParticipantsConnectedNotification:
+		log.ZDebug(ctx, "lintao offline push skipped: RoomParticipantsConnectedNotification", "clientMsgID", msg.ClientMsgID)
 		return false
 	case constant.RoomParticipantsDisconnectedNotification:
+		log.ZDebug(ctx, "lintao offline push skipped: RoomParticipantsDisconnectedNotification", "clientMsgID", msg.ClientMsgID)
 		return false
 	}
 	return true
@@ -362,6 +366,7 @@ func (c *ConsumerHandler) offlinePushMsg(ctx context.Context, msg *sdkws.MsgData
 		log.ZError(ctx, "getOfflinePushInfos failed", err, "msg", msg)
 		return err
 	}
+	log.ZInfo(ctx, "lintao offlinePushMsg calling pusher", "userIDs", offlinePushUserIDs, "title", title, "clientMsgID", msg.ClientMsgID)
 	err = c.offlinePusher.Push(ctx, offlinePushUserIDs, title, content, opts)
 	if err != nil {
 		prommetrics.MsgOfflinePushFailedCounter.Inc()
