@@ -38,9 +38,13 @@ jpush:
 engagelab:
   appKey:
   masterSecret:
-  # Data center base URLs: sgp=https://pushapi-sgp.engagelab.com/v4/push
-  # usva=https://pushapi-usva.engagelab.com/v4/push, hk=https://pushapi-hk.engagelab.com/v4/push
-  pushURL: https://pushapi-sgp.engagelab.com/v4/push
+  # Data center base URL (no path suffix). Available options:
+  #   Singapore (default): https://pushapi-sgp.engagelab.com
+  #   Hong Kong:           https://pushapi-hk.engagelab.com
+  #   Virginia:            https://pushapi-usva.engagelab.com
+  #   Frankfurt:           https://pushapi-defra.engagelab.com
+  # Leave blank to use the Singapore data center.
+  pushURL:
   pushIntent:
 
 # iOS system push sound and badge count

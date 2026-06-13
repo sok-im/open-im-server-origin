@@ -3,6 +3,7 @@ package engagelab
 import (
 	"context"
 	"strconv"
+	"strings"
 	"time"
 
 	el "github.com/engagelab-mt/engagelab-apppush-go"
@@ -18,10 +19,20 @@ type EngageLab struct {
 	conf   *config.Push
 }
 
+// baseURL strips any trailing API path that may have been copied from old configs
+// (e.g. "https://pushapi-sgp.engagelab.com/v4/push" → "https://pushapi-sgp.engagelab.com").
+// The SDK appends /v4/push itself, so only the data-center root is needed.
+func baseURL(raw string) string {
+	if idx := strings.Index(raw, "/v4/"); idx != -1 {
+		return raw[:idx]
+	}
+	return strings.TrimRight(raw, "/")
+}
+
 func NewClient(pushConf *config.Push) *EngageLab {
 	opts := []el.Option{}
 	if pushConf.EngageLab.PushURL != "" {
-		opts = append(opts, el.WithBaseURL(pushConf.EngageLab.PushURL))
+		opts = append(opts, el.WithBaseURL(baseURL(pushConf.EngageLab.PushURL)))
 	}
 	return &EngageLab{
 		client: el.NewClient(pushConf.EngageLab.AppKey, pushConf.EngageLab.MasterSecret, opts...),
