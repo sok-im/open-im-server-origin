@@ -223,6 +223,16 @@ groupCallEnded:
     desc: group call ended
     ext: group call ended
 
+groupCallParticipantCountUpdated:
+  isSendMsg: true
+  reliabilityLevel: 2
+  unreadCount: false
+  offlinePush:
+    enable: false
+    title: ""
+    desc: ""
+    ext: ""
+
 groupBurnDurationSet:
   isSendMsg: true
   reliabilityLevel: 2

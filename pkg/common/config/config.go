@@ -167,8 +167,9 @@ type Notification struct {
 	GroupInfoSetAnnouncement  NotificationConfig `mapstructure:"groupInfoSetAnnouncement"`
 	GroupInfoSetName          NotificationConfig `mapstructure:"groupInfoSetName"`
 	GroupMessagePinned        NotificationConfig `mapstructure:"groupMessagePinned"`
-	GroupCallStarted          NotificationConfig `mapstructure:"groupCallStarted"`
-	GroupCallEnded            NotificationConfig `mapstructure:"groupCallEnded"`
+	GroupCallStarted                  NotificationConfig `mapstructure:"groupCallStarted"`
+	GroupCallEnded                    NotificationConfig `mapstructure:"groupCallEnded"`
+	GroupCallParticipantCountUpdated  NotificationConfig `mapstructure:"groupCallParticipantCountUpdated"`
 	GroupBurnDurationSet      NotificationConfig `mapstructure:"groupBurnDurationSet"`
 	GroupFaceURLSet           NotificationConfig `mapstructure:"groupFaceURLSet"`
 	GroupNeedVerificationSet  NotificationConfig `mapstructure:"groupNeedVerificationSet"`

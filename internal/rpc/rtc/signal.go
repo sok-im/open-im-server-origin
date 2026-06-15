@@ -422,6 +422,19 @@ func (s *rtcServer) handleAccept(ctx context.Context, req *rtc.SignalAcceptReq, 
 		log.ZWarn(ctx, "handleAccept: SetAcceptTime failed", err, "roomID", dbInv.RoomID)
 	}
 
+	// For group calls, notify all members that the participant count has increased.
+	if dbInv.GroupID != "" {
+		lp, listErr := s.roomClient.ListParticipants(ctx, &livekit.ListParticipantsRequest{Room: dbInv.RoomID})
+		count := int32(1)
+		if listErr == nil {
+			// The accepting user has not yet joined LiveKit, so add 1 to the current count.
+			count = int32(len(lp.Participants)) + 1
+		} else {
+			log.ZWarn(ctx, "handleAccept: ListParticipants failed (using count=1)", listErr, "roomID", dbInv.RoomID)
+		}
+		go s.sendGroupCallParticipantCountUpdatedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, count)
+	}
+
 	// 接受邀请后不删除 invitation：通话仍在进行，双方应被标记为忙线（BusyLineUserIDList）。
 	// invitation 的清理由以下路径负责：
 	//   - 主动挂断：handleHungUp → DeleteInvitation
@@ -628,6 +641,8 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 				}
 			}
 			log.ZInfo(ctx, "handleHungUp: group call continues", "roomID", dbInv.RoomID, "remaining", remaining)
+			// Notify all members that the participant count has decreased.
+			go s.sendGroupCallParticipantCountUpdatedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, int32(remaining))
 			return &rtc.SignalHungUpResp{}, nil
 		}
 		// remaining == 0: fall through to tear-down logic below.
@@ -1063,6 +1078,8 @@ func (s *rtcServer) groupCallNotificationConfig(contentType int32) config.Notifi
 		return s.config.NotificationConfig.GroupCallStarted
 	case constant.GroupCallEndedNotification:
 		return s.config.NotificationConfig.GroupCallEnded
+	case constant.GroupCallParticipantCountUpdatedNotification:
+		return s.config.NotificationConfig.GroupCallParticipantCountUpdated
 	default:
 		return config.NotificationConfig{}
 	}
@@ -1218,6 +1235,71 @@ func groupCallEndedDefaultTips(nickname, mediaType string, durationSecs int64) s
 		return base
 	}
 	return base + " (" + dur + ")"
+}
+
+// groupCallParticipantCountDefaultTips returns a display string for the current
+// number of participants in an ongoing group call, e.g. "3 people in the call".
+func groupCallParticipantCountDefaultTips(count int32) string {
+	if count == 1 {
+		return "1 person in the call"
+	}
+	return fmt.Sprintf("%d people in the call", count)
+}
+
+// sendGroupCallParticipantCountUpdatedNotification sends a
+// GroupCallParticipantCountUpdatedNotification (1527) to the group whenever the
+// in-call participant count changes (someone joined or left while the call is
+// still ongoing).  It is intentionally lightweight: isSendMsg=false so no chat
+// bubble is created, reliabilityLevel=1 so it is only delivered to online
+// clients without being persisted.
+// Errors are non-fatal and only logged.
+func (s *rtcServer) sendGroupCallParticipantCountUpdatedNotification(ctx context.Context, groupID, roomID, mediaType string, participantCount int32) {
+	if groupID == "" {
+		return
+	}
+
+	groupInfo, err := s.groupClient.GetGroupInfoCache(ctx, groupID)
+	if err != nil {
+		log.ZWarn(ctx, "sendGroupCallParticipantCountUpdatedNotification: GetGroupInfoCache failed", err, "groupID", groupID)
+		return
+	}
+
+	tips := &sdkws.GroupCallParticipantCountUpdatedTips{
+		Group:            groupInfo,
+		RoomID:           roomID,
+		ParticipantCount: participantCount,
+		MediaType:        mediaType,
+		DefaultTips:      groupCallParticipantCountDefaultTips(participantCount),
+	}
+
+	detail := jsonutil.StructToJsonString(tips)
+	elem := sdkws.NotificationElem{Detail: detail}
+	content, err := json.Marshal(&elem)
+	if err != nil {
+		log.ZWarn(ctx, "sendGroupCallParticipantCountUpdatedNotification: marshal NotificationElem failed", err)
+		return
+	}
+
+	notifyCfg := s.groupCallNotificationConfig(constant.GroupCallParticipantCountUpdatedNotification)
+	now := time.Now().UnixMilli()
+	msgData := &sdkws.MsgData{
+		SendID:          groupID,
+		RecvID:          groupID,
+		GroupID:         groupID,
+		SessionType:     int32(constant.ReadGroupChatType),
+		ContentType:     int32(constant.GroupCallParticipantCountUpdatedNotification),
+		MsgFrom:         int32(constant.SysMsgType),
+		Content:         content,
+		CreateTime:      now,
+		SendTime:        now,
+		ServerMsgID:     uuid.New().String(),
+		ClientMsgID:     uuid.New().String(),
+		Options:         s.groupCallTimelineMsgOptions(constant.GroupCallParticipantCountUpdatedNotification),
+		OfflinePushInfo: offlinePushInfoFromConfig(notifyCfg),
+	}
+	if _, err := s.msgClient.MsgClient.SendMsg(ctx, &pbmsg.SendMsgReq{MsgData: msgData}); err != nil {
+		log.ZWarn(ctx, "sendGroupCallParticipantCountUpdatedNotification: SendMsg failed", err, "groupID", groupID, "count", participantCount)
+	}
 }
 
 // sendGroupCallEndedNotification sends a GroupCallEndedNotification (1523) to the
