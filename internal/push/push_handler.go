@@ -183,7 +183,7 @@ func (c *ConsumerHandler) Push2User(ctx context.Context, userIDs []string, msg *
 		//receiver online push success
 		if v.OnlinePush {
 			log.ZDebug(ctx, "lintao offline push skipped: receiver already received via online push", "userID", v.UserID, "clientMsgID", msg.ClientMsgID)
-			continue
+			return nil
 		}
 	}
 	needOfflinePushUserID := []string{msg.RecvID}
