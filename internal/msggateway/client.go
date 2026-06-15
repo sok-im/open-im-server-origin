@@ -308,7 +308,7 @@ func (c *Client) PushUserOnlineStatus(data []byte) error {
 
 func (c *Client) writeBinaryMsg(resp Resp) error {
 	if c.closed.Load() {
-		return nil
+		return ErrConnClosed
 	}
 
 	encodedBuf, err := c.Encoder.Encode(resp)
