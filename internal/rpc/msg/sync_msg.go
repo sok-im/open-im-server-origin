@@ -24,6 +24,7 @@ import (
 	"github.com/openimsdk/protocol/constant"
 	"github.com/openimsdk/protocol/msg"
 	"github.com/openimsdk/protocol/sdkws"
+	"github.com/openimsdk/tools/errs"
 	"github.com/openimsdk/tools/log"
 	"github.com/openimsdk/tools/mcontext"
 	"github.com/openimsdk/tools/utils/datautil"
@@ -36,13 +37,25 @@ func (m *msgServer) PullMessageBySeqs(ctx context.Context, req *sdkws.PullMessag
 	resp.NotificationMsgs = make(map[string]*sdkws.PullMsgs)
 	for _, seq := range req.SeqRanges {
 		if !msgprocessor.IsNotification(seq.ConversationID) {
+			// userMaxSeq caps message retrieval for users who left a group.
+			// Fall back to 0 (no cap) when the conversation is not yet in the
+			// local cache — this happens when the conversation was just created
+			// (e.g. B sends A the very first message while A was offline).
+			// Skipping the entire pull on a cache miss would permanently lose
+			// those messages because the SDK already advances its cursor to the
+			// range end regardless of the server response.
+			var userMaxSeq int64
 			conversation, err := m.ConversationLocalCache.GetConversation(ctx, req.UserID, seq.ConversationID)
 			if err != nil {
-				log.ZError(ctx, "GetConversation error", err, "conversationID", seq.ConversationID)
-				continue
+				if !errs.ErrRecordNotFound.Is(err) {
+					log.ZWarn(ctx, "GetConversation error, falling back to no userMaxSeq cap", err, "conversationID", seq.ConversationID)
+				}
+				// userMaxSeq stays 0 → GetMsgBySeqsRange applies no user-level cap
+			} else {
+				userMaxSeq = conversation.MaxSeq
 			}
 			minSeq, maxSeq, msgs, err := m.MsgDatabase.GetMsgBySeqsRange(ctx, req.UserID, seq.ConversationID,
-				seq.Begin, seq.End, seq.Num, conversation.MaxSeq)
+				seq.Begin, seq.End, seq.Num, userMaxSeq, req.Order)
 			if err != nil {
 				log.ZWarn(ctx, "GetMsgBySeqsRange error", err, "conversationID", seq.ConversationID, "seq", seq)
 				continue
@@ -123,6 +136,12 @@ func (m *msgServer) GetMaxSeq(ctx context.Context, req *sdkws.GetMaxSeqReq) (*sd
 	if err := authverify.CheckAccessV3(ctx, req.UserID, m.config.Share.IMAdminUserID); err != nil {
 		return nil, err
 	}
+	// Evict the in-process memory cache before querying so that conversations
+	// created while the user was offline (and whose cache-invalidation event
+	// may not yet have been delivered to this process) are always included in
+	// the returned maxSeqs.  GetMaxSeq is called once per reconnect, so the
+	// extra Redis round-trip is acceptable.
+	m.ConversationLocalCache.InvalidateConversationIDs(ctx, req.UserID)
 	conversationIDs, err := m.ConversationLocalCache.GetConversationIDs(ctx, req.UserID)
 	if err != nil {
 		return nil, err

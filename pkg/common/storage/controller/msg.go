@@ -54,7 +54,11 @@ type CommonMsgDatabase interface {
 	// MarkSingleChatMsgsAsRead marks messages as read for a single chat by sequence numbers.
 	MarkSingleChatMsgsAsRead(ctx context.Context, userID string, conversationID string, seqs []int64) error
 	// GetMsgBySeqsRange retrieves messages from MongoDB by a range of sequence numbers.
-	GetMsgBySeqsRange(ctx context.Context, userID string, conversationID string, begin, end, num, userMaxSeq int64) (minSeq int64, maxSeq int64, seqMsg []*sdkws.MsgData, err error)
+	// pullOrder controls which end of the range to start from: PullOrderAsc returns
+	// the oldest num messages (begin … begin+num-1), PullOrderDesc returns the newest
+	// (end-num+1 … end).  Use PullOrderAsc for reconnect-sync pulls so the cursor
+	// advances progressively from the oldest unread message forward.
+	GetMsgBySeqsRange(ctx context.Context, userID string, conversationID string, begin, end, num, userMaxSeq int64, pullOrder sdkws.PullOrder) (minSeq int64, maxSeq int64, seqMsg []*sdkws.MsgData, err error)
 	// GetMsgBySeqs retrieves messages for large groups from MongoDB by sequence numbers.
 	GetMsgBySeqs(ctx context.Context, userID string, conversationID string, seqs []int64) (minSeq int64, maxSeq int64, seqMsg []*sdkws.MsgData, err error)
 
@@ -386,7 +390,7 @@ func (db *commonMsgDatabase) findMsgInfoBySeq(ctx context.Context, userID, docID
 // For new users joining the group, if they don't need to receive old messages,
 // "userMinSeq" can be set as the same value as the conversation's "maxSeq" at the moment they join the group.
 // This ensures that their message retrieval starts from the point they joined.
-func (db *commonMsgDatabase) GetMsgBySeqsRange(ctx context.Context, userID string, conversationID string, begin, end, num, userMaxSeq int64) (int64, int64, []*sdkws.MsgData, error) {
+func (db *commonMsgDatabase) GetMsgBySeqsRange(ctx context.Context, userID string, conversationID string, begin, end, num, userMaxSeq int64, pullOrder sdkws.PullOrder) (int64, int64, []*sdkws.MsgData, error) {
 	userMinSeq, err := db.seqUser.GetUserMinSeq(ctx, conversationID, userID)
 	if err != nil && !errors.Is(err, redis.Nil) {
 		return 0, 0, nil, err
@@ -427,10 +431,20 @@ func (db *commonMsgDatabase) GetMsgBySeqsRange(ctx context.Context, userID strin
 	}
 	var seqs []int64
 	if end-begin+1 <= num {
+		// Entire range fits within the requested count — return all of it.
 		for i := begin; i <= end; i++ {
 			seqs = append(seqs, i)
 		}
+	} else if pullOrder == sdkws.PullOrder_PullOrderAsc {
+		// Ascending (oldest-first): return the earliest num messages so the
+		// caller can advance its cursor progressively and pull the remainder
+		// on the next sync cycle.
+		for i := begin; i < begin+num; i++ {
+			seqs = append(seqs, i)
+		}
 	} else {
+		// Descending (newest-first, e.g. history scroll-up): return the
+		// latest num messages from the range end.
 		for i := end - num + 1; i <= end; i++ {
 			seqs = append(seqs, i)
 		}

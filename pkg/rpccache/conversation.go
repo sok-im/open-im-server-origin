@@ -64,6 +64,15 @@ func (c *ConversationLocalCache) GetConversationIDs(ctx context.Context, ownerUs
 	return resp.ConversationIDs, nil
 }
 
+// InvalidateConversationIDs removes the in-process memory cache entry for the
+// user's conversation ID list.  The next call to GetConversationIDs will fall
+// through to the Redis-backed RPC, which always reflects the latest state.
+// Call this before GetMaxSeq at reconnect time to ensure that conversations
+// created while the user was offline are visible immediately.
+func (c *ConversationLocalCache) InvalidateConversationIDs(ctx context.Context, ownerUserID string) {
+	c.local.DelLocal(ctx, cachekey.GetConversationIDsKey(ownerUserID))
+}
+
 func (c *ConversationLocalCache) getConversationIDs(ctx context.Context, ownerUserID string) (val *pbconversation.GetConversationIDsResp, err error) {
 	log.ZDebug(ctx, "ConversationLocalCache getConversationIDs req", "ownerUserID", ownerUserID)
 	defer func() {
