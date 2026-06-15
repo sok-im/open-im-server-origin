@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/openimsdk/open-im-server/v3/pkg/authverify"
@@ -102,14 +103,14 @@ func (d *DeleteUserApi) DeleteUser(c *gin.Context) {
 	// 3. Delete friendships on the deleted user's side (owner_user_id = req.UserID).
 	friendIDsResp, err := d.friendClient.GetFriendIDs(c, &relation.GetFriendIDsReq{UserID: req.UserID})
 	if err != nil {
-		log.ZWarn(c, "DeleteUser: GetFriendIDs failed", err, "userID", req.UserID)
+		log.ZWarn(c, "lintao DeleteUser: GetFriendIDs failed", err, "userID", req.UserID)
 	} else {
 		for _, friendID := range friendIDsResp.FriendIDs {
 			if _, err := d.friendClient.DeleteFriend(c, &relation.DeleteFriendReq{
 				OwnerUserID:  req.UserID,
 				FriendUserID: friendID,
 			}); err != nil {
-				log.ZWarn(c, "DeleteUser: DeleteFriend (owner→friend) failed", err,
+				log.ZWarn(c, "lintao DeleteUser: DeleteFriend (owner→friend) failed", err,
 					"ownerUserID", req.UserID, "friendUserID", friendID)
 			}
 		}
@@ -119,35 +120,51 @@ func (d *DeleteUserApi) DeleteUser(c *gin.Context) {
 	d.deleteFriendsReferencingUser(c, req.UserID)
 
 	// 4. Leave all joined groups: dismiss groups owned by the user, quit the rest.
+	// Use admin identity for group RPCs (same as deleteFriendsReferencingUser) so DismissGroup /
+	// GetGroupMembersInfo succeed reliably during account deletion.
 	// Always request page 1: after dismiss/quit the joined list shrinks; incrementing pageNumber
 	// would skip remaining groups (e.g. 150 groups → page 2 is empty after processing page 1).
+	adminCtx := d.adminCtx(c)
 	const pageSize = int32(100)
 	for {
-		groupListResp, err := d.groupClient.GetJoinedGroupList(c, &group.GetJoinedGroupListReq{
+		groupListResp, err := d.groupClient.GetJoinedGroupList(adminCtx, &group.GetJoinedGroupListReq{
 			FromUserID: req.UserID,
 			Pagination: &sdkws.RequestPagination{PageNumber: 1, ShowNumber: pageSize},
 		})
 		if err != nil {
-			log.ZWarn(c, "DeleteUser: GetJoinedGroupList failed", err, "userID", req.UserID)
+			log.ZWarn(c, "lintao DeleteUser: GetJoinedGroupList failed", err, "userID", req.UserID)
 			break
 		}
 		if len(groupListResp.Groups) == 0 {
 			break
 		}
 		for _, g := range groupListResp.Groups {
-			if d.isGroupOwnerForDelete(c, g.GroupID, req.UserID, g.OwnerUserID) {
-				if _, err := d.groupClient.DismissGroup(c, &group.DismissGroupReq{
+			if d.isGroupOwnerForDelete(adminCtx, g.GroupID, req.UserID, g.OwnerUserID) {
+				log.ZDebug(adminCtx, "lintao DeleteUser: DismissGroup", "groupID", g.GroupID, "userID", req.UserID, "ownerUserID", g.OwnerUserID)
+				if _, err := d.groupClient.DismissGroup(adminCtx, &group.DismissGroupReq{
 					GroupID:      g.GroupID,
 					DeleteMember: true,
 				}); err != nil {
-					log.ZWarn(c, "DeleteUser: DismissGroup failed", err, "userID", req.UserID, "groupID", g.GroupID)
+					log.ZWarn(c, "lintao DeleteUser: DismissGroup failed", err, "userID", req.UserID, "groupID", g.GroupID)
 				}
 				continue
 			}
-			if _, err := d.groupClient.QuitGroup(c, &group.QuitGroupReq{
+			log.ZDebug(adminCtx, "lintao DeleteUser: QuitGroup", "groupID", g.GroupID, "userID", req.UserID, "ownerUserID", g.OwnerUserID)
+			if _, err := d.groupClient.QuitGroup(adminCtx, &group.QuitGroupReq{
 				GroupID: g.GroupID,
 				UserID:  req.UserID,
 			}); err != nil {
+				// Owner detection may fail when OwnerUserID is stale; QuitGroup rejects owners.
+				if errs.ErrNoPermission.Is(err) && strings.Contains(err.Error(), "group owner can't quit") {
+					if _, dismissErr := d.groupClient.DismissGroup(adminCtx, &group.DismissGroupReq{
+						GroupID:      g.GroupID,
+						DeleteMember: true,
+					}); dismissErr != nil {
+						log.ZWarn(c, "lintao DeleteUser: DismissGroup fallback failed", dismissErr,
+							"userID", req.UserID, "groupID", g.GroupID)
+					}
+					continue
+				}
 				log.ZWarn(c, "DeleteUser: QuitGroup failed", err, "userID", req.UserID, "groupID", g.GroupID)
 			}
 		}
@@ -208,12 +225,11 @@ func (d *DeleteUserApi) deleteFriendsReferencingUser(ctx context.Context, delete
 		return
 	}
 
-	adminCtx := mcontext.SetOpUserID(ctx, d.imAdminUserIDs[0])
 	for _, ownerUserID := range ownerUserIDs {
 		if ownerUserID == deletedUserID {
 			continue
 		}
-		if _, err := d.friendClient.DeleteFriend(adminCtx, &relation.DeleteFriendReq{
+		if _, err := d.friendClient.DeleteFriend(d.adminCtx(ctx), &relation.DeleteFriendReq{
 			OwnerUserID:  ownerUserID,
 			FriendUserID: deletedUserID,
 		}); err != nil {
@@ -223,26 +239,27 @@ func (d *DeleteUserApi) deleteFriendsReferencingUser(ctx context.Context, delete
 	}
 }
 
+func (d *DeleteUserApi) adminCtx(ctx context.Context) context.Context {
+	if len(d.imAdminUserIDs) == 0 {
+		return ctx
+	}
+	return mcontext.SetOpUserID(ctx, d.imAdminUserIDs[0])
+}
+
 // isGroupOwnerForDelete 判断用户是否为群主。优先用 GroupInfo.OwnerUserID；为空或不一致时回查成员角色，
 // 避免 OwnerUserID 未填充时误走 QuitGroup（群主不能退群）导致群未解散。
-func (d *DeleteUserApi) isGroupOwnerForDelete(c *gin.Context, groupID, userID, ownerUserID string) bool {
-
-	log.ZInfo(c, "DeleteUser: isGroupOwnerForDelete", "groupID", groupID, "userID", userID, "ownerUserID", ownerUserID)
-
+func (d *DeleteUserApi) isGroupOwnerForDelete(ctx context.Context, groupID, userID, ownerUserID string) bool {
 	if ownerUserID == userID {
 		return true
 	}
-	resp, err := d.groupClient.GetGroupMembersInfo(c, &group.GetGroupMembersInfoReq{
+	resp, err := d.groupClient.GetGroupMembersInfo(ctx, &group.GetGroupMembersInfoReq{
 		GroupID: groupID,
 		UserIDs: []string{userID},
 	})
-
 	if err != nil {
-		log.ZWarn(c, "DeleteUser: GetGroupMembersInfo failed", err, "userID", userID, "groupID", groupID)
+		log.ZWarn(ctx, "DeleteUser: GetGroupMembersInfo failed", err, "userID", userID, "groupID", groupID)
 		return false
 	}
-
-	log.ZInfo(c, "DeleteUser: GetGroupMembersInfo", "resp", resp)
 	if len(resp.Members) == 0 {
 		return false
 	}
