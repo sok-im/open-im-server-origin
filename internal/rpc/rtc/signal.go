@@ -522,6 +522,8 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 		go s.broadcastGroupCallStatusToNonInvited(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
 
 		go s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, 0)
+		log.ZInfo(ctx, "lintao group call ended", "dbInv", dbInv)
+
 	} else {
 		if err := s.db.DeleteInvitation(ctx, dbInv.RoomID); err != nil {
 			log.ZWarn(ctx, "DeleteInvitation failed", err, "roomID", dbInv.RoomID)
@@ -571,6 +573,7 @@ func (s *rtcServer) handleCancel(ctx context.Context, req *rtc.SignalCancelReq, 
 	if dbInv.GroupID != "" {
 		go s.broadcastGroupCallStatusToNonInvited(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
 		go s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, 0)
+		log.ZInfo(ctx, "lintao group call ended", "dbInv", dbInv)
 	}
 
 	s.sendCallRecordChatMsg(ctx, dbInv, callStatusCancelled, 0)
@@ -679,6 +682,8 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 			}
 		}
 		go s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, duration)
+		log.ZInfo(ctx, "lintao group call ended", "dbInv", dbInv)
+
 	}
 
 	return &rtc.SignalHungUpResp{}, nil
@@ -1625,6 +1630,7 @@ func (s *rtcServer) handleTimeout(ctx context.Context, req *rtc.SignalTimeoutReq
 	if dbInv.GroupID != "" {
 		go s.broadcastGroupCallStatusToNonInvited(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
 		go s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, 0)
+		log.ZInfo(ctx, "lintao group call ended", "dbInv", dbInv)
 	}
 
 	s.sendCallRecordChatMsg(ctx, dbInv, callStatusNotConnected, 0)
