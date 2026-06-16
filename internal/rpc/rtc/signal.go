@@ -521,8 +521,8 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 
 		go s.broadcastGroupCallStatusToNonInvited(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
 
-		go s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, 0)
-		log.ZInfo(ctx, "lintao group call ended", "dbInv", dbInv)
+		//go s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, 0)
+		//log.ZInfo(ctx, "lintao group call ended", "dbInv", dbInv)
 
 	} else {
 		if err := s.db.DeleteInvitation(ctx, dbInv.RoomID); err != nil {
@@ -572,8 +572,8 @@ func (s *rtcServer) handleCancel(ctx context.Context, req *rtc.SignalCancelReq, 
 	// For group calls, notify non-invited members that the call was cancelled.
 	if dbInv.GroupID != "" {
 		go s.broadcastGroupCallStatusToNonInvited(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
-		go s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, 0)
-		log.ZInfo(ctx, "lintao group call ended", "dbInv", dbInv)
+		//go s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, 0)
+		//log.ZInfo(ctx, "lintao group call ended", "dbInv", dbInv)
 	}
 
 	s.sendCallRecordChatMsg(ctx, dbInv, callStatusCancelled, 0)
@@ -681,8 +681,8 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 				duration = (nowMs - dbInv.InitiateTime) / 1000
 			}
 		}
-		go s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, duration)
-		log.ZInfo(ctx, "lintao group call ended", "dbInv", dbInv)
+		//go s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, duration)
+		//log.ZInfo(ctx, "lintao group call ended", "dbInv", dbInv)
 
 	}
 
@@ -878,6 +878,66 @@ func (s *rtcServer) SignalSendCustomSignal(ctx context.Context, req *rtc.SignalS
 		}
 	}
 	return &rtc.SignalSendCustomSignalResp{}, nil
+}
+
+// SignalNotifyGroupCallEnded sends GroupCallEndedNotification (1523) to all group members.
+// Call this when a group call ends (e.g. last participant left) to trigger OnGroupCallEnded on clients.
+func (s *rtcServer) SignalNotifyGroupCallEnded(ctx context.Context, req *rtc.SignalNotifyGroupCallEndedReq) (*rtc.SignalNotifyGroupCallEndedResp, error) {
+	if req.GroupID == "" {
+		return nil, errs.ErrArgs.WrapMsg("groupID is required")
+	}
+	opUserID := mcontext.GetOpUserID(ctx)
+	if opUserID == "" {
+		return nil, errs.ErrNoPermission.WrapMsg("missing opUserID")
+	}
+	if _, err := s.groupClient.GetGroupMemberCache(ctx, req.GroupID, opUserID); err != nil {
+		return nil, err
+	}
+
+	var inv *model.SignalInvitation
+	var err error
+	if req.RoomID != "" {
+		inv, err = s.db.GetInvitationByRoomID(ctx, req.RoomID)
+		if err != nil {
+			return nil, errs.WrapMsg(err, "invitation not found", "roomID", req.RoomID)
+		}
+		if inv.GroupID != req.GroupID {
+			return nil, errs.ErrArgs.WrapMsg("groupID does not match invitation")
+		}
+	} else {
+		inv, err = s.db.GetInvitationByGroupID(ctx, req.GroupID)
+		if err != nil && !errs.ErrRecordNotFound.Is(err) {
+			return nil, err
+		}
+		if errs.ErrRecordNotFound.Is(err) {
+			inv = nil
+		}
+	}
+
+	if inv != nil {
+		if opUserID != inv.InviterUserID && !datautil.Contain(opUserID, inv.InviteeUserIDList...) {
+			return nil, errs.ErrNoPermission.WrapMsg("user is not a participant of this call")
+		}
+	}
+
+	inviterUserID := req.InviterUserID
+	if inviterUserID == "" && inv != nil {
+		inviterUserID = inv.InviterUserID
+	}
+	if inviterUserID == "" {
+		inviterUserID = opUserID
+	}
+
+	mediaType := req.MediaType
+	if mediaType == "" && inv != nil {
+		mediaType = inv.MediaType
+	}
+	if mediaType == "" {
+		return nil, errs.ErrArgs.WrapMsg("mediaType is required")
+	}
+
+	s.sendGroupCallEndedNotification(ctx, req.GroupID, inviterUserID, mediaType, req.DurationSecs)
+	return &rtc.SignalNotifyGroupCallEndedResp{}, nil
 }
 
 // GetSignalInvitationRecords returns paginated call history.
@@ -1626,8 +1686,8 @@ func (s *rtcServer) handleTimeout(ctx context.Context, req *rtc.SignalTimeoutReq
 	// For group calls, notify non-invited members that the call timed out.
 	if dbInv.GroupID != "" {
 		go s.broadcastGroupCallStatusToNonInvited(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
-		go s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, 0)
-		log.ZInfo(ctx, "lintao group call ended", "dbInv", dbInv)
+		//go s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, 0)
+		//log.ZInfo(ctx, "lintao group call ended", "dbInv", dbInv)
 	}
 
 	s.sendCallRecordChatMsg(ctx, dbInv, callStatusNotConnected, 0)

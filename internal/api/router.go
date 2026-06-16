@@ -434,6 +434,7 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 		rtcGroup.POST("/get_signal_invitation_info", rc.GetSignalInvitationInfo)
 		rtcGroup.POST("/get_signal_invitation_info_start_app", rc.GetSignalInvitationInfoStartApp)
 		rtcGroup.POST("/signal_send_custom_signal", rc.SignalSendCustomSignal)
+		rtcGroup.POST("/signal_notify_group_call_ended", rc.SignalNotifyGroupCallEnded)
 		rtcGroup.POST("/get_signal_invitation_records", rc.GetSignalInvitationRecords)
 		rtcGroup.POST("/delete_signal_records", rc.DeleteSignalRecords)
 	}

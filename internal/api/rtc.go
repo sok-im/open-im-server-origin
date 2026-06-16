@@ -56,6 +56,10 @@ func (o *RtcApi) SignalSendCustomSignal(c *gin.Context) {
 	a2r.Call(c, rtc.RtcServiceClient.SignalSendCustomSignal, o.Client)
 }
 
+func (o *RtcApi) SignalNotifyGroupCallEnded(c *gin.Context) {
+	a2r.Call(c, rtc.RtcServiceClient.SignalNotifyGroupCallEnded, o.Client)
+}
+
 func (o *RtcApi) GetSignalInvitationRecords(c *gin.Context) {
 	a2r.Call(c, rtc.RtcServiceClient.GetSignalInvitationRecords, o.Client)
 }
