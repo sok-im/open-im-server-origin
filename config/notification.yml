@@ -204,8 +204,8 @@ groupMessagePinned:
     ext: group message pinned
 
 groupCallStarted:
-  isSendMsg: true
-  reliabilityLevel: 2
+  isSendMsg: false
+  reliabilityLevel: 1
   unreadCount: false
   offlinePush:
     enable: false
@@ -214,8 +214,8 @@ groupCallStarted:
     ext: group call started
 
 groupCallEnded:
-  isSendMsg: true
-  reliabilityLevel: 2
+  isSendMsg: false
+  reliabilityLevel: 1
   unreadCount: false
   offlinePush:
     enable: false
@@ -224,8 +224,8 @@ groupCallEnded:
     ext: group call ended
 
 groupCallParticipantCountUpdated:
-  isSendMsg: true
-  reliabilityLevel: 2
+  isSendMsg: false
+  reliabilityLevel: 1
   unreadCount: false
   offlinePush:
     enable: false

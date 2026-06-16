@@ -1076,7 +1076,7 @@ func groupCallStartedDefaultTips(nickname, mediaType string) string {
 	}
 }
 
-// groupCallNotificationConfig returns notification.yml settings for group call timeline events.
+// groupCallNotificationConfig returns notification.yml settings for group call events.
 func (s *rtcServer) groupCallNotificationConfig(contentType int32) config.NotificationConfig {
 	switch contentType {
 	case constant.GroupCallStartedNotification:
@@ -1090,13 +1090,11 @@ func (s *rtcServer) groupCallNotificationConfig(contentType int32) config.Notifi
 	}
 }
 
-// groupCallTimelineMsgOptions builds MsgData.Options from notification.yml and routes
-// the message into the group chat timeline (sg_), not the n_ notification session.
-func (s *rtcServer) groupCallTimelineMsgOptions(contentType int32) map[string]bool {
+// groupCallNotificationMsgOptions builds MsgData.Options from notification.yml and
+// routes the message into the group notification session (n_<groupID>), not sg_.
+func (s *rtcServer) groupCallNotificationMsgOptions(contentType int32) map[string]bool {
 	cfg := s.groupCallNotificationConfig(contentType)
-	opts := config.GetOptionsByNotification(cfg, nil)
-	datautil.SetSwitchFromOptions(opts, constant.IsNotNotification, true)
-	return opts
+	return config.GetOptionsByNotification(cfg, nil)
 }
 
 func offlinePushInfoFromConfig(cfg config.NotificationConfig) *sdkws.OfflinePushInfo {
@@ -1107,8 +1105,8 @@ func offlinePushInfoFromConfig(cfg config.NotificationConfig) *sdkws.OfflinePush
 	}
 }
 
-// sendGroupCallStartedNotification sends a GroupCallStartedNotification (1522) to the
-// group chat timeline so all members see a system message, e.g. "Alice started a video call".
+// sendGroupCallStartedNotification sends a GroupCallStartedNotification (1522) on the
+// group notification channel (n_) so online clients receive OnGroupCallStarted.
 // Errors are non-fatal and only logged.
 func (s *rtcServer) sendGroupCallStartedNotification(ctx context.Context, groupID, inviterUserID, mediaType string) {
 	if groupID == "" {
@@ -1164,7 +1162,7 @@ func (s *rtcServer) sendGroupCallStartedNotification(ctx context.Context, groupI
 		SendTime:        now,
 		ServerMsgID:     uuid.New().String(),
 		ClientMsgID:     uuid.New().String(),
-		Options:         s.groupCallTimelineMsgOptions(constant.GroupCallStartedNotification),
+		Options:         s.groupCallNotificationMsgOptions(constant.GroupCallStartedNotification),
 		OfflinePushInfo: offlinePushInfoFromConfig(notifyCfg),
 	}
 	if _, err := s.msgClient.MsgClient.SendMsg(ctx, &pbmsg.SendMsgReq{MsgData: msgData}); err != nil {
@@ -1299,7 +1297,7 @@ func (s *rtcServer) sendGroupCallParticipantCountUpdatedNotification(ctx context
 		SendTime:        now,
 		ServerMsgID:     uuid.New().String(),
 		ClientMsgID:     uuid.New().String(),
-		Options:         s.groupCallTimelineMsgOptions(constant.GroupCallParticipantCountUpdatedNotification),
+		Options:         s.groupCallNotificationMsgOptions(constant.GroupCallParticipantCountUpdatedNotification),
 		OfflinePushInfo: offlinePushInfoFromConfig(notifyCfg),
 	}
 	if _, err := s.msgClient.MsgClient.SendMsg(ctx, &pbmsg.SendMsgReq{MsgData: msgData}); err != nil {
@@ -1307,9 +1305,8 @@ func (s *rtcServer) sendGroupCallParticipantCountUpdatedNotification(ctx context
 	}
 }
 
-// sendGroupCallEndedNotification sends a GroupCallEndedNotification (1523) to the
-// group chat timeline so all members see a system message, e.g.
-// "Alice ended an audio/video call (10 minutes 30 seconds)".
+// sendGroupCallEndedNotification sends a GroupCallEndedNotification (1523) on the
+// group notification channel (n_) so online clients receive OnGroupCallEnded.
 // Errors are non-fatal and only logged.
 func (s *rtcServer) sendGroupCallEndedNotification(ctx context.Context, groupID, inviterUserID, mediaType string, durationSecs int64) {
 	if groupID == "" {
@@ -1366,7 +1363,7 @@ func (s *rtcServer) sendGroupCallEndedNotification(ctx context.Context, groupID,
 		SendTime:        now,
 		ServerMsgID:     uuid.New().String(),
 		ClientMsgID:     uuid.New().String(),
-		Options:         s.groupCallTimelineMsgOptions(constant.GroupCallEndedNotification),
+		Options:         s.groupCallNotificationMsgOptions(constant.GroupCallEndedNotification),
 		OfflinePushInfo: offlinePushInfoFromConfig(notifyCfg),
 	}
 	if _, err := s.msgClient.MsgClient.SendMsg(ctx, &pbmsg.SendMsgReq{MsgData: msgData}); err != nil {
