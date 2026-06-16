@@ -41,7 +41,7 @@ func NewClient(pushConf *config.Push) *EngageLab {
 }
 
 func (e *EngageLab) Push(ctx context.Context, userIDs []string, title, content string, opts *options.Opts) error {
-	log.ZInfo(ctx, "lintao engagelab push start", "userIDs", userIDs, "title", title)
+	log.ZInfo(ctx, "engagelab push start", "userIDs", userIDs, "title", title)
 	extras := map[string]interface{}{"ex": opts.Ex}
 	if opts.Signal.ClientMsgID != "" {
 		extras["ClientMsgID"] = opts.Signal.ClientMsgID
@@ -93,9 +93,9 @@ func (e *EngageLab) Push(ctx context.Context, userIDs []string, title, content s
 
 	resp, err := e.client.Push.Send(ctx, param)
 	if err != nil {
-		log.ZError(ctx, "lintao engagelab push failed", err, "param", param)
+		log.ZError(ctx, "engagelab push failed", err, "param", param)
 		return err
 	}
-	log.ZInfo(ctx, "lintao engagelab push success", "userIDs", userIDs, "title", title, "content", content, "resp", resp)
+	log.ZInfo(ctx, "engagelab push success", "userIDs", userIDs, "title", title, "content", content, "resp", resp)
 	return nil
 }

@@ -103,14 +103,14 @@ func (d *DeleteUserApi) DeleteUser(c *gin.Context) {
 	// 3. Delete friendships on the deleted user's side (owner_user_id = req.UserID).
 	friendIDsResp, err := d.friendClient.GetFriendIDs(c, &relation.GetFriendIDsReq{UserID: req.UserID})
 	if err != nil {
-		log.ZWarn(c, "lintao DeleteUser: GetFriendIDs failed", err, "userID", req.UserID)
+		log.ZWarn(c, "DeleteUser: GetFriendIDs failed", err, "userID", req.UserID)
 	} else {
 		for _, friendID := range friendIDsResp.FriendIDs {
 			if _, err := d.friendClient.DeleteFriend(c, &relation.DeleteFriendReq{
 				OwnerUserID:  req.UserID,
 				FriendUserID: friendID,
 			}); err != nil {
-				log.ZWarn(c, "lintao DeleteUser: DeleteFriend (owner→friend) failed", err,
+				log.ZWarn(c, "DeleteUser: DeleteFriend (owner→friend) failed", err,
 					"ownerUserID", req.UserID, "friendUserID", friendID)
 			}
 		}
@@ -132,7 +132,7 @@ func (d *DeleteUserApi) DeleteUser(c *gin.Context) {
 			Pagination: &sdkws.RequestPagination{PageNumber: 1, ShowNumber: pageSize},
 		})
 		if err != nil {
-			log.ZWarn(c, "lintao DeleteUser: GetJoinedGroupList failed", err, "userID", req.UserID)
+			log.ZWarn(c, "DeleteUser: GetJoinedGroupList failed", err, "userID", req.UserID)
 			break
 		}
 		if len(groupListResp.Groups) == 0 {
@@ -140,16 +140,16 @@ func (d *DeleteUserApi) DeleteUser(c *gin.Context) {
 		}
 		for _, g := range groupListResp.Groups {
 			if d.isGroupOwnerForDelete(adminCtx, g.GroupID, req.UserID, g.OwnerUserID) {
-				log.ZDebug(adminCtx, "lintao DeleteUser: DismissGroup", "groupID", g.GroupID, "userID", req.UserID, "ownerUserID", g.OwnerUserID)
+				log.ZDebug(adminCtx, "DeleteUser: DismissGroup", "groupID", g.GroupID, "userID", req.UserID, "ownerUserID", g.OwnerUserID)
 				if _, err := d.groupClient.DismissGroup(adminCtx, &group.DismissGroupReq{
 					GroupID:      g.GroupID,
 					DeleteMember: true,
 				}); err != nil {
-					log.ZWarn(c, "lintao DeleteUser: DismissGroup failed", err, "userID", req.UserID, "groupID", g.GroupID)
+					log.ZWarn(c, "DeleteUser: DismissGroup failed", err, "userID", req.UserID, "groupID", g.GroupID)
 				}
 				continue
 			}
-			log.ZDebug(adminCtx, "lintao DeleteUser: QuitGroup", "groupID", g.GroupID, "userID", req.UserID, "ownerUserID", g.OwnerUserID)
+			log.ZDebug(adminCtx, "DeleteUser: QuitGroup", "groupID", g.GroupID, "userID", req.UserID, "ownerUserID", g.OwnerUserID)
 			if _, err := d.groupClient.QuitGroup(adminCtx, &group.QuitGroupReq{
 				GroupID: g.GroupID,
 				UserID:  req.UserID,
@@ -160,7 +160,7 @@ func (d *DeleteUserApi) DeleteUser(c *gin.Context) {
 						GroupID:      g.GroupID,
 						DeleteMember: true,
 					}); dismissErr != nil {
-						log.ZWarn(c, "lintao DeleteUser: DismissGroup fallback failed", dismissErr,
+						log.ZWarn(c, "DeleteUser: DismissGroup fallback failed", dismissErr,
 							"userID", req.UserID, "groupID", g.GroupID)
 					}
 					continue
