@@ -98,7 +98,7 @@ func (s *rtcServer) SignalMessageAssemble(ctx context.Context, req *rtc.SignalMe
 func (s *rtcServer) handleInvite(ctx context.Context, req *rtc.SignalInviteReq, signalReq *rtc.SignalReq) (*rtc.SignalInviteResp, error) {
 	inv := req.Invitation
 	if inv == nil {
-		log.ZError(ctx, "handleInvite", errs.ErrArgs, "r", "invitation is nil")
+		log.ZError(ctx, "handleInvite", errs.ErrArgs, "r", "invitation is nil", "req", req)
 		return nil, errs.ErrArgs.WrapMsg("invitation is nil")
 	}
 	inv.RoomID = newRoomID()
@@ -106,11 +106,13 @@ func (s *rtcServer) handleInvite(ctx context.Context, req *rtc.SignalInviteReq, 
 	inv.InitiateTime = time.Now().UnixMilli()
 
 	if len(inv.InviteeUserIDList) == 0 {
+		log.ZError(ctx, "handleInvite", errs.ErrArgs, "r", "no invitees", "req", req)
 		return nil, errs.ErrArgs.WrapMsg("no invitees", "inviteeUserIDList", inv.InviteeUserIDList)
 	}
 
 	notAllowUserIDs, notAllowSet, err := s.filterNotAllowedInvitees(ctx, req.UserID, inv.InviteeUserIDList)
 	if err != nil {
+		log.ZError(ctx, "handleInvite", err, "filterNotAllowedInvitees failed", "req", req)
 		return nil, err
 	}
 	inv.NotAllowUserIDList = notAllowUserIDs
@@ -122,7 +124,7 @@ func (s *rtcServer) handleInvite(ctx context.Context, req *rtc.SignalInviteReq, 
 	// 检测哪些被叫用户正忙（已在通话中），记录到 BusyLineUserIDList
 	busyUserIDs, err := s.db.GetBusyUserIDs(ctx, inv.InviteeUserIDList)
 	if err != nil {
-		log.ZWarn(ctx, "handleInvite: GetBusyUserIDs failed (non-fatal)", err)
+		log.ZWarn(ctx, "handleInvite", err, "GetBusyUserIDs failed", "req", req)
 	}
 	busySet := make(map[string]struct{}, len(busyUserIDs))
 	for _, uid := range busyUserIDs {
@@ -155,7 +157,7 @@ func (s *rtcServer) handleInvite(ctx context.Context, req *rtc.SignalInviteReq, 
 	}
 
 	if _, err := s.roomClient.CreateRoom(ctx, &livekit.CreateRoomRequest{Name: inv.RoomID}); err != nil {
-		log.ZError(ctx, "handleInvite", err, "r", err.Error())
+		log.ZError(ctx, "handleInvite", err, "LiveKit CreateRoom failed", "roomID", inv.RoomID, "req", req)
 		return nil, errs.WrapMsg(err, "LiveKit CreateRoom failed", "roomID", inv.RoomID)
 	}
 
@@ -164,6 +166,7 @@ func (s *rtcServer) handleInvite(ctx context.Context, req *rtc.SignalInviteReq, 
 		if _, delErr := s.roomClient.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: inv.RoomID}); delErr != nil {
 			log.ZWarn(ctx, "handleInvite: rollback DeleteRoom failed", delErr, "roomID", inv.RoomID)
 		}
+		log.ZError(ctx, "handleInvite", err, "genToken failed", "roomID", inv.RoomID, "req", req)
 		return nil, err
 	}
 
@@ -180,6 +183,7 @@ func (s *rtcServer) handleInvite(ctx context.Context, req *rtc.SignalInviteReq, 
 
 	content, err := marshalSignalReq(signalReq)
 	if err != nil {
+		log.ZError(ctx, "handleInvite", err, "marshalSignalReq failed", "roomID", inv.RoomID, "req", req)
 		return nil, err
 	}
 
@@ -214,9 +218,11 @@ func (s *rtcServer) handleInvite(ctx context.Context, req *rtc.SignalInviteReq, 
 func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInviteInGroupReq, signalReq *rtc.SignalReq) (*rtc.SignalInviteInGroupResp, error) {
 	inv := req.Invitation
 	if inv == nil {
+		log.ZError(ctx, "handleInviteInGroup", errs.ErrArgs, "r", "invitation is nil", "req", req)
 		return nil, errs.ErrArgs.WrapMsg("invitation is nil")
 	}
 	if inv.GroupID == "" {
+		log.ZError(ctx, "handleInviteInGroup", errs.ErrArgs, "r", "groupID is empty", "req", req)
 		return nil, errs.ErrArgs.WrapMsg("groupID is empty")
 	}
 
@@ -226,11 +232,13 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 
 	notAllowUserIDs, notAllowSet, err := s.filterNotAllowedInvitees(ctx, req.UserID, inv.InviteeUserIDList)
 	if err != nil {
+		log.ZError(ctx, "handleInviteInGroup", err, "filterNotAllowedInvitees failed", "req", req)
 		return nil, err
 	}
 	inv.NotAllowUserIDList = notAllowUserIDs
 
 	if len(notAllowUserIDs) == len(inv.InviteeUserIDList) {
+		log.ZError(ctx, "handleInviteInGroup", errs.ErrNoPermission, "all invitees do not accept calls from you", "inviteeUserIDList", inv.InviteeUserIDList, "req", req)
 		return nil, errs.ErrNoPermission.WrapMsg("all invitees do not accept calls from you", "inviteeUserIDList", inv.InviteeUserIDList)
 	}
 
@@ -246,6 +254,7 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 	inv.BusyLineUserIDList = busyUserIDs
 
 	if len(busyUserIDs) == len(inv.InviteeUserIDList) {
+		log.ZError(ctx, "handleInviteInGroup", servererrs.ErrAllUserBusy, "all invitees are busy", "inviteeUserIDList", inv.InviteeUserIDList, "req", req)
 		return nil, servererrs.ErrAllUserBusy.WrapMsg("all invitees are busy", "inviteeUserIDList", inv.InviteeUserIDList)
 	}
 
@@ -270,6 +279,7 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 	}
 
 	if _, err := s.roomClient.CreateRoom(ctx, &livekit.CreateRoomRequest{Name: inv.RoomID}); err != nil {
+		log.ZError(ctx, "handleInviteInGroup", err, "LiveKit CreateRoom failed", "roomID", inv.RoomID, "req", req)
 		return nil, errs.WrapMsg(err, "LiveKit CreateRoom failed", "roomID", inv.RoomID)
 	}
 
@@ -278,6 +288,7 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 		if _, delErr := s.roomClient.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: inv.RoomID}); delErr != nil {
 			log.ZWarn(ctx, "handleInviteInGroup: rollback DeleteRoom failed", delErr, "roomID", inv.RoomID)
 		}
+		log.ZError(ctx, "handleInviteInGroup", err, "genToken failed", "roomID", inv.RoomID, "req", req)
 		return nil, err
 	}
 
@@ -293,6 +304,7 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 
 	content, err := marshalSignalReq(signalReq)
 	if err != nil {
+		log.ZError(ctx, "handleInviteInGroup", err, "marshalSignalReq failed", "roomID", inv.RoomID, "req", req)
 		return nil, err
 	}
 	for _, inviteeID := range inv.InviteeUserIDList {
@@ -306,6 +318,7 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 		}
 		if err := s.sendSignalingNotification(ctx, req.UserID, inviteeID, int32(constant.ReadGroupChatType), inv.GroupID, req.OfflinePushInfo, content); err != nil {
 			log.ZWarn(ctx, "handleInviteInGroup to group invitee failed", err, "inviteeID", inviteeID)
+			return nil, errs.WrapMsg(err, "failed to notify invitee", "inviteeID", inviteeID)
 		}
 	}
 
@@ -452,14 +465,17 @@ func (s *rtcServer) handleAccept(ctx context.Context, req *rtc.SignalAcceptReq, 
 // handleReject processes a call rejection.
 func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, signalReq *rtc.SignalReq) (*rtc.SignalRejectResp, error) {
 	if req.Invitation == nil {
+		log.ZWarn(ctx, "handleReject", errs.ErrArgs.WrapMsg("invitation is nil"), "req", req)
 		return nil, errs.ErrArgs.WrapMsg("invitation is nil")
 	}
 
 	dbInv, err := s.db.GetInvitationByRoomID(ctx, req.Invitation.RoomID)
 	if err != nil {
+		log.ZWarn(ctx, "handleReject", err, "get invitation by roomID failed", "req", req)
 		return nil, errs.WrapMsg(err, "invitation not found or expired", "roomID", req.Invitation.RoomID)
 	}
 	if !datautil.Contain(req.UserID, dbInv.InviteeUserIDList...) {
+		log.ZWarn(ctx, "handleReject", errs.ErrNoPermission.WrapMsg("user not in invitee list"), "req", req, "dbInv", dbInv)
 		return nil, errs.ErrNoPermission.WrapMsg("user not in invitee list", "userID", req.UserID)
 	}
 
@@ -469,15 +485,16 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 	}
 	content, err := marshalSignalReq(signalReq)
 	if err != nil {
+		log.ZWarn(ctx, "handleReject", err, "marshal signal req failed", "req", req)
 		return nil, err
 	}
 	if err := s.sendSignalingNotification(ctx, req.UserID, dbInv.InviterUserID, sessionType, dbInv.GroupID, req.OfflinePushInfo, content); err != nil {
-		log.ZWarn(ctx, "sendSignalingNotification reject to inviter failed", err, "inviterID", dbInv.InviterUserID)
+		log.ZWarn(ctx, "sendSignalingNotification reject to inviter failed", err, "inviterID", dbInv.InviterUserID, "req", req, "dbInv", dbInv)
 	}
 
 	if dbInv.GroupID != "" {
 		if err := s.db.RemoveInvitee(ctx, dbInv.RoomID, req.UserID); err != nil {
-			log.ZWarn(ctx, "RemoveInvitee failed", err, "roomID", dbInv.RoomID, "userID", req.UserID)
+			log.ZWarn(ctx, "RemoveInvitee failed", err, "roomID", dbInv.RoomID, "userID", req.UserID, "req", req, "dbInv", dbInv)
 		}
 
 		// Check whether any participant other than the inviter has actually
@@ -490,7 +507,7 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 		lp, listErr := s.roomClient.ListParticipants(ctx, &livekit.ListParticipantsRequest{Room: dbInv.RoomID})
 		joinedCount := 0
 		if listErr != nil {
-			log.ZWarn(ctx, "handleReject: ListParticipants failed", listErr, "roomID", dbInv.RoomID)
+			log.ZWarn(ctx, "handleReject: ListParticipants failed", listErr, "roomID", dbInv.RoomID, "req", req, "dbInv", dbInv)
 		} else {
 			for _, p := range lp.Participants {
 				if p.GetIdentity() != dbInv.InviterUserID {
@@ -501,7 +518,7 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 
 		if joinedCount > 0 {
 			// At least one invitee has already joined; the call continues.
-			log.ZInfo(ctx, "handleReject: group call continues", "roomID", dbInv.RoomID, "joinedCount", joinedCount)
+			log.ZInfo(ctx, "handleReject: group call continues", "roomID", dbInv.RoomID, "joinedCount", joinedCount, "req", req, "dbInv", dbInv)
 			return &rtc.SignalRejectResp{}, nil
 		}
 
@@ -509,15 +526,15 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 		// Terminate the call so the "in progress" banner is dismissed for
 		// non-invited members.
 		if _, err := s.roomClient.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: dbInv.RoomID}); err != nil {
-			log.ZWarn(ctx, "handleReject: DeleteRoom failed", err, "roomID", dbInv.RoomID)
+			log.ZWarn(ctx, "handleReject: DeleteRoom failed", err, "roomID", dbInv.RoomID, "req", req, "dbInv", dbInv)
 		}
 		if err := s.db.DeleteInvitation(ctx, dbInv.RoomID); err != nil {
-			log.ZWarn(ctx, "handleReject: DeleteInvitation failed", err, "roomID", dbInv.RoomID)
+			log.ZWarn(ctx, "handleReject: DeleteInvitation failed", err, "roomID", dbInv.RoomID, "req", req, "dbInv", dbInv)
 		}
 
 		s.sendCallRecordChatMsg(ctx, dbInv, callStatusRejected, 0)
 
-		log.ZInfo(ctx, "handleReject", "dbInv", dbInv)
+		log.ZInfo(ctx, "handleReject", "req", req, "dbInv", dbInv)
 
 		go s.broadcastGroupCallStatusToNonInvited(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
 
@@ -540,14 +557,17 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 // handleCancel processes a call cancellation.
 func (s *rtcServer) handleCancel(ctx context.Context, req *rtc.SignalCancelReq, signalReq *rtc.SignalReq) (*rtc.SignalCancelResp, error) {
 	if req.Invitation == nil {
+		log.ZWarn(ctx, "handleCancel", errs.ErrArgs.WrapMsg("invitation is nil"), "req", req)
 		return nil, errs.ErrArgs.WrapMsg("invitation is nil")
 	}
 
 	dbInv, err := s.db.GetInvitationByRoomID(ctx, req.Invitation.RoomID)
 	if err != nil {
+		log.ZWarn(ctx, "handleCancel", err, "get invitation by roomID failed", "req", req)
 		return nil, errs.WrapMsg(err, "invitation not found or expired", "roomID", req.Invitation.RoomID)
 	}
 	if req.UserID != dbInv.InviterUserID {
+		log.ZWarn(ctx, "handleCancel", errs.ErrNoPermission.WrapMsg("only the inviter can cancel"), "req", req, "dbInv", dbInv)
 		return nil, errs.ErrNoPermission.WrapMsg("only the inviter can cancel", "userID", req.UserID, "inviterUserID", dbInv.InviterUserID)
 	}
 
@@ -557,6 +577,7 @@ func (s *rtcServer) handleCancel(ctx context.Context, req *rtc.SignalCancelReq, 
 	}
 	content, err := marshalSignalReq(signalReq)
 	if err != nil {
+		log.ZWarn(ctx, "handleCancel", err, "marshal signal req failed", "req", req, "dbInv", dbInv, "signalReq", signalReq)
 		return nil, err
 	}
 	for _, inviteeID := range dbInv.InviteeUserIDList {
@@ -592,14 +613,17 @@ func (s *rtcServer) handleCancel(ctx context.Context, req *rtc.SignalCancelReq, 
 // leaving the room alive.
 func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, signalReq *rtc.SignalReq) (*rtc.SignalHungUpResp, error) {
 	if req.Invitation == nil {
+		log.ZWarn(ctx, "handleHungUp", errs.ErrArgs.WrapMsg("invitation is nil"), "req", req)
 		return nil, errs.ErrArgs.WrapMsg("invitation is nil")
 	}
 
 	dbInv, err := s.db.GetInvitationByRoomID(ctx, req.Invitation.RoomID)
 	if err != nil {
+		log.ZWarn(ctx, "handleHungUp", err, "get invitation by roomID failed", "req", req)
 		return nil, errs.WrapMsg(err, "invitation not found or expired", "roomID", req.Invitation.RoomID)
 	}
 	if req.UserID != dbInv.InviterUserID && !datautil.Contain(req.UserID, dbInv.InviteeUserIDList...) {
+		log.ZWarn(ctx, "handleHungUp", errs.ErrNoPermission.WrapMsg("user is not a participant of this call"), "req", req, "dbInv", dbInv)
 		return nil, errs.ErrNoPermission.WrapMsg("user is not a participant of this call", "userID", req.UserID)
 	}
 
@@ -609,6 +633,7 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 	}
 	content, err := marshalSignalReq(signalReq)
 	if err != nil {
+		log.ZWarn(ctx, "handleHungUp", err, "marshal signal req failed", "req", req, "dbInv", dbInv, "signalReq", signalReq)
 		return nil, err
 	}
 	// Notify peers using the authoritative DB participant list.
@@ -653,11 +678,11 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 
 	// Terminate the LiveKit room (1:1 always; group only when last participant left).
 	if _, err := s.roomClient.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: dbInv.RoomID}); err != nil {
-		log.ZWarn(ctx, "LiveKit DeleteRoom failed", err, "roomID", dbInv.RoomID)
+		log.ZWarn(ctx, "handleHungUp: DeleteRoom failed", err, "roomID", dbInv.RoomID)
 	}
 
 	if err := s.db.DeleteInvitation(ctx, dbInv.RoomID); err != nil {
-		log.ZWarn(ctx, "DeleteInvitation failed", err, "roomID", dbInv.RoomID)
+		log.ZWarn(ctx, "handleHungUp: DeleteInvitation failed", err, "roomID", dbInv.RoomID)
 	}
 
 	// Notify non-invited group members that the call has ended so they dismiss the banner.
@@ -697,13 +722,16 @@ func (s *rtcServer) handleGetTokenByRoomID(ctx context.Context, req *rtc.SignalG
 // SignalGetRoomByGroupID returns room information for a group.
 func (s *rtcServer) SignalGetRoomByGroupID(ctx context.Context, req *rtc.SignalGetRoomByGroupIDReq) (*rtc.SignalGetRoomByGroupIDResp, error) {
 	if req.GroupID == "" {
+		log.ZWarn(ctx, "SignalGetRoomByGroupID", errs.ErrArgs.WrapMsg("groupID is empty"), "req", req)
 		return nil, errs.ErrArgs.WrapMsg("groupID is empty")
 	}
 	opUserID := mcontext.GetOpUserID(ctx)
 	if opUserID == "" {
+		log.ZWarn(ctx, "SignalGetRoomByGroupID", errs.ErrArgs.WrapMsg("op user id is empty"), "req", req)
 		return nil, errs.ErrArgs.WrapMsg("op user id is empty")
 	}
 	if _, err := s.groupClient.GetGroupMemberCache(ctx, req.GroupID, opUserID); err != nil {
+		log.ZWarn(ctx, "SignalGetRoomByGroupID", err, "get group member cache failed", "req", req)
 		return nil, err
 	}
 
@@ -712,6 +740,7 @@ func (s *rtcServer) SignalGetRoomByGroupID(ctx context.Context, req *rtc.SignalG
 		if errs.ErrRecordNotFound.Is(err) {
 			return &rtc.SignalGetRoomByGroupIDResp{InCall: false}, nil
 		}
+		log.ZWarn(ctx, "SignalGetRoomByGroupID", err, "get invitation by groupID failed", "req", req)
 		return nil, err
 	}
 
@@ -962,12 +991,12 @@ func (s *rtcServer) SignalNotifyGroupCallEnded(ctx context.Context, req *rtc.Sig
 		}
 
 		// 房间已空，清理 LiveKit 房间与 DB 邀请记录。
-		if _, delErr := s.roomClient.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: inv.RoomID}); delErr != nil {
-			log.ZWarn(ctx, "SignalNotifyGroupCallEnded: DeleteRoom failed (non-fatal)", delErr, "roomID", inv.RoomID)
-		}
-		if delErr := s.db.DeleteInvitation(ctx, inv.RoomID); delErr != nil {
-			log.ZWarn(ctx, "SignalNotifyGroupCallEnded: DeleteInvitation failed (non-fatal)", delErr, "roomID", inv.RoomID)
-		}
+		//if _, delErr := s.roomClient.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: inv.RoomID}); delErr != nil {
+		//	log.ZWarn(ctx, "SignalNotifyGroupCallEnded: DeleteRoom failed (non-fatal)", delErr, "roomID", inv.RoomID)
+		//}
+		//if delErr := s.db.DeleteInvitation(ctx, inv.RoomID); delErr != nil {
+		//	log.ZWarn(ctx, "SignalNotifyGroupCallEnded: DeleteInvitation failed (non-fatal)", delErr, "roomID", inv.RoomID)
+		//}
 	}
 
 	s.sendGroupCallEndedNotification(ctx, req.GroupID, inviterUserID, mediaType, req.DurationSecs)
