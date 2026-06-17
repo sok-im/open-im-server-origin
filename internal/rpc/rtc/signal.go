@@ -884,13 +884,16 @@ func (s *rtcServer) SignalSendCustomSignal(ctx context.Context, req *rtc.SignalS
 // Call this when a group call ends (e.g. last participant left) to trigger OnGroupCallEnded on clients.
 func (s *rtcServer) SignalNotifyGroupCallEnded(ctx context.Context, req *rtc.SignalNotifyGroupCallEndedReq) (*rtc.SignalNotifyGroupCallEndedResp, error) {
 	if req.GroupID == "" {
+		log.ZWarn(ctx, "SignalNotifyGroupCallEnded", errs.ErrArgs.WrapMsg("groupID is required"), "req", req)
 		return nil, errs.ErrArgs.WrapMsg("groupID is required")
 	}
 	opUserID := mcontext.GetOpUserID(ctx)
 	if opUserID == "" {
+		log.ZWarn(ctx, "SignalNotifyGroupCallEnded", errs.ErrNoPermission.WrapMsg("missing opUserID"), "req", req)
 		return nil, errs.ErrNoPermission.WrapMsg("missing opUserID")
 	}
 	if _, err := s.groupClient.GetGroupMemberCache(ctx, req.GroupID, opUserID); err != nil {
+		log.ZWarn(ctx, "SignalNotifyGroupCallEnded", err, "get group member cache failed")
 		return nil, err
 	}
 
@@ -899,14 +902,17 @@ func (s *rtcServer) SignalNotifyGroupCallEnded(ctx context.Context, req *rtc.Sig
 	if req.RoomID != "" {
 		inv, err = s.db.GetInvitationByRoomID(ctx, req.RoomID)
 		if err != nil {
+			log.ZWarn(ctx, "SignalNotifyGroupCallEnded", err, "get invitation by roomID failed")
 			return nil, errs.WrapMsg(err, "invitation not found", "roomID", req.RoomID)
 		}
 		if inv.GroupID != req.GroupID {
+			log.ZWarn(ctx, "SignalNotifyGroupCallEnded", errs.ErrArgs.WrapMsg("groupID does not match invitation"), "req", req)
 			return nil, errs.ErrArgs.WrapMsg("groupID does not match invitation")
 		}
 	} else {
 		inv, err = s.db.GetInvitationByGroupID(ctx, req.GroupID)
 		if err != nil && !errs.ErrRecordNotFound.Is(err) {
+			log.ZWarn(ctx, "SignalNotifyGroupCallEnded", err, "get invitation by groupID failed", "req", req)
 			return nil, err
 		}
 		if errs.ErrRecordNotFound.Is(err) {
@@ -916,6 +922,7 @@ func (s *rtcServer) SignalNotifyGroupCallEnded(ctx context.Context, req *rtc.Sig
 
 	if inv != nil {
 		if opUserID != inv.InviterUserID && !datautil.Contain(opUserID, inv.InviteeUserIDList...) {
+			log.ZWarn(ctx, "SignalNotifyGroupCallEnded", errs.ErrNoPermission.WrapMsg("user is not a participant of this call"), "req", req)
 			return nil, errs.ErrNoPermission.WrapMsg("user is not a participant of this call")
 		}
 	}
@@ -933,10 +940,14 @@ func (s *rtcServer) SignalNotifyGroupCallEnded(ctx context.Context, req *rtc.Sig
 		mediaType = inv.MediaType
 	}
 	if mediaType == "" {
+		log.ZWarn(ctx, "SignalNotifyGroupCallEnded", errs.ErrArgs.WrapMsg("mediaType is required"), "req", req)
 		return nil, errs.ErrArgs.WrapMsg("mediaType is required")
 	}
 
 	s.sendGroupCallEndedNotification(ctx, req.GroupID, inviterUserID, mediaType, req.DurationSecs)
+
+	log.ZDebug(ctx, "SignalNotifyGroupCallEnded", "req", req)
+
 	return &rtc.SignalNotifyGroupCallEndedResp{}, nil
 }
 
