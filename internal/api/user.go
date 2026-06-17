@@ -352,3 +352,7 @@ func (u *UserApi) GetUserByPhone(c *gin.Context) {
 func (u *UserApi) GetUsersByNickname(c *gin.Context) {
 	a2r.Call(c, user.UserClient.GetUsersByNickname, u.Client)
 }
+
+func (u *UserApi) CheckNickname(c *gin.Context) {
+	a2r.Call(c, user.UserClient.CheckNickname, u.Client)
+}

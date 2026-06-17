@@ -661,6 +661,38 @@ func (s *userServer) GetUsersByNickname(ctx context.Context, req *pbuser.GetUser
 	return &pbuser.GetUsersByNicknameResp{UsersInfo: pbUsers}, nil
 }
 
+// CheckNickname 检查昵称是否已被普通用户占用（精确匹配，与 GetUsersByNickname 用户范围一致）。
+// excludeUserID 用于修改昵称时排除本人；不做隐私过滤，仅判断是否存在占用。
+func (s *userServer) CheckNickname(ctx context.Context, req *pbuser.CheckNicknameReq) (*pbuser.CheckNicknameResp, error) {
+	nickname := strings.TrimSpace(req.Nickname)
+	if nickname == "" {
+		return nil, errs.ErrArgs.WrapMsg("nickname is required")
+	}
+	if n := utf8.RuneCountInString(nickname); n < 1 || n > 64 {
+		return nil, errs.ErrArgs.WrapMsg("nickname length must be 1-64 characters")
+	}
+
+	users, err := s.db.FindOrdinaryUsersByNickname(ctx, constant.IMOrdinaryUser, constant.AppOrdinaryUsers, nickname)
+	if err != nil {
+		log.ZError(ctx, "CheckNickname: FindOrdinaryUsersByNickname failed", err,
+			"opUserID", mcontext.GetOpUserID(ctx), "nickname", nickname)
+		return nil, err
+	}
+
+	excludeUserID := strings.TrimSpace(req.ExcludeUserID)
+	if excludeUserID != "" {
+		filtered := make([]*tablerelation.User, 0, len(users))
+		for _, u := range users {
+			if u.UserID != excludeUserID {
+				filtered = append(filtered, u)
+			}
+		}
+		users = filtered
+	}
+
+	return &pbuser.CheckNicknameResp{Exists: len(users) > 0}, nil
+}
+
 func (s *userServer) AccountCheck(ctx context.Context, req *pbuser.AccountCheckReq) (resp *pbuser.AccountCheckResp, err error) {
 	resp = &pbuser.AccountCheckResp{}
 	if datautil.Duplicate(req.CheckUserIDs) {
