@@ -58,8 +58,13 @@ func (j *JPush) Push(ctx context.Context, userIDs []string, title, content strin
 	au.SetAlias(userIDs)
 	var no body.Notification
 	extras := make(map[string]string)
-	extras["ex"] = opts.Ex
-	if opts.Signal.ClientMsgID != "" {
+	if opts.IsWakePush() {
+		extras["ex"] = opts.Ex
+		extras["sok_wake_push"] = opts.Ex
+	} else {
+		extras["ex"] = opts.Ex
+	}
+	if opts.Signal != nil && opts.Signal.ClientMsgID != "" {
 		extras["ClientMsgID"] = opts.Signal.ClientMsgID
 	}
 	no.IOSEnableMutableContent()
@@ -70,8 +75,11 @@ func (j *JPush) Push(ctx context.Context, userIDs []string, title, content strin
 	var msg body.Message
 	msg.SetMsgContent(content)
 	msg.SetTitle(title)
-	if opts.Signal.ClientMsgID != "" {
+	if opts.Signal != nil && opts.Signal.ClientMsgID != "" {
 		msg.SetExtras("ClientMsgID", opts.Signal.ClientMsgID)
+	}
+	if opts.IsWakePush() {
+		msg.SetExtras("sok_wake_push", opts.Ex)
 	}
 	msg.SetExtras("ex", opts.Ex)
 	var opt body.Options

@@ -41,23 +41,34 @@ func NewClient(pushConf *config.Push) *EngageLab {
 }
 
 func (e *EngageLab) Push(ctx context.Context, userIDs []string, title, content string, opts *options.Opts) error {
-	log.ZInfo(ctx, "engagelab push start", "userIDs", userIDs, "title", title)
-	extras := map[string]interface{}{"ex": opts.Ex}
-	if opts.Signal.ClientMsgID != "" {
-		extras["ClientMsgID"] = opts.Signal.ClientMsgID
+	log.ZInfo(ctx, "engagelab push start", "userIDs", userIDs, "title", title, "wakePush", opts.IsWakePush())
+
+	extras := options.WakeExtras(opts)
+	if !opts.IsWakePush() {
+		extras = map[string]interface{}{"ex": opts.Ex}
+		if opts.Signal != nil && opts.Signal.ClientMsgID != "" {
+			extras["ClientMsgID"] = opts.Signal.ClientMsgID
+		}
 	}
 
 	mutableContent := true
+	contentAvailable := true
 	apnsProduction := e.conf.IOSPush.Production
+
+	sound := e.conf.IOSPush.PushSound
+	if opts.IOSPushSound != "" {
+		sound = opts.IOSPushSound
+	}
 
 	iosNotif := &el.IOSNotification{
 		Alert: map[string]string{
 			"title": title,
 			"body":  content,
 		},
-		Sound:          e.conf.IOSPush.PushSound,
-		MutableContent: &mutableContent,
-		Extras:         extras,
+		Sound:            sound,
+		MutableContent:   &mutableContent,
+		ContentAvailable: &contentAvailable,
+		Extras:           extras,
 	}
 	if opts.IOSBadgeCount {
 		iosNotif.Badge = "+1"
@@ -72,22 +83,31 @@ func (e *EngageLab) Push(ctx context.Context, userIDs []string, title, content s
 		androidNotif.Intent = &el.AndroidIntent{URL: intent}
 	}
 
+	pushBody := &el.PushBody{
+		Platform: "all",
+		Notification: &el.NotificationMessage{
+			Alert:   content,
+			Android: androidNotif,
+			IOS:     iosNotif,
+		},
+		Options: &el.Options{
+			APNSProduction: &apnsProduction,
+		},
+	}
+	if opts.IsWakePush() {
+		pushBody.Message = &el.CustomMessage{
+			Title:      title,
+			MsgContent: content,
+			Extras:     extras,
+		}
+	}
+
 	param := &el.PushParam{
 		From: pushFrom,
 		To: &el.PushTo{
 			Alias: userIDs,
 		},
-		Body: &el.PushBody{
-			Platform: "all",
-			Notification: &el.NotificationMessage{
-				Alert:   content,
-				Android: androidNotif,
-				IOS:     iosNotif,
-			},
-			Options: &el.Options{
-				APNSProduction: &apnsProduction,
-			},
-		},
+		Body:      pushBody,
 		RequestID: strconv.FormatInt(time.Now().UnixNano(), 10),
 	}
 

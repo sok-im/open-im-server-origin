@@ -5,7 +5,6 @@ import (
 
 	"github.com/IBM/sarama"
 	"github.com/openimsdk/open-im-server/v3/internal/push/offlinepush"
-	"github.com/openimsdk/open-im-server/v3/internal/push/offlinepush/options"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/prommetrics"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/kafka"
 	"github.com/openimsdk/protocol/constant"
@@ -13,7 +12,6 @@ import (
 	"github.com/openimsdk/protocol/sdkws"
 	"github.com/openimsdk/tools/errs"
 	"github.com/openimsdk/tools/log"
-	"github.com/openimsdk/tools/utils/jsonutil"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -66,53 +64,8 @@ func (o *OfflinePushConsumerHandler) handleMsg2OfflinePush(ctx context.Context, 
 	}
 }
 
-func (o *OfflinePushConsumerHandler) getOfflinePushInfos(msg *sdkws.MsgData) (title, content string, opts *options.Opts, err error) {
-	type AtTextElem struct {
-		Text       string   `json:"text,omitempty"`
-		AtUserList []string `json:"atUserList,omitempty"`
-		IsAtSelf   bool     `json:"isAtSelf"`
-	}
-
-	opts = &options.Opts{Signal: &options.Signal{ClientMsgID: msg.ClientMsgID}}
-	if msg.OfflinePushInfo != nil {
-		opts.IOSBadgeCount = msg.OfflinePushInfo.IOSBadgeCount
-		opts.IOSPushSound = msg.OfflinePushInfo.IOSPushSound
-		opts.Ex = msg.OfflinePushInfo.Ex
-	}
-
-	if msg.OfflinePushInfo != nil {
-		title = msg.OfflinePushInfo.Title
-		content = msg.OfflinePushInfo.Desc
-	}
-	if title == "" {
-		switch msg.ContentType {
-		case constant.Text:
-			fallthrough
-		case constant.Picture:
-			fallthrough
-		case constant.Voice:
-			fallthrough
-		case constant.Video:
-			fallthrough
-		case constant.File:
-			title = constant.ContentType2PushContent[int64(msg.ContentType)]
-		case constant.AtText:
-			ac := AtTextElem{}
-			_ = jsonutil.JsonStringToStruct(string(msg.Content), &ac)
-		case constant.SignalingNotification:
-			title = constant.ContentType2PushContent[constant.SignalMsg]
-		default:
-			title = constant.ContentType2PushContent[constant.Common]
-		}
-	}
-	if content == "" {
-		content = title
-	}
-	return
-}
-
 func (o *OfflinePushConsumerHandler) offlinePushMsg(ctx context.Context, msg *sdkws.MsgData, offlinePushUserIDs []string) error {
-	title, content, opts, err := o.getOfflinePushInfos(msg)
+	title, content, opts, err := offlinepush.GetOfflinePushInfos(msg)
 	if err != nil {
 		return err
 	}

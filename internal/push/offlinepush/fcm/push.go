@@ -97,6 +97,11 @@ func (f *Fcm) Push(ctx context.Context, userIDs []string, title, content string,
 	var msgErrBuilder strings.Builder
 	for userID, personTokens := range allTokens {
 		apns := &messaging.APNSConfig{Payload: &messaging.APNSPayload{Aps: &messaging.Aps{Sound: opts.IOSPushSound}}}
+		if opts.IsWakePush() {
+			apns.Payload.Aps.ContentAvailable = true
+			apns.Payload.Aps.MutableContent = true
+			apns.Payload.CustomData = map[string]interface{}{"ex": opts.Ex}
+		}
 		messageCount := len(messages)
 		if messageCount >= SinglePushCountLimit {
 			response, err := f.fcmMsgCli.SendEach(ctx, messages)
@@ -143,8 +148,12 @@ func (f *Fcm) Push(ctx context.Context, userIDs []string, title, content string,
 			}
 		}
 		for _, token := range personTokens {
+			data := map[string]string{"ex": opts.Ex}
+			if opts.IsWakePush() {
+				data["sok_wake_push"] = opts.Ex
+			}
 			temp := &messaging.Message{
-				Data:         map[string]string{"ex": opts.Ex},
+				Data:         data,
 				Token:        token,
 				Notification: notification,
 				APNS:         apns,
