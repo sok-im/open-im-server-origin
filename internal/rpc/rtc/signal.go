@@ -88,7 +88,7 @@ func (s *rtcServer) SignalMessageAssemble(ctx context.Context, req *rtc.SignalMe
 		return nil, errs.ErrArgs.WrapMsg("unknown signal payload type")
 	}
 	if respErr != nil {
-		log.ZError(ctx, "SignalMessageAssemble", respErr, "err", respErr.Error())
+		log.ZError(ctx, "SignalMessageAssemble", respErr, "req", req)
 		return nil, respErr
 	}
 	return &rtc.SignalMessageAssembleResp{SignalResp: &resp}, nil
