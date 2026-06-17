@@ -956,7 +956,8 @@ func (s *rtcServer) SignalNotifyGroupCallEnded(ctx context.Context, req *rtc.Sig
 			remaining := len(lp.GetParticipants())
 			log.ZInfo(ctx, "SignalNotifyGroupCallEnded: livekit participants", "roomID", inv.RoomID, "remaining", remaining)
 			if remaining > 0 {
-				return nil, errs.ErrArgs.WrapMsg("call is still active", "roomID", inv.RoomID, "remaining", remaining)
+				log.ZDebug(ctx, "SignalNotifyGroupCallEnded", "roomID", inv.RoomID, "remaining", remaining)
+				return &rtc.SignalNotifyGroupCallEndedResp{}, nil
 			}
 		}
 
