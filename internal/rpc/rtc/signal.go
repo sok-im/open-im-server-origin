@@ -944,6 +944,31 @@ func (s *rtcServer) SignalNotifyGroupCallEnded(ctx context.Context, req *rtc.Sig
 		return nil, errs.ErrArgs.WrapMsg("mediaType is required")
 	}
 
+	// 检查 LiveKit 房间内的实时在线人数。
+	// 若仍有参与者留在房间，说明通话尚未真正结束，拒绝发送结束通知。
+	// 若房间已空（或查询失败视为已空），则清理 LiveKit 房间与 DB 邀请记录，再发通知。
+	if inv != nil && inv.RoomID != "" {
+		lp, listErr := s.roomClient.ListParticipants(ctx, &livekit.ListParticipantsRequest{Room: inv.RoomID})
+		if listErr != nil {
+			// 查询失败通常意味着房间已不存在，视为通话已结束，继续处理。
+			log.ZWarn(ctx, "SignalNotifyGroupCallEnded: ListParticipants failed, treating as empty", listErr, "roomID", inv.RoomID)
+		} else {
+			remaining := len(lp.GetParticipants())
+			log.ZInfo(ctx, "SignalNotifyGroupCallEnded: livekit participants", "roomID", inv.RoomID, "remaining", remaining)
+			if remaining > 0 {
+				return nil, errs.ErrArgs.WrapMsg("call is still active", "roomID", inv.RoomID, "remaining", remaining)
+			}
+		}
+
+		// 房间已空，清理 LiveKit 房间与 DB 邀请记录。
+		if _, delErr := s.roomClient.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: inv.RoomID}); delErr != nil {
+			log.ZWarn(ctx, "SignalNotifyGroupCallEnded: DeleteRoom failed (non-fatal)", delErr, "roomID", inv.RoomID)
+		}
+		if delErr := s.db.DeleteInvitation(ctx, inv.RoomID); delErr != nil {
+			log.ZWarn(ctx, "SignalNotifyGroupCallEnded: DeleteInvitation failed (non-fatal)", delErr, "roomID", inv.RoomID)
+		}
+	}
+
 	s.sendGroupCallEndedNotification(ctx, req.GroupID, inviterUserID, mediaType, req.DurationSecs)
 
 	log.ZDebug(ctx, "SignalNotifyGroupCallEnded", "req", req)
