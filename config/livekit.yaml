@@ -3,7 +3,10 @@ rtc:
   tcp_port: 7881
   port_range_start: 50000
   port_range_end: 60000
-  use_external_ip: true
+  # 关闭 STUN 自动探测外网 IP，避免容器内 DNS（127.0.0.53）不可用时启动失败反复重启。
+  # 真机/跨网段访问时须填写宿主机可达 IP，与 openim-rpc-rtc.yml 中 externalAddress 一致。
+  use_external_ip: false
+  node_ip: 10.18.1.11
 
 redis:
   address: redis:6379

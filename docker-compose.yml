@@ -173,7 +173,7 @@ services:
       - "50000-50100:50000-50100/udp"
     volumes:
       - ./config/livekit.yaml:/etc/livekit.yaml
-    command: --config /etc/livekit.yaml --node-ip=0.0.0.0
+    command: --config /etc/livekit.yaml
     depends_on:
       - redis
     environment:
