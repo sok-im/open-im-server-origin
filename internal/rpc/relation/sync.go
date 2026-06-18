@@ -7,6 +7,7 @@ import (
 	"github.com/openimsdk/open-im-server/v3/pkg/util/hashutil"
 	"github.com/openimsdk/protocol/sdkws"
 	"github.com/openimsdk/tools/log"
+	"github.com/openimsdk/tools/utils/datautil"
 
 	"github.com/openimsdk/open-im-server/v3/internal/rpc/incrversion"
 	"github.com/openimsdk/open-im-server/v3/pkg/authverify"
@@ -15,16 +16,30 @@ import (
 )
 
 func (s *friendServer) NotificationUserInfoUpdate(ctx context.Context, req *relation.NotificationUserInfoUpdateReq) (*relation.NotificationUserInfoUpdateResp, error) {
-	// Find all users who have req.UserID in their own friend list (reverse lookup).
-	// These are the users whose friend card for req.UserID needs to be refreshed.
+	// Users who have req.UserID in their own friend list (e.g. A one-way added B).
+	// Their local friend card for req.UserID must be version-bumped and refreshed.
 	ownerUserIDs, err := s.db.FindFriendUserID(ctx, req.UserID)
 	if err != nil {
 		return nil, err
 	}
 
-	log.ZInfo(ctx, "NotificationUserInfoUpdate", "ownerUserIDs", ownerUserIDs, "user", req)
+	// Users listed in req.UserID's own friend list (e.g. B one-way added A).
+	// They should also be notified when req.UserID updates profile, even though
+	// req.UserID is not in their friend list.
+	inFriendListUserIDs, err := s.db.FindFriendUserIDs(ctx, req.UserID)
+	if err != nil {
+		return nil, err
+	}
 
-	if len(ownerUserIDs) > 0 {
+	notifyUserIDs := datautil.Distinct(append(ownerUserIDs, inFriendListUserIDs...))
+
+	log.ZInfo(ctx, "NotificationUserInfoUpdate",
+		"ownerUserIDs", ownerUserIDs,
+		"inFriendListUserIDs", inFriendListUserIDs,
+		"notifyUserIDs", notifyUserIDs,
+		"user", req)
+
+	if len(notifyUserIDs) > 0 {
 		friendUserIDs := []string{req.UserID}
 		noCancelCtx := context.WithoutCancel(ctx)
 		err := s.queue.PushCtx(ctx, func() {
@@ -33,8 +48,8 @@ func (s *friendServer) NotificationUserInfoUpdate(ctx context.Context, req *rela
 					log.ZError(ctx, "OwnerIncrVersion", err, "ownerUserID", ownerUserID, "friendUserIDs", friendUserIDs)
 				}
 			}
-			for _, ownerUserID := range ownerUserIDs {
-				s.notificationSender.FriendInfoUpdatedNotification(noCancelCtx, req.UserID, ownerUserID)
+			for _, notifyUserID := range notifyUserIDs {
+				s.notificationSender.FriendInfoUpdatedNotification(noCancelCtx, req.UserID, notifyUserID)
 			}
 		})
 		if err != nil {
