@@ -718,7 +718,19 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 		lp, listErr := s.roomClient.ListParticipants(ctx, &livekit.ListParticipantsRequest{Room: dbInv.RoomID})
 		remaining := 0
 		if listErr != nil {
-			log.ZWarn(ctx, "handleHungUp: ListParticipants failed, assuming call ended", listErr, "roomID", dbInv.RoomID)
+			// LiveKit query failed — fall back to the DB participant list rather
+			// than assuming the call ended.  Treating a transient error as
+			// remaining==0 would tear down an ongoing group call and fire a
+			// spurious end notification.
+			log.ZWarn(ctx, "handleHungUp: ListParticipants failed, falling back to DB participant count", listErr, "roomID", dbInv.RoomID)
+			for _, uid := range dbInv.InviteeUserIDList {
+				if uid != req.UserID {
+					remaining++
+				}
+			}
+			if dbInv.InviterUserID != req.UserID {
+				remaining++
+			}
 		} else {
 			for _, p := range lp.Participants {
 				if p.GetIdentity() != req.UserID {
@@ -1030,10 +1042,10 @@ func (s *rtcServer) SignalNotifyGroupCallEnded(ctx context.Context, req *rtc.Sig
 		return nil, errs.ErrArgs.WrapMsg("groupID does not match invitation")
 	}
 
-	if opUserID != inv.InviterUserID && !datautil.Contain(opUserID, inv.InviteeUserIDList...) {
-		log.ZWarn(ctx, "lintao SignalNotifyGroupCallEnded: user is not a participant of this call", errs.ErrNoPermission.WrapMsg("user is not a participant of this call"), "req", req)
-		return nil, errs.ErrNoPermission.WrapMsg("user is not a participant of this call")
-	}
+	// Permission is verified by the GetGroupMemberCache call above.  Do NOT
+	// re-check inv.InviteeUserIDList here: mid-call hang-ups use PullInvitee to
+	// remove the departing participant from that list while the invitation stays
+	// open, so former participants would be incorrectly rejected.
 
 	inviterUserID := req.InviterUserID
 	if inviterUserID == "" {
@@ -1077,6 +1089,10 @@ func (s *rtcServer) SignalNotifyGroupCallEnded(ctx context.Context, req *rtc.Sig
 	if _, delErr := s.roomClient.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: req.RoomID}); delErr != nil {
 		log.ZWarn(ctx, "lintao SignalNotifyGroupCallEnded: DeleteRoom failed (non-fatal)", delErr, "roomID", req.RoomID)
 	}
+
+	// Notify non-invited members so they dismiss the "call in progress" banner.
+	// Mirror the same call made in handleHungUp's tear-down path.
+	go s.broadcastGroupCallStatusToNonInvited(context.WithoutCancel(ctx), req.GroupID, req.RoomID, mediaType, inviterUserID, inv.InviteeUserIDList, GroupCallStatusEnded)
 
 	s.sendGroupCallEndedNotification(ctx, req.GroupID, inviterUserID, mediaType, req.DurationSecs)
 
