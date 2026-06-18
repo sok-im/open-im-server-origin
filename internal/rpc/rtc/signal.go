@@ -730,9 +730,13 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 		if remaining > 0 {
 			// Other participants are still in the call; just remove this user
 			// from the DB invitee list so they are no longer tracked as busy.
+			// Use PullInvitee (not RemoveInvitee) so the invitation record is
+			// NOT deleted when the list becomes empty — the inviter may still
+			// be in the call, and TryDeleteInvitation must be able to claim
+			// the record later to send sendGroupCallEndedNotification.
 			if datautil.Contain(req.UserID, dbInv.InviteeUserIDList...) {
-				if err := s.db.RemoveInvitee(ctx, dbInv.RoomID, req.UserID); err != nil {
-					log.ZWarn(ctx, "handleHungUp: RemoveInvitee failed", err, "roomID", dbInv.RoomID, "userID", req.UserID)
+				if err := s.db.PullInvitee(ctx, dbInv.RoomID, req.UserID); err != nil {
+					log.ZWarn(ctx, "handleHungUp: PullInvitee failed", err, "roomID", dbInv.RoomID, "userID", req.UserID)
 				}
 			}
 			log.ZInfo(ctx, "handleHungUp: group call continues", "roomID", dbInv.RoomID, "remaining", remaining)
