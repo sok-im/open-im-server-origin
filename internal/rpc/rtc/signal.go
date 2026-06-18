@@ -777,9 +777,14 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 				duration = (nowMs - dbInv.InitiateTime) / 1000
 			}
 		}
-		//go s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, duration)
-		//log.ZInfo(ctx, "lintao group call ended", "dbInv", dbInv)
-
+		// Atomically claim the invitation so only one path (HungUp or
+		// SignalNotifyGroupCallEnded) sends GroupCallEndedNotification.
+		claimed, claimErr := s.db.TryDeleteInvitation(ctx, dbInv.RoomID)
+		if claimErr != nil {
+			log.ZWarn(ctx, "handleHungUp: TryDeleteInvitation failed", claimErr, "roomID", dbInv.RoomID)
+		} else if claimed {
+			go s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, duration)
+		}
 	}
 
 	return &rtc.SignalHungUpResp{}, nil
@@ -984,6 +989,14 @@ func (s *rtcServer) SignalSendCustomSignal(ctx context.Context, req *rtc.SignalS
 // Call this when a group call ends (e.g. last participant left) to trigger OnGroupCallEnded on clients.
 // roomID is required; TryDeleteInvitation ensures only the first caller sends the notification.
 func (s *rtcServer) SignalNotifyGroupCallEnded(ctx context.Context, req *rtc.SignalNotifyGroupCallEndedReq) (*rtc.SignalNotifyGroupCallEndedResp, error) {
+	opUserID := mcontext.GetOpUserID(ctx)
+	if opUserID == "" {
+		log.ZWarn(ctx, "SignalNotifyGroupCallEnded", errs.ErrNoPermission.WrapMsg("missing opUserID"), "req", req)
+		return nil, errs.ErrNoPermission.WrapMsg("missing opUserID")
+	}
+
+	log.ZDebug(ctx, "SignalNotifyGroupCallEnded", "req", req, "opUserID", opUserID)
+
 	if req.GroupID == "" {
 		log.ZWarn(ctx, "SignalNotifyGroupCallEnded", errs.ErrArgs.WrapMsg("groupID is required"), "req", req)
 		return nil, errs.ErrArgs.WrapMsg("groupID is required")
@@ -992,11 +1005,7 @@ func (s *rtcServer) SignalNotifyGroupCallEnded(ctx context.Context, req *rtc.Sig
 		log.ZWarn(ctx, "SignalNotifyGroupCallEnded", errs.ErrArgs.WrapMsg("roomID is required"), "req", req)
 		return nil, errs.ErrArgs.WrapMsg("roomID is required")
 	}
-	opUserID := mcontext.GetOpUserID(ctx)
-	if opUserID == "" {
-		log.ZWarn(ctx, "SignalNotifyGroupCallEnded", errs.ErrNoPermission.WrapMsg("missing opUserID"), "req", req)
-		return nil, errs.ErrNoPermission.WrapMsg("missing opUserID")
-	}
+
 	if _, err := s.groupClient.GetGroupMemberCache(ctx, req.GroupID, opUserID); err != nil {
 		log.ZWarn(ctx, "SignalNotifyGroupCallEnded", err, "get group member cache failed")
 		return nil, err
