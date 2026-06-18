@@ -36,6 +36,8 @@ PAYMENT_NOTIFICATION_NICKNAME="${PAYMENT_NOTIFICATION_NICKNAME:-支付通知}"
 PAYMENT_NOTIFICATION_FACE_URL="${PAYMENT_NOTIFICATION_FACE_URL:-}"
 
 APP_MANAGER_LEVEL="${APP_MANAGER_LEVEL:-3}"
+LAST_HTTP_CODE=""
+LAST_API_RESP=""
 
 ACTION="init"
 UPDATE_EXISTING=0
@@ -157,12 +159,37 @@ call_api() {
   local path="$1"
   local body="$2"
   local token="$3"
+  local resp http_code
 
-  curl -sS -X POST "${OPENIM_API_ADDR}${path}" \
+  resp="$(curl -sS -w $'\n__HTTP_CODE__:%{http_code}' -X POST "${OPENIM_API_ADDR}${path}" \
     -H "Content-Type: application/json" \
     -H "operationID: ${OPERATION_ID}" \
     -H "token: ${token}" \
-    -d "$body"
+    -d "$body")"
+
+  http_code="${resp##*__HTTP_CODE__:}"
+  resp="${resp%$'\n'__HTTP_CODE__:*}"
+  LAST_HTTP_CODE="$http_code"
+  LAST_API_RESP="$resp"
+  printf '%s' "$resp"
+}
+
+format_api_error() {
+  local path="$1"
+  local resp="${2:-$LAST_API_RESP}"
+  local http_code="${3:-$LAST_HTTP_CODE}"
+
+  if [[ -z "$resp" ]]; then
+    echo "HTTP ${http_code:-unknown}, empty response (path=${path})"
+    return 0
+  fi
+
+  if [[ "$(json_get "$resp" "errCode")" != "" ]]; then
+    echo "HTTP ${http_code:-unknown}, path=${path}, body=${resp}"
+    return 0
+  fi
+
+  echo "HTTP ${http_code:-unknown}, path=${path}, body=${resp} (not OpenIM JSON; rebuild/restart openim-api and openim-rpc-user after pulling latest code)"
 }
 
 ensure_admin_token() {
@@ -170,23 +197,6 @@ ensure_admin_token() {
     info "ADMIN_TOKEN 未设置，尝试自动获取管理员 token..."
     ADMIN_TOKEN="$(get_admin_token)"
   fi
-}
-
-account_exists() {
-  local user_id="$1"
-  local token="$2"
-  local resp total
-
-  resp="$(call_api "/user/search_notification_account" \
-    "{\"keyword\":\"${user_id}\",\"pagination\":{\"pageNumber\":1,\"showNumber\":20}}" \
-    "$token")"
-
-  if [[ "$(json_get "$resp" "errCode")" != "0" ]]; then
-    die "查询通知账号失败 userID=${user_id}: ${resp}"
-  fi
-
-  total="$(json_get "$resp" "data.total")"
-  [[ "${total:-0}" != "0" ]]
 }
 
 create_notification_account() {
@@ -227,7 +237,7 @@ PY
     return 1
   fi
 
-  die "创建通知账号失败 userID=${user_id}: ${resp}"
+  die "创建通知账号失败 userID=${user_id}: $(format_api_error "/user/add_notification_account" "$resp")"
 }
 
 update_notification_account() {
@@ -259,7 +269,7 @@ PY
     return 0
   fi
 
-  die "更新通知账号失败 userID=${user_id}: ${resp}"
+  die "更新通知账号失败 userID=${user_id}: $(format_api_error "/user/update_notification_account" "$resp")"
 }
 
 init_account() {
@@ -268,21 +278,15 @@ init_account() {
   local face_url="$3"
   local token="$4"
 
-  if account_exists "$user_id" "$token"; then
-    if [[ "$UPDATE_EXISTING" -eq 1 ]]; then
-      update_notification_account "$user_id" "$nick_name" "$face_url" "$token" >/dev/null
-    else
-      ok "已存在，跳过 userID=${user_id}"
-    fi
-    return 0
-  fi
-
+  # 直接尝试创建；账号已存在时 create 返回 1，避免依赖 search 接口做存在性探测
   if create_notification_account "$user_id" "$nick_name" "$face_url" "$token" >/dev/null; then
     return 0
   fi
 
   if [[ "$UPDATE_EXISTING" -eq 1 ]]; then
     update_notification_account "$user_id" "$nick_name" "$face_url" "$token" >/dev/null
+  else
+    ok "已存在，跳过 userID=${user_id}"
   fi
 }
 
@@ -296,7 +300,7 @@ list_notification_accounts() {
   err_code="$(json_get "$resp" "errCode")"
 
   if [[ "$err_code" != "0" ]]; then
-    die "查询通知账号列表失败: ${resp}"
+    die "查询通知账号列表失败: $(format_api_error "/user/search_notification_account" "$resp")"
   fi
 
   echo "$resp" | python3 - <<'PY'
