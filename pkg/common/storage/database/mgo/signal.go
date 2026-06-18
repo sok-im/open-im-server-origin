@@ -106,13 +106,7 @@ func (s *signalMgo) TryDeleteInvitation(ctx context.Context, roomID string) (boo
 func (s *signalMgo) RemoveInvitee(ctx context.Context, roomID string, userID string) error {
 	filter := bson.M{"room_id": roomID}
 	update := bson.M{"$pull": bson.M{"invitee_user_id_list": userID}}
-	if _, err := s.invColl.UpdateOne(ctx, filter, update); err != nil {
-		return err
-	}
-	_, err := s.invColl.DeleteOne(ctx, bson.M{
-		"room_id":              roomID,
-		"invitee_user_id_list": bson.M{"$size": 0},
-	})
+	_, err := s.invColl.UpdateOne(ctx, filter, update)
 	return err
 }
 
