@@ -748,8 +748,12 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 		log.ZWarn(ctx, "handleHungUp: DeleteRoom failed", err, "roomID", dbInv.RoomID)
 	}
 
-	if err := s.db.DeleteInvitation(ctx, dbInv.RoomID); err != nil {
-		log.ZWarn(ctx, "handleHungUp: DeleteInvitation failed", err, "roomID", dbInv.RoomID)
+	// Group calls keep the invitation until SignalNotifyGroupCallEnded atomically
+	// claims it, so concurrent end notifications are deduplicated by roomID.
+	if dbInv.GroupID == "" {
+		if err := s.db.DeleteInvitation(ctx, dbInv.RoomID); err != nil {
+			log.ZWarn(ctx, "handleHungUp: DeleteInvitation failed", err, "roomID", dbInv.RoomID)
+		}
 	}
 
 	// Notify non-invited group members that the call has ended so they dismiss the banner.
@@ -978,10 +982,15 @@ func (s *rtcServer) SignalSendCustomSignal(ctx context.Context, req *rtc.SignalS
 
 // SignalNotifyGroupCallEnded sends GroupCallEndedNotification (1523) to all group members.
 // Call this when a group call ends (e.g. last participant left) to trigger OnGroupCallEnded on clients.
+// roomID is required; TryDeleteInvitation ensures only the first caller sends the notification.
 func (s *rtcServer) SignalNotifyGroupCallEnded(ctx context.Context, req *rtc.SignalNotifyGroupCallEndedReq) (*rtc.SignalNotifyGroupCallEndedResp, error) {
 	if req.GroupID == "" {
 		log.ZWarn(ctx, "SignalNotifyGroupCallEnded", errs.ErrArgs.WrapMsg("groupID is required"), "req", req)
 		return nil, errs.ErrArgs.WrapMsg("groupID is required")
+	}
+	if req.RoomID == "" {
+		log.ZWarn(ctx, "SignalNotifyGroupCallEnded", errs.ErrArgs.WrapMsg("roomID is required"), "req", req)
+		return nil, errs.ErrArgs.WrapMsg("roomID is required")
 	}
 	opUserID := mcontext.GetOpUserID(ctx)
 	if opUserID == "" {
@@ -993,46 +1002,32 @@ func (s *rtcServer) SignalNotifyGroupCallEnded(ctx context.Context, req *rtc.Sig
 		return nil, err
 	}
 
-	var inv *model.SignalInvitation
-	var err error
-	if req.RoomID != "" {
-		inv, err = s.db.GetInvitationByRoomID(ctx, req.RoomID)
-		if err != nil {
-			log.ZWarn(ctx, "SignalNotifyGroupCallEnded", err, "get invitation by roomID failed")
-			return nil, errs.WrapMsg(err, "invitation not found", "roomID", req.RoomID)
-		}
-		if inv.GroupID != req.GroupID {
-			log.ZWarn(ctx, "SignalNotifyGroupCallEnded", errs.ErrArgs.WrapMsg("groupID does not match invitation"), "req", req)
-			return nil, errs.ErrArgs.WrapMsg("groupID does not match invitation")
-		}
-	} else {
-		inv, err = s.db.GetInvitationByGroupID(ctx, req.GroupID)
-		if err != nil && !errs.ErrRecordNotFound.Is(err) {
-			log.ZWarn(ctx, "SignalNotifyGroupCallEnded", err, "get invitation by groupID failed", "req", req)
-			return nil, err
-		}
+	inv, err := s.db.GetInvitationByRoomID(ctx, req.RoomID)
+	if err != nil {
 		if errs.ErrRecordNotFound.Is(err) {
-			inv = nil
+			log.ZDebug(ctx, "SignalNotifyGroupCallEnded: invitation already ended, skip duplicate", "roomID", req.RoomID)
+			return &rtc.SignalNotifyGroupCallEndedResp{}, nil
 		}
+		log.ZWarn(ctx, "SignalNotifyGroupCallEnded", err, "get invitation by roomID failed")
+		return nil, errs.WrapMsg(err, "invitation not found", "roomID", req.RoomID)
+	}
+	if inv.GroupID != req.GroupID {
+		log.ZWarn(ctx, "SignalNotifyGroupCallEnded", errs.ErrArgs.WrapMsg("groupID does not match invitation"), "req", req)
+		return nil, errs.ErrArgs.WrapMsg("groupID does not match invitation")
 	}
 
-	if inv != nil {
-		if opUserID != inv.InviterUserID && !datautil.Contain(opUserID, inv.InviteeUserIDList...) {
-			log.ZWarn(ctx, "SignalNotifyGroupCallEnded", errs.ErrNoPermission.WrapMsg("user is not a participant of this call"), "req", req)
-			return nil, errs.ErrNoPermission.WrapMsg("user is not a participant of this call")
-		}
+	if opUserID != inv.InviterUserID && !datautil.Contain(opUserID, inv.InviteeUserIDList...) {
+		log.ZWarn(ctx, "SignalNotifyGroupCallEnded", errs.ErrNoPermission.WrapMsg("user is not a participant of this call"), "req", req)
+		return nil, errs.ErrNoPermission.WrapMsg("user is not a participant of this call")
 	}
 
 	inviterUserID := req.InviterUserID
-	if inviterUserID == "" && inv != nil {
-		inviterUserID = inv.InviterUserID
-	}
 	if inviterUserID == "" {
-		inviterUserID = opUserID
+		inviterUserID = inv.InviterUserID
 	}
 
 	mediaType := req.MediaType
-	if mediaType == "" && inv != nil {
+	if mediaType == "" {
 		mediaType = inv.MediaType
 	}
 	if mediaType == "" {
@@ -1042,28 +1037,31 @@ func (s *rtcServer) SignalNotifyGroupCallEnded(ctx context.Context, req *rtc.Sig
 
 	// 检查 LiveKit 房间内的实时在线人数。
 	// 若仍有参与者留在房间，说明通话尚未真正结束，拒绝发送结束通知。
-	// 若房间已空（或查询失败视为已空），则清理 LiveKit 房间与 DB 邀请记录，再发通知。
-	if inv != nil && inv.RoomID != "" {
-		lp, listErr := s.roomClient.ListParticipants(ctx, &livekit.ListParticipantsRequest{Room: inv.RoomID})
-		if listErr != nil {
-			// 查询失败通常意味着房间已不存在，视为通话已结束，继续处理。
-			log.ZWarn(ctx, "SignalNotifyGroupCallEnded: ListParticipants failed, treating as empty", listErr, "roomID", inv.RoomID)
-		} else {
-			remaining := len(lp.GetParticipants())
-			log.ZInfo(ctx, "SignalNotifyGroupCallEnded: livekit participants", "roomID", inv.RoomID, "remaining", remaining)
-			if remaining > 0 {
-				log.ZDebug(ctx, "SignalNotifyGroupCallEnded", "roomID", inv.RoomID, "remaining", remaining)
-				return &rtc.SignalNotifyGroupCallEndedResp{}, nil
-			}
+	lp, listErr := s.roomClient.ListParticipants(ctx, &livekit.ListParticipantsRequest{Room: req.RoomID})
+	if listErr != nil {
+		// 查询失败通常意味着房间已不存在，视为通话已结束，继续处理。
+		log.ZWarn(ctx, "SignalNotifyGroupCallEnded: ListParticipants failed, treating as empty", listErr, "roomID", req.RoomID)
+	} else {
+		remaining := len(lp.GetParticipants())
+		log.ZInfo(ctx, "SignalNotifyGroupCallEnded: livekit participants", "roomID", req.RoomID, "remaining", remaining)
+		if remaining > 0 {
+			log.ZDebug(ctx, "SignalNotifyGroupCallEnded", "roomID", req.RoomID, "remaining", remaining)
+			return &rtc.SignalNotifyGroupCallEndedResp{}, nil
 		}
+	}
 
-		// 房间已空，清理 LiveKit 房间与 DB 邀请记录。
-		//if _, delErr := s.roomClient.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: inv.RoomID}); delErr != nil {
-		//	log.ZWarn(ctx, "SignalNotifyGroupCallEnded: DeleteRoom failed (non-fatal)", delErr, "roomID", inv.RoomID)
-		//}
-		//if delErr := s.db.DeleteInvitation(ctx, inv.RoomID); delErr != nil {
-		//	log.ZWarn(ctx, "SignalNotifyGroupCallEnded: DeleteInvitation failed (non-fatal)", delErr, "roomID", inv.RoomID)
-		//}
+	claimed, claimErr := s.db.TryDeleteInvitation(ctx, req.RoomID)
+	if claimErr != nil {
+		log.ZWarn(ctx, "SignalNotifyGroupCallEnded: TryDeleteInvitation failed", claimErr, "roomID", req.RoomID)
+		return nil, claimErr
+	}
+	if !claimed {
+		log.ZDebug(ctx, "SignalNotifyGroupCallEnded: duplicate end notify, skip", "roomID", req.RoomID)
+		return &rtc.SignalNotifyGroupCallEndedResp{}, nil
+	}
+
+	if _, delErr := s.roomClient.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: req.RoomID}); delErr != nil {
+		log.ZWarn(ctx, "SignalNotifyGroupCallEnded: DeleteRoom failed (non-fatal)", delErr, "roomID", req.RoomID)
 	}
 
 	s.sendGroupCallEndedNotification(ctx, req.GroupID, inviterUserID, mediaType, req.DurationSecs)

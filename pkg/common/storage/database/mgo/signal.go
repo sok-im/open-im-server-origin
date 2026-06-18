@@ -95,6 +95,14 @@ func (s *signalMgo) DeleteInvitation(ctx context.Context, roomID string) error {
 	return mongoutil.DeleteMany(ctx, s.invColl, bson.M{"room_id": roomID})
 }
 
+func (s *signalMgo) TryDeleteInvitation(ctx context.Context, roomID string) (bool, error) {
+	res, err := s.invColl.DeleteOne(ctx, bson.M{"room_id": roomID})
+	if err != nil {
+		return false, err
+	}
+	return res.DeletedCount > 0, nil
+}
+
 func (s *signalMgo) RemoveInvitee(ctx context.Context, roomID string, userID string) error {
 	filter := bson.M{"room_id": roomID}
 	update := bson.M{"$pull": bson.M{"invitee_user_id_list": userID}}

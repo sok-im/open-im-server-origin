@@ -31,6 +31,9 @@ type SignalDatabase interface {
 	GetInvitationByInviteeUserID(ctx context.Context, userID string) (*model.SignalInvitation, error)
 	// DeleteInvitation removes an invitation record when the call ends.
 	DeleteInvitation(ctx context.Context, roomID string) error
+	// TryDeleteInvitation atomically removes one invitation by roomID.
+	// Returns true when a document was deleted (first caller wins for end-of-call dedup).
+	TryDeleteInvitation(ctx context.Context, roomID string) (bool, error)
 	// RemoveInvitee removes a single user from the invitee list via $pull;
 	// if the list becomes empty the document is deleted automatically.
 	RemoveInvitee(ctx context.Context, roomID string, userID string) error
