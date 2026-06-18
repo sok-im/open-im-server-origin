@@ -42,6 +42,7 @@ type rtcServer struct {
 	rtc.UnimplementedRtcServiceServer
 	config         *Config
 	db             controller.RtcDatabase
+	globalBlackDB  controller.UserGlobalBlackDatabase
 	roomClient     *lksdk.RoomServiceClient
 	msgClient      *rpcli.MsgClient
 	userClient     *rpcli.UserClient
@@ -58,6 +59,11 @@ func Start(ctx context.Context, cfg *Config, client discovery.SvcDiscoveryRegist
 	}
 
 	signalDB, err := mgo.NewSignalMongo(mgocli.GetDB())
+	if err != nil {
+		return err
+	}
+
+	globalBlackMgo, err := mgo.NewUserGlobalBlackMongo(mgocli.GetDB())
 	if err != nil {
 		return err
 	}
@@ -93,6 +99,7 @@ func Start(ctx context.Context, cfg *Config, client discovery.SvcDiscoveryRegist
 	s := &rtcServer{
 		config:         cfg,
 		db:             controller.NewRtcDatabase(signalDB),
+		globalBlackDB:  controller.NewUserGlobalBlackDatabase(globalBlackMgo),
 		roomClient:     roomClient,
 		msgClient:      rpcli.NewMsgClient(msgConn),
 		userClient:     rpcli.NewUserClient(userConn),

@@ -33,3 +33,15 @@ func (x *RelationClient) IsFriend(ctx context.Context, ownerUserID, friendUserID
 	}
 	return resp.InUser1Friends, nil
 }
+
+// IsBlack checks whether possibleBlackUserID is in userID's blacklist.
+func (x *RelationClient) IsBlack(ctx context.Context, possibleBlackUserID, userID string) (bool, error) {
+	resp, err := x.FriendClient.IsBlack(ctx, &relation.IsBlackReq{
+		UserID1: possibleBlackUserID,
+		UserID2: userID,
+	})
+	if err != nil {
+		return false, err
+	}
+	return resp.InUser2Blacks, nil
+}

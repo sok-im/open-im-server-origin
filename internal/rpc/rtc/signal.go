@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -110,7 +111,12 @@ func (s *rtcServer) handleInvite(ctx context.Context, req *rtc.SignalInviteReq, 
 		return nil, errs.ErrArgs.WrapMsg("no invitees", "inviteeUserIDList", inv.InviteeUserIDList)
 	}
 
-	notAllowUserIDs, notAllowSet, err := s.filterNotAllowedInvitees(ctx, req.UserID, inv.InviteeUserIDList)
+	if err := s.verifyInviterGlobalStatus(ctx, req.UserID); err != nil {
+		log.ZError(ctx, "handleInvite", err, "verifyInviterGlobalStatus failed", "req", req)
+		return nil, err
+	}
+
+	notAllowUserIDs, notAllowSet, blacklistedSet, globalBlockedSet, err := s.filterNotAllowedInvitees(ctx, req.UserID, inv.InviteeUserIDList)
 	if err != nil {
 		log.ZError(ctx, "handleInvite", err, "filterNotAllowedInvitees failed", "req", req)
 		return nil, err
@@ -118,7 +124,7 @@ func (s *rtcServer) handleInvite(ctx context.Context, req *rtc.SignalInviteReq, 
 	inv.NotAllowUserIDList = notAllowUserIDs
 
 	if len(notAllowUserIDs) == len(inv.InviteeUserIDList) {
-		return nil, errs.ErrNoPermission.WrapMsg("all invitees do not accept calls from you", "inviteeUserIDList", inv.InviteeUserIDList)
+		return nil, callInviteAllNotAllowedErr(blacklistedSet, globalBlockedSet, inv.InviteeUserIDList)
 	}
 
 	// 检测哪些被叫用户正忙（已在通话中），记录到 BusyLineUserIDList
@@ -230,7 +236,12 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 	inv.InviterUserID = req.UserID
 	inv.InitiateTime = time.Now().UnixMilli()
 
-	notAllowUserIDs, notAllowSet, err := s.filterNotAllowedInvitees(ctx, req.UserID, inv.InviteeUserIDList)
+	if err := s.verifyInviterGlobalStatus(ctx, req.UserID); err != nil {
+		log.ZError(ctx, "handleInviteInGroup", err, "verifyInviterGlobalStatus failed", "req", req)
+		return nil, err
+	}
+
+	notAllowUserIDs, notAllowSet, blacklistedSet, globalBlockedSet, err := s.filterNotAllowedInvitees(ctx, req.UserID, inv.InviteeUserIDList)
 	if err != nil {
 		log.ZError(ctx, "handleInviteInGroup", err, "filterNotAllowedInvitees failed", "req", req)
 		return nil, err
@@ -238,8 +249,9 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 	inv.NotAllowUserIDList = notAllowUserIDs
 
 	if len(notAllowUserIDs) == len(inv.InviteeUserIDList) {
-		log.ZError(ctx, "handleInviteInGroup", errs.ErrNoPermission, "all invitees do not accept calls from you", "inviteeUserIDList", inv.InviteeUserIDList, "req", req)
-		return nil, errs.ErrNoPermission.WrapMsg("all invitees do not accept calls from you", "inviteeUserIDList", inv.InviteeUserIDList)
+		err := callInviteAllNotAllowedErr(blacklistedSet, globalBlockedSet, inv.InviteeUserIDList)
+		log.ZError(ctx, "handleInviteInGroup", err, "all invitees not allowed", "inviteeUserIDList", inv.InviteeUserIDList, "req", req)
+		return nil, err
 	}
 
 	// 检测哪些被叫用户正忙（已在通话中），记录到 BusyLineUserIDList
@@ -344,21 +356,75 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 	return resp, nil
 }
 
-func (s *rtcServer) filterNotAllowedInvitees(ctx context.Context, inviterID string, inviteeIDs []string) ([]string, map[string]struct{}, error) {
+func (s *rtcServer) filterNotAllowedInvitees(ctx context.Context, inviterID string, inviteeIDs []string) ([]string, map[string]struct{}, map[string]struct{}, map[string]struct{}, error) {
 	notAllowUserIDs := make([]string, 0)
 	notAllowSet := make(map[string]struct{})
+	blacklistedSet := make(map[string]struct{})
+	globalBlockedSet := make(map[string]struct{})
+
+	globalBlockedUsers, err := s.globalBlackDB.FindBlocked(ctx, inviteeIDs)
+	if err != nil {
+		log.ZError(ctx, "filterNotAllowedInvitees: FindBlocked failed", err, "inviteeIDs", inviteeIDs)
+		return nil, nil, nil, nil, err
+	}
+	for _, b := range globalBlockedUsers {
+		globalBlockedSet[b.UserID] = struct{}{}
+	}
+
 	for _, inviteeID := range inviteeIDs {
+		if _, restricted := globalBlockedSet[inviteeID]; restricted {
+			notAllowUserIDs = append(notAllowUserIDs, inviteeID)
+			notAllowSet[inviteeID] = struct{}{}
+			continue
+		}
+		blocked, err := s.relationClient.IsBlack(ctx, inviterID, inviteeID)
+		if err != nil {
+			log.ZError(ctx, "filterNotAllowedInvitees: IsBlack failed", err, "inviterID", inviterID, "inviteeID", inviteeID)
+			return nil, nil, nil, nil, err
+		}
+		if blocked {
+			notAllowUserIDs = append(notAllowUserIDs, inviteeID)
+			notAllowSet[inviteeID] = struct{}{}
+			blacklistedSet[inviteeID] = struct{}{}
+			continue
+		}
 		allowed, err := s.isCallAllowed(ctx, inviterID, inviteeID)
 		if err != nil {
 			log.ZError(ctx, "filterNotAllowedInvitees: isCallAllowed failed", err, "inviteeID", inviteeID)
-			return nil, nil, err
+			return nil, nil, nil, nil, err
 		}
 		if !allowed {
 			notAllowUserIDs = append(notAllowUserIDs, inviteeID)
 			notAllowSet[inviteeID] = struct{}{}
 		}
 	}
-	return notAllowUserIDs, notAllowSet, nil
+	return notAllowUserIDs, notAllowSet, blacklistedSet, globalBlockedSet, nil
+}
+
+// verifyInviterGlobalStatus 校验主叫方全局账号状态，冻结/全局黑名单用户不可发起通话。
+func (s *rtcServer) verifyInviterGlobalStatus(ctx context.Context, inviterID string) error {
+	if datautil.Contain(inviterID, s.config.Share.IMAdminUserID...) {
+		return nil
+	}
+	st, err := s.globalBlackDB.GetStatus(ctx, inviterID)
+	if err != nil {
+		log.ZWarn(ctx, "verifyInviterGlobalStatus: GetStatus failed", err, "inviterID", inviterID)
+		return nil
+	}
+	if st == model.UserStatusFrozen || st == model.UserStatusBlacklist {
+		return servererrs.ErrUserBlocked.WithDetail("sender is restricted, status=" + strconv.Itoa(int(st)))
+	}
+	return nil
+}
+
+func callInviteAllNotAllowedErr(blacklistedSet, globalBlockedSet map[string]struct{}, inviteeIDs []string) error {
+	if len(blacklistedSet) > 0 {
+		return servererrs.ErrBlockedByPeer.Wrap()
+	}
+	if len(globalBlockedSet) > 0 {
+		return servererrs.ErrMsgReceiveNotAllowed.WrapMsg("invitee is restricted")
+	}
+	return errs.ErrNoPermission.WrapMsg("all invitees do not accept calls from you", "inviteeUserIDList", inviteeIDs)
 }
 
 func hasReachableInvitee(inviteeIDs []string, notAllowSet, busySet map[string]struct{}) bool {
@@ -375,6 +441,7 @@ func hasReachableInvitee(inviteeIDs []string, notAllowSet, busySet map[string]st
 }
 
 // isCallAllowed 判断 inviterID 是否被允许向 inviteeID 发起音视频通话。
+// 好友黑名单与全局黑名单校验在 filterNotAllowedInvitees 中优先执行。
 // 规则：
 //   - CallAcceptSettingPublic(0)  → 所有人均可
 //   - CallAcceptSettingFriends(1) → 仅当 inviterID 在 inviteeID 好友列表中
