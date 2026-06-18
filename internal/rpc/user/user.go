@@ -962,9 +962,13 @@ func (s *userServer) ProcessUserCommandGetAll(ctx context.Context, req *pbuser.P
 
 func (s *userServer) AddNotificationAccount(ctx context.Context, req *pbuser.AddNotificationAccountReq) (*pbuser.AddNotificationAccountResp, error) {
 	if err := authverify.CheckAdmin(ctx, s.config.Share.IMAdminUserID); err != nil {
+		log.ZError(ctx, "AddNotificationAccount: CheckAdmin failed", err,
+			"opUserID", mcontext.GetOpUserID(ctx), "userID", req.UserID)
 		return nil, err
 	}
 	if req.AppMangerLevel < constant.AppNotificationAdmin {
+		log.ZError(ctx, "AddNotificationAccount: AppMangerLevel not supported", err,
+			"opUserID", mcontext.GetOpUserID(ctx), "userID", req.UserID)
 		return nil, errs.ErrArgs.WithDetail("app level not supported")
 	}
 	if req.UserID == "" {
@@ -978,11 +982,15 @@ func (s *userServer) AddNotificationAccount(ctx context.Context, req *pbuser.Add
 			break
 		}
 		if req.UserID == "" {
+			log.ZError(ctx, "AddNotificationAccount: gen user id failed", err,
+				"opUserID", mcontext.GetOpUserID(ctx), "userID", req.UserID)
 			return nil, errs.ErrInternalServer.WrapMsg("gen user id failed")
 		}
 	} else {
 		_, err := s.db.FindWithError(ctx, []string{req.UserID})
 		if err == nil {
+			log.ZError(ctx, "AddNotificationAccount: userID is used", err,
+				"opUserID", mcontext.GetOpUserID(ctx), "userID", req.UserID)
 			return nil, errs.ErrArgs.WrapMsg("userID is used")
 		}
 	}
@@ -995,6 +1003,8 @@ func (s *userServer) AddNotificationAccount(ctx context.Context, req *pbuser.Add
 		AppMangerLevel: req.AppMangerLevel,
 	}
 	if err := s.db.Create(ctx, []*tablerelation.User{user}); err != nil {
+		log.ZError(ctx, "AddNotificationAccount: Create failed", err,
+			"opUserID", mcontext.GetOpUserID(ctx), "userID", req.UserID)
 		return nil, err
 	}
 

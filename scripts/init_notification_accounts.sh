@@ -20,6 +20,7 @@ set -euo pipefail
 #   PAYMENT_NOTIFICATION_NICKNAME     默认: 支付通知
 #   PAYMENT_NOTIFICATION_FACE_URL       默认: 空
 #   APP_MANAGER_LEVEL                 默认: 3 (AppNotificationAdmin)
+#   NOTIFICATION_API_MODE             可选: modern | legacy（默认自动探测）
 
 OPENIM_API_ADDR="${OPENIM_API_ADDR:-http://127.0.0.1:10002}"
 ADMIN_TOKEN="${ADMIN_TOKEN:-}"
@@ -36,6 +37,7 @@ PAYMENT_NOTIFICATION_NICKNAME="${PAYMENT_NOTIFICATION_NICKNAME:-支付通知}"
 PAYMENT_NOTIFICATION_FACE_URL="${PAYMENT_NOTIFICATION_FACE_URL:-}"
 
 APP_MANAGER_LEVEL="${APP_MANAGER_LEVEL:-3}"
+NOTIFICATION_API_MODE="${NOTIFICATION_API_MODE:-}"
 LAST_HTTP_CODE=""
 LAST_API_RESP=""
 
@@ -159,19 +161,61 @@ call_api() {
   local path="$1"
   local body="$2"
   local token="$3"
-  local resp http_code
+  local tmp_body http_code resp
 
-  resp="$(curl -sS -w $'\n__HTTP_CODE__:%{http_code}' -X POST "${OPENIM_API_ADDR}${path}" \
+  tmp_body="$(mktemp)"
+  http_code="$(curl -sS -o "$tmp_body" -w '%{http_code}' -X POST "${OPENIM_API_ADDR}${path}" \
     -H "Content-Type: application/json" \
     -H "operationID: ${OPERATION_ID}" \
     -H "token: ${token}" \
     -d "$body")"
-
-  http_code="${resp##*__HTTP_CODE__:}"
-  resp="${resp%$'\n'__HTTP_CODE__:*}"
+  resp="$(cat "$tmp_body")"
+  rm -f "$tmp_body"
   LAST_HTTP_CODE="$http_code"
   LAST_API_RESP="$resp"
   printf '%s' "$resp"
+}
+
+is_openim_json() {
+  local resp="$1"
+  [[ "$(json_get "$resp" "errCode")" != "" ]]
+}
+
+detect_notification_api_mode() {
+  local resp
+
+  case "$NOTIFICATION_API_MODE" in
+    modern|legacy)
+      info "使用 NOTIFICATION_API_MODE=${NOTIFICATION_API_MODE}"
+      return 0
+      ;;
+    "")
+      ;;
+    *)
+      die "无效的 NOTIFICATION_API_MODE=${NOTIFICATION_API_MODE}（可选: modern | legacy）"
+      ;;
+  esac
+
+  resp="$(call_api "/user/search_notification_account" \
+    '{"pagination":{"pageNumber":1,"showNumber":1}}' \
+    "$ADMIN_TOKEN")"
+
+  if is_openim_json "$resp"; then
+    NOTIFICATION_API_MODE="modern"
+    info "检测到通知账号专用 API"
+    return 0
+  fi
+
+  resp="$(call_api "/user/user_register" '{"users":[]}' "$ADMIN_TOKEN")"
+  if is_openim_json "$resp"; then
+    NOTIFICATION_API_MODE="legacy"
+    warn "通知账号专用 API 不可用 (HTTP ${LAST_HTTP_CODE}, body=${LAST_API_RESP})"
+    warn "回退到 /user/user_register + /user/update_user_info 创建通知账号"
+    warn "建议执行: mage build openim-api openim-rpc-user && 重启这两个服务"
+    return 0
+  fi
+
+  die "OpenIM API 不可用: $(format_api_error "/user/user_register" "$resp" "$LAST_HTTP_CODE")"
 }
 
 format_api_error() {
@@ -199,7 +243,91 @@ ensure_admin_token() {
   fi
 }
 
+create_notification_account_legacy() {
+  local user_id="$1"
+  local nick_name="$2"
+  local face_url="$3"
+  local token="$4"
+  local body resp err_code err_msg err_dlt
+
+  body="$(python3 - <<'PY' "$user_id" "$nick_name" "$face_url" "$APP_MANAGER_LEVEL"
+import json
+import sys
+
+user_id, nick_name, face_url, app_level = sys.argv[1:5]
+user = {
+    "userID": user_id,
+    "nickname": nick_name,
+    "appMangerLevel": int(app_level),
+}
+if face_url:
+    user["faceURL"] = face_url
+print(json.dumps({"users": [user]}, ensure_ascii=False))
+PY
+)"
+
+  info "创建通知账号(legacy) userID=${user_id}, nickname=${nick_name}"
+  resp="$(call_api "/user/user_register" "$body" "$token")"
+  err_code="$(json_get "$resp" "errCode")"
+  err_msg="$(json_get "$resp" "errMsg")"
+  err_dlt="$(json_get "$resp" "errDlt")"
+
+  if [[ "$err_code" == "0" ]]; then
+    ok "创建成功 userID=${user_id}"
+    echo "$resp"
+    return 0
+  fi
+
+  if [[ "$err_msg" == *"RegisteredAlready"* ]] || [[ "$err_dlt" == *"registered already"* ]]; then
+    warn "账号已存在 userID=${user_id}"
+    return 1
+  fi
+
+  die "创建通知账号失败 userID=${user_id}: $(format_api_error "/user/user_register" "$resp" "$LAST_HTTP_CODE")"
+}
+
+update_notification_account_legacy() {
+  local user_id="$1"
+  local nick_name="$2"
+  local face_url="$3"
+  local token="$4"
+  local body resp err_code
+
+  body="$(python3 - <<'PY' "$user_id" "$nick_name" "$face_url" "$APP_MANAGER_LEVEL"
+import json
+import sys
+
+user_id, nick_name, face_url, app_level = sys.argv[1:5]
+user_info = {
+    "userID": user_id,
+    "nickname": nick_name,
+    "appMangerLevel": int(app_level),
+}
+if face_url:
+    user_info["faceURL"] = face_url
+print(json.dumps({"userInfo": user_info}, ensure_ascii=False))
+PY
+)"
+
+  info "更新通知账号(legacy) userID=${user_id}, nickname=${nick_name}"
+  resp="$(call_api "/user/update_user_info" "$body" "$token")"
+  err_code="$(json_get "$resp" "errCode")"
+
+  if [[ "$err_code" == "0" ]]; then
+    ok "更新成功 userID=${user_id}"
+    echo "$resp"
+    return 0
+  fi
+
+  die "更新通知账号失败 userID=${user_id}: $(format_api_error "/user/update_user_info" "$resp" "$LAST_HTTP_CODE")"
+}
+
 create_notification_account() {
+  if [[ "$NOTIFICATION_API_MODE" == "legacy" ]]; then
+    create_notification_account_legacy "$@"
+    return $?
+  fi
+
   local user_id="$1"
   local nick_name="$2"
   local face_url="$3"
@@ -237,10 +365,15 @@ PY
     return 1
   fi
 
-  die "创建通知账号失败 userID=${user_id}: $(format_api_error "/user/add_notification_account" "$resp")"
+  die "创建通知账号失败 userID=${user_id}: $(format_api_error "/user/add_notification_account" "$resp" "$LAST_HTTP_CODE")"
 }
 
 update_notification_account() {
+  if [[ "$NOTIFICATION_API_MODE" == "legacy" ]]; then
+    update_notification_account_legacy "$@"
+    return $?
+  fi
+
   local user_id="$1"
   local nick_name="$2"
   local face_url="$3"
@@ -269,7 +402,7 @@ PY
     return 0
   fi
 
-  die "更新通知账号失败 userID=${user_id}: $(format_api_error "/user/update_notification_account" "$resp")"
+  die "更新通知账号失败 userID=${user_id}: $(format_api_error "/user/update_notification_account" "$resp" "$LAST_HTTP_CODE")"
 }
 
 init_account() {
@@ -290,8 +423,54 @@ init_account() {
   fi
 }
 
+list_notification_accounts_legacy() {
+  local token="$1"
+  local body resp err_code
+
+  body="$(python3 - <<'PY' "$SERVICE_NOTIFICATION_USER_ID" "$PAYMENT_NOTIFICATION_USER_ID"
+import json
+import sys
+
+print(json.dumps({"userIDs": [sys.argv[1], sys.argv[2]]}))
+PY
+)"
+
+  resp="$(call_api "/user/get_users_info" "$body" "$token")"
+  err_code="$(json_get "$resp" "errCode")"
+
+  if [[ "$err_code" != "0" ]]; then
+    die "查询通知账号列表失败: $(format_api_error "/user/get_users_info" "$resp" "$LAST_HTTP_CODE")"
+  fi
+
+  echo "$resp" | python3 - <<'PY' "$APP_MANAGER_LEVEL"
+import json
+import sys
+
+app_level = int(sys.argv[1])
+raw = sys.stdin.read().strip()
+obj = json.loads(raw)
+users = (((obj or {}).get("data") or {}).get("usersInfo")) or []
+
+accounts = [u for u in users if int(u.get("appMangerLevel") or 0) >= app_level]
+print(f"通知账号总数: {len(accounts)}")
+for item in accounts:
+    print(
+        f"- userID={item.get('userID','')}, "
+        f"nickName={item.get('nickname','')}, "
+        f"appMangerLevel={item.get('appMangerLevel','')}, "
+        f"faceURL={item.get('faceURL','')}"
+    )
+PY
+}
+
 list_notification_accounts() {
   local token="$1"
+
+  if [[ "$NOTIFICATION_API_MODE" == "legacy" ]]; then
+    list_notification_accounts_legacy "$token"
+    return 0
+  fi
+
   local resp err_code
 
   resp="$(call_api "/user/search_notification_account" \
@@ -300,7 +479,7 @@ list_notification_accounts() {
   err_code="$(json_get "$resp" "errCode")"
 
   if [[ "$err_code" != "0" ]]; then
-    die "查询通知账号列表失败: $(format_api_error "/user/search_notification_account" "$resp")"
+    die "查询通知账号列表失败: $(format_api_error "/user/search_notification_account" "$resp" "$LAST_HTTP_CODE")"
   fi
 
   echo "$resp" | python3 - <<'PY'
@@ -331,6 +510,7 @@ PY
 main() {
   parse_args "$@"
   ensure_admin_token
+  detect_notification_api_mode
 
   case "$ACTION" in
     list)
