@@ -324,5 +324,8 @@ func (f *FriendNotificationSender) BlackDeletedNotification(ctx context.Context,
 
 func (f *FriendNotificationSender) FriendInfoUpdatedNotification(ctx context.Context, changedUserID string, needNotifiedUserID string) {
 	tips := sdkws.UserInfoUpdatedTips{UserID: changedUserID}
+	log.ZInfo(ctx, "lintao FriendInfoUpdatedNotification dispatch",
+		"changedUserID", changedUserID,
+		"needNotifiedUserID", needNotifiedUserID)
 	f.Notification(ctx, mcontext.GetOpUserID(ctx), needNotifiedUserID, constant.FriendInfoUpdatedNotification, &tips)
 }

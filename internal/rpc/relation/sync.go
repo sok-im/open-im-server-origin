@@ -44,11 +44,20 @@ func (s *friendServer) NotificationUserInfoUpdate(ctx context.Context, req *rela
 		noCancelCtx := context.WithoutCancel(ctx)
 		err := s.queue.PushCtx(ctx, func() {
 			for _, ownerUserID := range ownerUserIDs {
+				log.ZInfo(ctx, "lintao NotificationUserInfoUpdate bump friend version",
+					"changedUserID", req.UserID,
+					"ownerUserID", ownerUserID)
 				if err := s.db.OwnerIncrVersion(noCancelCtx, ownerUserID, friendUserIDs, model.VersionStateUpdate); err != nil {
 					log.ZError(ctx, "OwnerIncrVersion", err, "ownerUserID", ownerUserID, "friendUserIDs", friendUserIDs)
 				}
 			}
+			ownerSet := datautil.SliceSet(ownerUserIDs)
 			for _, notifyUserID := range notifyUserIDs {
+				_, versionBumped := ownerSet[notifyUserID]
+				log.ZInfo(ctx, "lintao NotificationUserInfoUpdate send FriendInfoUpdatedNotification",
+					"changedUserID", req.UserID,
+					"notifyUserID", notifyUserID,
+					"versionBumped", versionBumped)
 				s.notificationSender.FriendInfoUpdatedNotification(noCancelCtx, req.UserID, notifyUserID)
 			}
 		})
