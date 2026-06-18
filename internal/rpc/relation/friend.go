@@ -677,8 +677,8 @@ func (s *friendServer) GetFriendPhone(ctx context.Context, req *relation.GetFrie
 		return nil, errs.ErrRecordNotFound.WrapMsg("user not found")
 	}
 	return &relation.GetFriendPhoneResp{
-		Phone:     userInfo.Phone,
-		AreaCode:  userInfo.AreaCode,
+		Phone:    userInfo.Phone,
+		AreaCode: userInfo.AreaCode,
 	}, nil
 }
 

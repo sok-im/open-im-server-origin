@@ -91,6 +91,14 @@ type ConversationElem struct {
 	LastSeqTime int64 `protobuf:"varint,3,opt,name=LastSeqTime,proto3" json:"LastSeqTime,omitempty"`
 }
 
+// BatchSendServiceNotificationReq 批量/全员发送服务通知。
+type BatchSendServiceNotificationReq struct {
+	SendUserID string                       `json:"sendUserID" binding:"required"`
+	Content    ServiceNotificationContent   `json:"content" binding:"required"`
+	IsSendAll  bool                         `json:"isSendAll"`
+	RecvIDs    []string                     `json:"recvIDs"`
+}
+
 // BatchSendMsgReq defines the structure for sending a message to multiple recipients.
 type BatchSendMsgReq struct {
 	SendMsg

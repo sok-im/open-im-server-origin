@@ -292,6 +292,161 @@ func (m *MessageApi) SendBusinessNotification(c *gin.Context) {
 	apiresp.GinSuccess(c, respPb)
 }
 
+func (m *MessageApi) buildNotificationChatSendMsgReq(sendUserID, recvUserID string, contentType int32, content any, clientMsgID string) (*msg.SendMsgReq, error) {
+	if err := m.validate.Struct(content); err != nil {
+		return nil, errs.WrapMsg(err, "validation error")
+	}
+	return &msg.SendMsgReq{
+		MsgData: &sdkws.MsgData{
+			SendID: sendUserID,
+			RecvID: recvUserID,
+			Content: []byte(jsonutil.StructToJsonString(&sdkws.NotificationElem{
+				Detail: jsonutil.StructToJsonString(content),
+			})),
+			MsgFrom:     constant.SysMsgType,
+			ContentType: contentType,
+			SessionType: constant.NotificationChatType,
+			CreateTime:  timeutil.GetCurrentTimestampByMill(),
+			ClientMsgID: clientMsgID,
+			Options: config.GetOptionsByNotification(config.NotificationConfig{
+				IsSendMsg:        true,
+				ReliabilityLevel: constant.ReliableNotificationNoMsg,
+			}, nil),
+		},
+	}, nil
+}
+
+func (m *MessageApi) collectBatchRecvUserIDs(c *gin.Context, isSendAll bool, recvIDs []string) ([]string, error) {
+	if isSendAll {
+		var (
+			allRecvIDs []string
+			pageNumber int32 = 1
+		)
+		const showNumber = 500
+		for {
+			recvIDsPart, err := m.userClient.GetAllUserIDs(c, pageNumber, showNumber)
+			if err != nil {
+				return nil, err
+			}
+			allRecvIDs = append(allRecvIDs, recvIDsPart...)
+			if len(recvIDsPart) < showNumber {
+				break
+			}
+			pageNumber++
+		}
+		return allRecvIDs, nil
+	}
+	if len(recvIDs) == 0 {
+		return nil, errs.ErrArgs.WrapMsg("recvIDs is empty")
+	}
+	return recvIDs, nil
+}
+
+func (m *MessageApi) sendNotificationChatMsg(c *gin.Context, sendUserID, recvUserID string, contentType int32, content any) {
+	if !authverify.IsAppManagerUid(c, m.imAdminUserID) {
+		apiresp.GinError(c, errs.ErrNoPermission.WrapMsg("only app manager can send notification"))
+		return
+	}
+	if err := m.userClient.GetNotificationByID(c, sendUserID); err != nil {
+		apiresp.GinError(c, err)
+		return
+	}
+	sendMsgReq, err := m.buildNotificationChatSendMsgReq(
+		sendUserID,
+		recvUserID,
+		contentType,
+		content,
+		idutil.GetMsgIDByMD5(mcontext.GetOpUserID(c)+recvUserID),
+	)
+	if err != nil {
+		apiresp.GinError(c, err)
+		return
+	}
+	respPb, err := m.Client.SendMsg(c, sendMsgReq)
+	if err != nil {
+		apiresp.GinError(c, err)
+		return
+	}
+	apiresp.GinSuccess(c, respPb)
+}
+
+func (m *MessageApi) SendServiceNotification(c *gin.Context) {
+	req := struct {
+		SendUserID string                            `json:"sendUserID" binding:"required"`
+		RecvUserID string                            `json:"recvUserID" binding:"required"`
+		Content    apistruct.ServiceNotificationContent `json:"content" binding:"required"`
+	}{}
+	if err := c.BindJSON(&req); err != nil {
+		apiresp.GinError(c, errs.ErrArgs.WithDetail(err.Error()).Wrap())
+		return
+	}
+	m.sendNotificationChatMsg(c, req.SendUserID, req.RecvUserID, constant.ServiceNotification, req.Content)
+}
+
+func (m *MessageApi) BatchSendServiceNotification(c *gin.Context) {
+	var (
+		req  apistruct.BatchSendServiceNotificationReq
+		resp apistruct.BatchSendMsgResp
+	)
+	if err := c.BindJSON(&req); err != nil {
+		apiresp.GinError(c, errs.ErrArgs.WithDetail(err.Error()).Wrap())
+		return
+	}
+	if !authverify.IsAppManagerUid(c, m.imAdminUserID) {
+		apiresp.GinError(c, errs.ErrNoPermission.WrapMsg("only app manager can send notification"))
+		return
+	}
+	if err := m.userClient.GetNotificationByID(c, req.SendUserID); err != nil {
+		apiresp.GinError(c, err)
+		return
+	}
+	recvIDs, err := m.collectBatchRecvUserIDs(c, req.IsSendAll, req.RecvIDs)
+	if err != nil {
+		apiresp.GinError(c, err)
+		return
+	}
+	log.ZInfo(c, "BatchSendServiceNotification", "nums", len(recvIDs), "isSendAll", req.IsSendAll)
+	opUserID := mcontext.GetOpUserID(c)
+	for _, recvID := range recvIDs {
+		sendMsgReq, err := m.buildNotificationChatSendMsgReq(
+			req.SendUserID,
+			recvID,
+			constant.ServiceNotification,
+			req.Content,
+			idutil.GetMsgIDByMD5(opUserID+recvID),
+		)
+		if err != nil {
+			apiresp.GinError(c, err)
+			return
+		}
+		rpcResp, err := m.Client.SendMsg(c, sendMsgReq)
+		if err != nil {
+			resp.FailedIDs = append(resp.FailedIDs, recvID)
+			continue
+		}
+		resp.Results = append(resp.Results, &apistruct.SingleReturnResult{
+			ServerMsgID: rpcResp.ServerMsgID,
+			ClientMsgID: rpcResp.ClientMsgID,
+			SendTime:    rpcResp.SendTime,
+			RecvID:      recvID,
+		})
+	}
+	apiresp.GinSuccess(c, resp)
+}
+
+func (m *MessageApi) SendPaymentNotification(c *gin.Context) {
+	req := struct {
+		SendUserID string                             `json:"sendUserID" binding:"required"`
+		RecvUserID string                             `json:"recvUserID" binding:"required"`
+		Content    apistruct.PaymentNotificationContent `json:"content" binding:"required"`
+	}{}
+	if err := c.BindJSON(&req); err != nil {
+		apiresp.GinError(c, errs.ErrArgs.WithDetail(err.Error()).Wrap())
+		return
+	}
+	m.sendNotificationChatMsg(c, req.SendUserID, req.RecvUserID, constant.PaymentNotification, req.Content)
+}
+
 func (m *MessageApi) BatchSendMsg(c *gin.Context) {
 	var (
 		req  apistruct.BatchSendMsgReq

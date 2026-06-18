@@ -85,6 +85,56 @@ type RevokeElem struct {
 	RevokeMsgClientID string `mapstructure:"revokeMsgClientID" validate:"required"`
 }
 
+const (
+	ServiceNotificationSubTypeSecurity = 1 // 安全提醒
+	ServiceNotificationSubTypeAccount  = 2 // 账号通知
+	ServiceNotificationSubTypeSystem   = 3 // 系统公告
+	ServiceNotificationSubTypeUpdate   = 4 // 版本更新
+)
+
+const (
+	// PaymentTransactionType 钱包通知「类型」展示文案（与 UI 一致）。
+	PaymentTransactionTypeTransfer          = "转账"
+	PaymentTransactionTypeRedPacket       = "红包"
+	PaymentTransactionTypeRedPacketTransfer = "红包/转账"
+)
+
+const (
+	DefaultNotificationDetailText = "查看详情"
+)
+
+// PaymentNotificationAction 钱包通知底部次要操作（如「去赎回」）。
+type PaymentNotificationAction struct {
+	Text string `json:"text" validate:"required"`
+	URL  string `json:"url" validate:"required"`
+}
+
+// ServiceNotificationContent SOK 服务通知卡片内容。
+// UI：标题 + 正文 + 底部「查看详情」；右上角时间为消息 sendTime，由客户端渲染。
+type ServiceNotificationContent struct {
+	Title      string `json:"title" validate:"required"`   // 卡片标题，如「版本更新」
+	Content    string `json:"content" validate:"required"` // 通知正文
+	DetailURL  string `json:"detailURL,omitempty"`         // 「查看详情」跳转链接
+	DetailText string `json:"detailText,omitempty"`        // 底部操作文案，默认「查看详情」
+	SubType    int32  `json:"subType,omitempty"`           // 可选分类：1安全 2账号 3系统 4版本更新
+}
+
+// PaymentNotificationContent SOK 钱包通知卡片内容。
+// UI：标题、金额（大号）、类型/时间/币种明细行，底部「查看详情」及可选次要操作。
+type PaymentNotificationContent struct {
+	Title           string                     `json:"title" validate:"required"`           // 卡片标题，如「红包/转账过期」「充值」
+	Amount          string                     `json:"amount" validate:"required"`          // 金额，含正负号，如 -136.00、156.23
+	TransactionType string                     `json:"transactionType" validate:"required"` // 类型：转账 / 红包 / 红包/转账
+	TransactionTime string                     `json:"transactionTime" validate:"required"` // 交易时间，如 2026-06-18 17:04:25
+	Currency        string                     `json:"currency" validate:"required"`        // 币种，如 USDT
+	CurrencyIconURL string                     `json:"currencyIconURL,omitempty"`           // 币种图标 URL
+	DetailURL       string                     `json:"detailURL,omitempty"`                 // 「查看详情」跳转链接
+	DetailText      string                     `json:"detailText,omitempty"`                // 底部主操作文案，默认「查看详情」
+	SecondaryAction *PaymentNotificationAction `json:"secondaryAction,omitempty"`           // 次要操作，如「去赎回」
+	OrderNo         string                     `json:"orderNo,omitempty"`                   // 业务单号，详情页使用
+	BizID           string                     `json:"bizID,omitempty"`                     // 业务 ID（红包 ID、转账 ID 等）
+}
+
 type OANotificationElem struct {
 	NotificationName    string       `mapstructure:"notificationName"    json:"notificationName"    validate:"required"`
 	NotificationFaceURL string       `mapstructure:"notificationFaceURL" json:"notificationFaceURL"`
