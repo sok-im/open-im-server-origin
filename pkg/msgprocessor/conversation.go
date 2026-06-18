@@ -127,6 +127,11 @@ func IsNotificationContentType(contentType int32) bool {
 	return contentType >= constant.NotificationBegin && contentType <= constant.NotificationEnd
 }
 
+// IsSignalingContentType 判断消息类型是否为音视频信令（挂断/取消/接听等）。
+func IsSignalingContentType(contentType int32) bool {
+	return contentType >= constant.SignalingNotificationBegin && contentType <= constant.SignalingNotificationEnd
+}
+
 type MsgBySeq []*sdkws.MsgData
 
 func (s MsgBySeq) Len() int {

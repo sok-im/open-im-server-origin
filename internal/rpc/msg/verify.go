@@ -22,6 +22,7 @@ import (
 
 	"github.com/openimsdk/open-im-server/v3/pkg/common/servererrs"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/model"
+	"github.com/openimsdk/open-im-server/v3/pkg/msgprocessor"
 	"github.com/openimsdk/protocol/constant"
 	"github.com/openimsdk/protocol/msg"
 	"github.com/openimsdk/protocol/sdkws"
@@ -59,6 +60,10 @@ func (m *msgServer) verifyUserStatus(ctx context.Context, data *msg.SendMsgReq) 
 		return nil
 	}
 	if data.MsgData.ContentType >= constant.NotificationBegin && data.MsgData.ContentType <= constant.NotificationEnd {
+		return nil
+	}
+	// 信令消息用于通话状态同步（挂断/取消等），需放行以让对端正确结束通话
+	if msgprocessor.IsSignalingContentType(data.MsgData.ContentType) {
 		return nil
 	}
 	sendID := data.MsgData.SendID
@@ -210,6 +215,10 @@ func GetMsgID(sendID string) string {
 }
 
 func (m *msgServer) modifyMessageByUserMessageReceiveOpt(ctx context.Context, userID, conversationID string, sessionType int, pb *msg.SendMsgReq) (bool, error) {
+	// 信令消息必须送达对端以正确结束通话，不受黑名单与消息接收权限拦截
+	if msgprocessor.IsSignalingContentType(pb.MsgData.ContentType) {
+		return true, nil
+	}
 	// 第一优先级：接收方全局接收设置
 	// NotReceiveMessage 直接丢弃，无需执行后续任何权限或偏好查询
 	opt, err := m.UserLocalCache.GetUserGlobalMsgRecvOpt(ctx, userID)
