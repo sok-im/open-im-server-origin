@@ -53,6 +53,9 @@ type CommonMsgDatabase interface {
 	RevokeMsg(ctx context.Context, conversationID string, seq int64, revoke *model.RevokeModel) error
 	// MarkSingleChatMsgsAsRead marks messages as read for a single chat by sequence numbers.
 	MarkSingleChatMsgsAsRead(ctx context.Context, userID string, conversationID string, seqs []int64) error
+	// MarkGroupChatMsgsAsRead marks group messages as read (first reader wins).
+	// Returns a map of senderUserID -> []seq for messages that were newly marked read.
+	MarkGroupChatMsgsAsRead(ctx context.Context, readerUserID, conversationID string, seqs []int64) (map[string][]int64, error)
 	// GetMsgBySeqsRange retrieves messages from MongoDB by a range of sequence numbers.
 	// pullOrder controls which end of the range to start from: PullOrderAsc returns
 	// the oldest num messages (begin … begin+num-1), PullOrderDesc returns the newest
@@ -260,6 +263,47 @@ func (db *commonMsgDatabase) MarkSingleChatMsgsAsRead(ctx context.Context, userI
 		}
 	}
 	return db.msgCache.DelMessageBySeqs(ctx, conversationID, totalSeqs)
+}
+
+func (db *commonMsgDatabase) MarkGroupChatMsgsAsRead(ctx context.Context, readerUserID, conversationID string, seqs []int64) (map[string][]int64, error) {
+	_, _, msgs, err := db.GetMsgBySeqs(ctx, readerUserID, conversationID, seqs)
+	if err != nil {
+		return nil, err
+	}
+	type msgInfo struct {
+		seq      int64
+		senderID string
+	}
+	var candidates []msgInfo
+	for _, msg := range msgs {
+		if msg == nil || msg.IsRead || msg.SendID == readerUserID {
+			continue
+		}
+		candidates = append(candidates, msgInfo{seq: msg.Seq, senderID: msg.SendID})
+	}
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+	candidateSeqs := make([]int64, 0, len(candidates))
+	for _, c := range candidates {
+		candidateSeqs = append(candidateSeqs, c.seq)
+	}
+	for docID, seqsInDoc := range db.msgTable.GetDocIDSeqsMap(conversationID, candidateSeqs) {
+		var indexes []int64
+		for _, seq := range seqsInDoc {
+			indexes = append(indexes, db.msgTable.GetMsgIndex(seq))
+		}
+		if _, err := db.msgDocDatabase.MarkGroupChatMsgsAsReadByIndex(ctx, readerUserID, docID, indexes); err != nil {
+			log.ZError(ctx, "MarkGroupChatMsgsAsReadByIndex", err, "docID", docID, "indexes", indexes)
+			return nil, err
+		}
+	}
+	senderSeqMap := make(map[string][]int64)
+	for _, c := range candidates {
+		senderSeqMap[c.senderID] = append(senderSeqMap[c.senderID], c.seq)
+	}
+	_ = db.msgCache.DelMessageBySeqs(ctx, conversationID, candidateSeqs)
+	return senderSeqMap, nil
 }
 
 func (db *commonMsgDatabase) getMsgBySeqs(ctx context.Context, userID, conversationID string, seqs []int64) (totalMsgs []*sdkws.MsgData, err error) {

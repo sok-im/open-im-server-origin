@@ -307,3 +307,48 @@ func (m *msgServer) sendMarkAsReadNotification(ctx context.Context, conversation
 	m.notificationSender.NotificationWithSessionType(ctx, sendID, recvID, constant.HasReadReceipt, sessionType, tips)
 
 }
+
+func (m *msgServer) MarkGroupMsgsAsRead(ctx context.Context, req *msg.MarkGroupMsgsAsReadReq) (*msg.MarkGroupMsgsAsReadResp, error) {
+	if len(req.Seqs) < 1 {
+		return nil, errs.ErrArgs.WrapMsg("seqs must not be empty")
+	}
+	maxSeq, err := m.MsgDatabase.GetMaxSeq(ctx, req.ConversationID)
+	if err != nil {
+		return nil, err
+	}
+	hasReadSeq := req.Seqs[len(req.Seqs)-1]
+	if hasReadSeq > maxSeq {
+		return nil, errs.ErrArgs.WrapMsg("hasReadSeq must not be bigger than maxSeq")
+	}
+	conversation, err := m.ConversationLocalCache.GetConversation(ctx, req.UserID, req.ConversationID)
+	if err != nil {
+		return nil, err
+	}
+	if conversation.ConversationType != constant.ReadGroupChatType {
+		return nil, errs.ErrArgs.WrapMsg("conversation is not a group chat")
+	}
+	senderSeqMap, err := m.MsgDatabase.MarkGroupChatMsgsAsRead(ctx, req.UserID, req.ConversationID, req.Seqs)
+	if err != nil {
+		return nil, err
+	}
+	currentHasReadSeq, err := m.MsgDatabase.GetHasReadSeq(ctx, req.UserID, req.ConversationID)
+	if err != nil && !errors.Is(err, redis.Nil) {
+		return nil, err
+	}
+	if hasReadSeq > currentHasReadSeq {
+		if err = m.MsgDatabase.SetHasReadSeq(ctx, req.UserID, req.ConversationID, hasReadSeq); err != nil {
+			return nil, err
+		}
+	}
+	reqCall := &cbapi.CallbackGroupMsgReadReq{
+		SendID:       conversation.OwnerUserID,
+		ReceiveID:    req.UserID,
+		UnreadMsgNum: hasReadSeq,
+		ContentType:  int64(conversation.ConversationType),
+	}
+	m.webhookAfterGroupMsgRead(ctx, &m.config.WebhooksConfig.AfterGroupMsgRead, reqCall)
+	for senderID, seqs := range senderSeqMap {
+		m.sendMarkAsReadNotification(ctx, req.ConversationID, constant.SingleChatType, req.UserID, senderID, seqs, hasReadSeq)
+	}
+	return &msg.MarkGroupMsgsAsReadResp{}, nil
+}

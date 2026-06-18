@@ -1147,11 +1147,11 @@ func (s *userServer) NotificationUserInfoUpdate(ctx context.Context, userID stri
 	}
 	if user.Nickname == oldUser.Nickname && user.FaceURL == oldUser.FaceURL &&
 		user.FirstName == oldUser.FirstName && user.LastName == oldUser.LastName {
-		log.ZInfo(ctx, "lintao NotificationUserInfoUpdate skip no profile change",
+		log.ZInfo(ctx, "NotificationUserInfoUpdate skip no profile change",
 			"userID", userID)
 		return nil
 	}
-	log.ZInfo(ctx, "lintao NotificationUserInfoUpdate profile changed",
+	log.ZInfo(ctx, "NotificationUserInfoUpdate profile changed",
 		"userID", userID,
 		"oldNickname", oldUser.Nickname,
 		"newNickname", user.Nickname,

@@ -254,6 +254,31 @@ func (m *MsgMgo) MarkSingleChatMsgsAsRead(ctx context.Context, userID string, do
 	return nil
 }
 
+func (m *MsgMgo) MarkGroupChatMsgsAsReadByIndex(ctx context.Context, readerUserID, docID string, indexes []int64) (int64, error) {
+	var updates []mongo.WriteModel
+	for _, index := range indexes {
+		filter := bson.M{
+			"doc_id": docID,
+			fmt.Sprintf("msgs.%d.is_read", index):       bson.M{"$ne": true},
+			fmt.Sprintf("msgs.%d.msg.send_id", index): bson.M{"$ne": readerUserID},
+		}
+		update := bson.M{
+			"$set": bson.M{
+				fmt.Sprintf("msgs.%d.is_read", index): true,
+			},
+		}
+		updates = append(updates, mongo.NewUpdateManyModel().SetFilter(filter).SetUpdate(update))
+	}
+	if len(updates) == 0 {
+		return 0, nil
+	}
+	res, err := m.coll.BulkWrite(ctx, updates)
+	if err != nil {
+		return 0, errs.WrapMsg(err, fmt.Sprintf("docID is %s, indexes is %v", docID, indexes))
+	}
+	return res.ModifiedCount, nil
+}
+
 type searchMessageIndex struct {
 	ID    primitive.ObjectID `bson:"_id"`
 	Index []int64            `bson:"index"`

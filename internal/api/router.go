@@ -368,6 +368,7 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 		msgGroup.POST("/revoke_msg", m.RevokeMsg)
 		msgGroup.POST("/mark_msgs_as_read", m.MarkMsgsAsRead)
 		msgGroup.POST("/mark_conversation_as_read", m.MarkConversationAsRead)
+		msgGroup.POST("/mark_group_msgs_as_read", m.MarkGroupMsgsAsRead)
 		msgGroup.POST("/get_conversations_has_read_and_max_seq", m.GetConversationsHasReadAndMaxSeq)
 		msgGroup.POST("/set_conversation_has_read_seq", m.SetConversationHasReadSeq)
 

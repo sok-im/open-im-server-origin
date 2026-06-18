@@ -125,6 +125,10 @@ func (m *MessageApi) MarkConversationAsRead(c *gin.Context) {
 	a2r.Call(c, msg.MsgClient.MarkConversationAsRead, m.Client)
 }
 
+func (m *MessageApi) MarkGroupMsgsAsRead(c *gin.Context) {
+	a2r.Call(c, msg.MsgClient.MarkGroupMsgsAsRead, m.Client)
+}
+
 func (m *MessageApi) GetConversationsHasReadAndMaxSeq(c *gin.Context) {
 	a2r.Call(c, msg.MsgClient.GetConversationsHasReadAndMaxSeq, m.Client)
 }
