@@ -595,6 +595,7 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 		if _, err := s.roomClient.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: dbInv.RoomID}); err != nil {
 			log.ZWarn(ctx, "handleReject: DeleteRoom failed", err, "roomID", dbInv.RoomID, "req", req, "dbInv", dbInv)
 		}
+
 		claimed, claimErr := s.db.TryDeleteInvitation(ctx, dbInv.RoomID)
 		if claimErr != nil {
 			log.ZWarn(ctx, "handleReject: TryDeleteInvitation failed", claimErr, "roomID", dbInv.RoomID, "req", req, "dbInv", dbInv)
@@ -605,6 +606,8 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 		log.ZInfo(ctx, "handleReject", "req", req, "dbInv", dbInv)
 
 		go s.broadcastGroupCallStatusToNonInvited(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
+
+		log.ZDebug(ctx, "handleReject: sendGroupCallEndedNotification", "dbInv", dbInv, "claimed", claimed)
 
 		if claimed {
 			s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, 0)
@@ -669,6 +672,9 @@ func (s *rtcServer) handleCancel(ctx context.Context, req *rtc.SignalCancelReq, 
 	// For group calls, notify non-invited members that the call was cancelled.
 	if dbInv.GroupID != "" {
 		go s.broadcastGroupCallStatusToNonInvited(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
+
+		log.ZDebug(ctx, "handleCancel: sendGroupCallEndedNotification", "dbInv", dbInv, "groupCallEndedClaimed", groupCallEndedClaimed)
+
 		if groupCallEndedClaimed {
 			s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, 0)
 		}
@@ -806,11 +812,16 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 		// Atomically claim the invitation so only one path (HungUp or
 		// SignalNotifyGroupCallEnded) sends GroupCallEndedNotification.
 		claimed, claimErr := s.db.TryDeleteInvitation(ctx, dbInv.RoomID)
+
 		if claimErr != nil {
 			log.ZWarn(ctx, "handleHungUp: TryDeleteInvitation failed", claimErr, "roomID", dbInv.RoomID)
-		} else if claimed {
+			return &rtc.SignalHungUpResp{}, nil
+		}
+
+		log.ZDebug(ctx, "handleHungUp: sendGroupCallEndedNotification", "dbInv", dbInv, "claimed", claimed)
+
+		if claimed {
 			s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, duration)
-			log.ZDebug(ctx, "handleHungUp: sendGroupCallEndedNotification", "roomID", dbInv.RoomID, "groupID", dbInv.GroupID, "inviterUserID", dbInv.InviterUserID, "mediaType", dbInv.MediaType, "duration", duration)
 		}
 	}
 
@@ -1104,9 +1115,9 @@ func (s *rtcServer) SignalNotifyGroupCallEnded(ctx context.Context, req *rtc.Sig
 	// Mirror the same call made in handleHungUp's tear-down path.
 	go s.broadcastGroupCallStatusToNonInvited(context.WithoutCancel(ctx), req.GroupID, req.RoomID, mediaType, inviterUserID, inv.InviteeUserIDList, GroupCallStatusEnded)
 
-	s.sendGroupCallEndedNotification(ctx, req.GroupID, inviterUserID, mediaType, req.DurationSecs)
+	log.ZDebug(ctx, "SignalNotifyGroupCallEnded: sendGroupCallEndedNotification", "req", req, "claimed", claimed, "claimErr", claimErr)
 
-	log.ZDebug(ctx, "SignalNotifyGroupCallEnded", "req", req)
+	s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), req.GroupID, inviterUserID, mediaType, req.DurationSecs)
 
 	return &rtc.SignalNotifyGroupCallEndedResp{}, nil
 }
@@ -1541,6 +1552,7 @@ func (s *rtcServer) sendGroupCallParticipantCountUpdatedNotification(ctx context
 // Errors are non-fatal and only logged.
 func (s *rtcServer) sendGroupCallEndedNotification(ctx context.Context, groupID, inviterUserID, mediaType string, durationSecs int64) {
 	if groupID == "" {
+		log.ZWarn(ctx, "sendGroupCallEndedNotification: groupID is empty", errs.ErrArgs.WrapMsg("groupID is empty"))
 		return
 	}
 
@@ -1599,6 +1611,8 @@ func (s *rtcServer) sendGroupCallEndedNotification(ctx context.Context, groupID,
 	}
 	if _, err := s.msgClient.MsgClient.SendMsg(ctx, &pbmsg.SendMsgReq{MsgData: msgData}); err != nil {
 		log.ZWarn(ctx, "sendGroupCallEndedNotification: SendMsg failed", err, "groupID", groupID)
+	} else {
+		log.ZDebug(ctx, "sendGroupCallEndedNotification: SendMsg success", "groupID", groupID)
 	}
 }
 
@@ -1865,6 +1879,9 @@ func (s *rtcServer) handleTimeout(ctx context.Context, req *rtc.SignalTimeoutReq
 	// For group calls, notify non-invited members that the call timed out.
 	if dbInv.GroupID != "" {
 		go s.broadcastGroupCallStatusToNonInvited(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
+
+		log.ZDebug(ctx, "handleTimeout: sendGroupCallEndedNotification", "dbInv", dbInv, "groupCallEndedClaimed", groupCallEndedClaimed)
+
 		if groupCallEndedClaimed {
 			s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, 0)
 		}
