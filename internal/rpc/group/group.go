@@ -308,11 +308,17 @@ func (s *groupServer) CreateGroup(ctx context.Context, req *pbgroup.CreateGroupR
 		return nil, servererrs.ErrUserIDNotFound.WrapMsg("user not found")
 	}
 
-	// 检查被拉入群成员是否允许被邀请（管理员操作跳过）
+	// 过滤不允许被邀请的成员；仅全部被过滤时报错（管理员操作跳过）
 	if !authverify.IsAppManagerUid(ctx, s.config.Share.IMAdminUserID) {
-		invitedIDs := append(append([]string{}, req.MemberUserIDs...), req.AdminUserIDs...)
-		if err := s.checkInvitedUsersGroupInviteSettings(ctx, opUserID, invitedIDs, userMap); err != nil {
+		allowedMembers, allowedAdmins, err := s.filterMemberAndAdminUserIDsByGroupInviteSetting(ctx, opUserID, req.MemberUserIDs, req.AdminUserIDs, userMap)
+		if err != nil {
 			return nil, err
+		}
+		req.MemberUserIDs = allowedMembers
+		req.AdminUserIDs = allowedAdmins
+		userIDs = append(append(req.MemberUserIDs, req.AdminUserIDs...), req.OwnerUserID)
+		if !datautil.Contain(opUserID, userIDs...) {
+			userIDs = append(userIDs, opUserID)
 		}
 	}
 
@@ -515,41 +521,93 @@ func (g *groupServer) GetCommonGroupsWithFriend(ctx context.Context, req *pbgrou
 	}, nil
 }
 
-// checkInvitedUserGroupInviteSetting 校验 inviterID 是否被允许邀请 invitedUserID 入群。
-// 规则与 GroupInviteSetting 一致：0=所有人，1=仅受邀方好友可邀请，2=所有人不可邀请。
-func (s *groupServer) checkInvitedUserGroupInviteSetting(ctx context.Context, inviterID, invitedUserID string, setting int32) error {
+// isGroupInviteAllowed 判断 inviterID 是否被允许邀请 invitedUserID 入群。
+func (s *groupServer) isGroupInviteAllowed(ctx context.Context, inviterID, invitedUserID string, setting int32) (bool, error) {
 	switch setting {
 	case model.GroupInviteSettingNobody:
-		return errs.ErrNoPermission.WrapMsg("user has disabled group invitations", "userID", invitedUserID)
+		return false, nil
 	case model.GroupInviteSettingFriends:
-		// 须判断 inviterID 是否在 invitedUserID 的好友列表中（与 CallAcceptSetting 一致）
 		isFriend, err := s.relationClient.IsFriend(ctx, invitedUserID, inviterID)
 		if err != nil {
-			log.ZError(ctx, "checkInvitedUserGroupInviteSetting: IsFriend check failed", err,
+			log.ZError(ctx, "isGroupInviteAllowed: IsFriend check failed", err,
 				"inviterID", inviterID, "invitedUserID", invitedUserID)
-			return err
+			return false, err
 		}
-		if !isFriend {
-			return errs.ErrNoPermission.WrapMsg("user only allows friends to invite them to groups", "userID", invitedUserID)
-		}
+		return isFriend, nil
+	default:
+		return true, nil
 	}
-	return nil
 }
 
-func (s *groupServer) checkInvitedUsersGroupInviteSettings(ctx context.Context, inviterID string, invitedUserIDs []string, userMap map[string]*sdkws.UserInfo) error {
+// filterInvitedUsersByGroupInviteSetting 过滤不允许被邀请的用户；仅当全部被过滤时返回错误。
+func (s *groupServer) filterInvitedUsersByGroupInviteSetting(ctx context.Context, inviterID string, invitedUserIDs []string, userMap map[string]*sdkws.UserInfo) ([]string, error) {
+	if len(invitedUserIDs) == 0 {
+		return invitedUserIDs, nil
+	}
+	allowed := make([]string, 0, len(invitedUserIDs))
 	for _, userID := range invitedUserIDs {
-		if userID == inviterID {
-			continue
+		ok, err := s.isUserAllowedToInvite(ctx, inviterID, userID, userMap)
+		if err != nil {
+			return nil, err
 		}
-		info, ok := userMap[userID]
-		if !ok {
-			continue
-		}
-		if err := s.checkInvitedUserGroupInviteSetting(ctx, inviterID, userID, info.GroupInviteSetting); err != nil {
-			return err
+		if ok {
+			allowed = append(allowed, userID)
 		}
 	}
-	return nil
+	if len(allowed) == 0 {
+		return nil, errs.ErrNoPermission.WrapMsg("all invited users have disabled group invitations")
+	}
+	return allowed, nil
+}
+
+func (s *groupServer) filterMemberAndAdminUserIDsByGroupInviteSetting(ctx context.Context, inviterID string, memberUserIDs, adminUserIDs []string, userMap map[string]*sdkws.UserInfo) ([]string, []string, error) {
+	totalInvited := len(memberUserIDs) + len(adminUserIDs)
+	if totalInvited == 0 {
+		return memberUserIDs, adminUserIDs, nil
+	}
+	allowedMembers := make([]string, 0, len(memberUserIDs))
+	for _, userID := range memberUserIDs {
+		ok, err := s.isUserAllowedToInvite(ctx, inviterID, userID, userMap)
+		if err != nil {
+			return nil, nil, err
+		}
+		if ok {
+			allowedMembers = append(allowedMembers, userID)
+		}
+	}
+	allowedAdmins := make([]string, 0, len(adminUserIDs))
+	for _, userID := range adminUserIDs {
+		ok, err := s.isUserAllowedToInvite(ctx, inviterID, userID, userMap)
+		if err != nil {
+			return nil, nil, err
+		}
+		if ok {
+			allowedAdmins = append(allowedAdmins, userID)
+		}
+	}
+	if len(allowedMembers)+len(allowedAdmins) == 0 {
+		return nil, nil, errs.ErrNoPermission.WrapMsg("all invited users have disabled group invitations")
+	}
+	return allowedMembers, allowedAdmins, nil
+}
+
+func (s *groupServer) isUserAllowedToInvite(ctx context.Context, inviterID, userID string, userMap map[string]*sdkws.UserInfo) (bool, error) {
+	if userID == inviterID {
+		return true, nil
+	}
+	info, ok := userMap[userID]
+	if !ok {
+		return false, nil
+	}
+	okInvite, err := s.isGroupInviteAllowed(ctx, inviterID, userID, info.GroupInviteSetting)
+	if err != nil {
+		return false, err
+	}
+	if !okInvite {
+		log.ZDebug(ctx, "isUserAllowedToInvite: user skipped",
+			"inviterID", inviterID, "invitedUserID", userID, "groupInviteSetting", info.GroupInviteSetting)
+	}
+	return okInvite, nil
 }
 
 func (s *groupServer) InviteUserToGroup(ctx context.Context, req *pbgroup.InviteUserToGroupReq) (*pbgroup.InviteUserToGroupResp, error) {
@@ -577,11 +635,13 @@ func (s *groupServer) InviteUserToGroup(ctx context.Context, req *pbgroup.Invite
 		return nil, errs.ErrRecordNotFound.WrapMsg("user not found")
 	}
 
-	// 检查受邀用户的群邀请权限设置（管理员操作跳过）
+	// 过滤不允许被邀请的用户；仅全部被过滤时报错（管理员操作跳过）
 	if !authverify.IsAppManagerUid(ctx, s.config.Share.IMAdminUserID) {
-		if err := s.checkInvitedUsersGroupInviteSettings(ctx, mcontext.GetOpUserID(ctx), req.InvitedUserIDs, userMap); err != nil {
+		allowed, err := s.filterInvitedUsersByGroupInviteSetting(ctx, mcontext.GetOpUserID(ctx), req.InvitedUserIDs, userMap)
+		if err != nil {
 			return nil, err
 		}
+		req.InvitedUserIDs = allowed
 	}
 
 	var groupMember *model.GroupMember
