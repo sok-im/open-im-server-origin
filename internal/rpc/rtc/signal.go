@@ -517,10 +517,10 @@ func (s *rtcServer) handleAccept(ctx context.Context, req *rtc.SignalAcceptReq, 
 
 	// 接受邀请后不删除 invitation：通话仍在进行，双方应被标记为忙线（BusyLineUserIDList）。
 	// invitation 的清理由以下路径负责：
-	//   - 主动挂断：handleHungUp → DeleteInvitation
-	//   - 主叫取消：handleCancel → DeleteInvitation
-	//   - 被叫拒绝：handleReject → DeleteInvitation / RemoveInvitee
-	//   - 异常中断：MongoDB TTL 索引（expire_at 字段）自动清理
+	//   - 主动挂断：handleHungUp → TryDeleteInvitation
+	//   - 主叫取消：handleCancel → TryDeleteInvitation
+	//   - 被叫拒绝：handleReject → TryDeleteInvitation
+	//   - 超时未接：handleTimeout → TryDeleteInvitation
 
 	return &rtc.SignalAcceptResp{
 		Token:   token,
@@ -560,17 +560,20 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 	}
 
 	if dbInv.GroupID != "" {
-		if err := s.db.RemoveInvitee(ctx, dbInv.RoomID, req.UserID); err != nil {
-			log.ZWarn(ctx, "RemoveInvitee failed", err, "roomID", dbInv.RoomID, "userID", req.UserID, "req", req, "dbInv", dbInv)
+		// Use PullInvitee (not RemoveInvitee) so the invitation record is NOT
+		// auto-deleted when the invitee list becomes empty. TryDeleteInvitation
+		// below must be able to claim the record to send the group-call-ended
+		// notification exactly once.
+		if err := s.db.PullInvitee(ctx, dbInv.RoomID, req.UserID); err != nil {
+			log.ZWarn(ctx, "handleReject: PullInvitee failed", err, "roomID", dbInv.RoomID, "userID", req.UserID, "req", req, "dbInv", dbInv)
 		}
 
 		// Check whether any participant other than the inviter has actually
 		// joined the LiveKit room.  Rejecters never enter LiveKit, so a
 		// participant count > 0 (excluding the inviter who waits in the room)
 		// means at least one invitee accepted and the call is ongoing.
-		// If nobody joined yet (all pending invitees rejected), tear the call
-		// down so non-invited members' banners are dismissed promptly instead
-		// of waiting for the MongoDB TTL to expire.
+		// If nobody joined yet and every reachable invitee has rejected, tear the call
+		// down so non-invited members' banners are dismissed promptly.
 		lp, listErr := s.roomClient.ListParticipants(ctx, &livekit.ListParticipantsRequest{Room: dbInv.RoomID})
 		joinedCount := 0
 		if listErr != nil {
@@ -589,7 +592,21 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 			return &rtc.SignalRejectResp{}, nil
 		}
 
-		// No one else is in the room — all reachable invitees have rejected.
+		remainingInv, remainErr := s.db.GetInvitationByRoomID(ctx, dbInv.RoomID)
+		if remainErr != nil {
+			if errs.ErrRecordNotFound.Is(remainErr) {
+				log.ZInfo(ctx, "handleReject: invitation already ended", "roomID", dbInv.RoomID, "req", req)
+				return &rtc.SignalRejectResp{}, nil
+			}
+			log.ZWarn(ctx, "handleReject: GetInvitationByRoomID after PullInvitee failed", remainErr, "roomID", dbInv.RoomID, "req", req)
+			return &rtc.SignalRejectResp{}, nil
+		}
+		if pending := pendingReachableInvitees(remainingInv.InviteeUserIDList, remainingInv.BusyLineUserIDList); len(pending) > 0 {
+			log.ZInfo(ctx, "handleReject: waiting for other invitees to respond", "roomID", dbInv.RoomID, "pendingInvitees", pending, "req", req)
+			return &rtc.SignalRejectResp{}, nil
+		}
+
+		// No one else is in the room and every reachable invitee has rejected.
 		// Terminate the call so the "in progress" banner is dismissed for
 		// non-invited members.
 		if _, err := s.roomClient.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: dbInv.RoomID}); err != nil {
@@ -1667,7 +1684,6 @@ func invitationToModel(inv *rtc.InvitationInfo, push *sdkws.OfflinePushInfo) *mo
 		InitiateTime:       inv.InitiateTime,
 		BusyLineUserIDList: inv.BusyLineUserIDList,
 		CreateTime:         now.UnixMilli(),
-		ExpireAt:           now.Add(time.Duration(inv.Timeout+30) * time.Second),
 	}
 	if push != nil {
 		m.OfflinePushTitle = push.Title
@@ -1921,4 +1937,24 @@ func hungUpPeerIDsFromDB(inv *model.SignalInvitation, callerID string) []string 
 		}
 	}
 	return all
+}
+
+// pendingReachableInvitees returns invitees who were actually rung (not on busy line)
+// and have not yet accepted or rejected.
+func pendingReachableInvitees(inviteeUserIDList, busyLineUserIDList []string) []string {
+	if len(inviteeUserIDList) == 0 {
+		return nil
+	}
+	busySet := make(map[string]struct{}, len(busyLineUserIDList))
+	for _, uid := range busyLineUserIDList {
+		busySet[uid] = struct{}{}
+	}
+	pending := make([]string, 0, len(inviteeUserIDList))
+	for _, uid := range inviteeUserIDList {
+		if _, busy := busySet[uid]; busy {
+			continue
+		}
+		pending = append(pending, uid)
+	}
+	return pending
 }
