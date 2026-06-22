@@ -208,6 +208,14 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 		userRouterGroup.POST("/set_delete_account_interval", u.SetDeleteAccountInterval)
 		// 批量查询阅后即焚、手机号可见性、音视频接收、全局/会话消息接收、群邀请等设置
 		userRouterGroup.POST("/get_user_privacy_settings", u.GetUserPrivacySettings)
+		// 用户通知相关开关
+		userRouterGroup.POST("/set_msg_notification_switch", u.SetMsgNotificationSwitch)
+		userRouterGroup.POST("/set_sokim_payment_notification_switch", u.SetSokimPaymentNotificationSwitch)
+		userRouterGroup.POST("/set_sokim_service_notification_switch", u.SetSokimServiceNotificationSwitch)
+		userRouterGroup.POST("/set_av_notification_switch", u.SetAvNotificationSwitch)
+		userRouterGroup.POST("/set_av_call_ringtone_switch", u.SetAvCallRingtoneSwitch)
+		userRouterGroup.POST("/set_play_callee_ringtone_on_answer_switch", u.SetPlayCalleeRingtoneOnAnswerSwitch)
+		userRouterGroup.POST("/get_user_notification_settings", u.GetUserNotificationSettings)
 		// 根据手机号精确查找用户（phoneSearchVisibility=true 时遵守 phone_visibility 设置）
 		userRouterGroup.POST("/get_user_by_phone", u.GetUserByPhone)
 		// 根据昵称精确查询用户（可多结果，与 getPaginationUsers 模糊搜索不同）

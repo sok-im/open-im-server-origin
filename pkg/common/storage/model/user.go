@@ -62,6 +62,26 @@ const (
 // 注册时写入 MongoDB 的初始值；用户未显式修改时即为此值。
 const DefaultDeleteAccountIntervalSec int32 = 18 * 30 * 24 * 3600
 
+// 用户通知开关存储值：0=未设置（读取时视为打开），1=打开，2=关闭。
+const (
+	NotificationSwitchUnset int32 = 0
+	NotificationSwitchOn    int32 = 1
+	NotificationSwitchOff   int32 = 2
+)
+
+// NotificationSwitchToBool 将存储值转为开关状态；未设置时默认打开。
+func NotificationSwitchToBool(v int32) bool {
+	return v != NotificationSwitchOff
+}
+
+// BoolToNotificationSwitch 将开关状态转为存储值。
+func BoolToNotificationSwitch(enable bool) int32 {
+	if enable {
+		return NotificationSwitchOn
+	}
+	return NotificationSwitchOff
+}
+
 type User struct {
 	UserID             string    `bson:"user_id"`
 	Nickname           string    `bson:"nickname"`
@@ -95,6 +115,18 @@ type User struct {
 	DeleteAccountInterval int32 `bson:"delete_account_interval"`
 	// AppLanguage 用户应用语言（如 zh-CN、en-US）
 	AppLanguage string `bson:"app_language"`
+	// MsgNotification 消息通知开关
+	MsgNotification int32 `bson:"msg_notification"`
+	// SokimPaymentNotification sokim 支付通知开关
+	SokimPaymentNotification int32 `bson:"sokim_payment_notification"`
+	// SokimServiceNotification sokim 服务通知开关
+	SokimServiceNotification int32 `bson:"sokim_service_notification"`
+	// AvNotification 音视频通知开关
+	AvNotification int32 `bson:"av_notification"`
+	// AvCallRingtone 音视频来电铃声开关
+	AvCallRingtone int32 `bson:"av_call_ringtone"`
+	// PlayCalleeRingtoneOnAnswer 接听时播放对方铃声开关
+	PlayCalleeRingtoneOnAnswer int32 `bson:"play_callee_ringtone_on_answer"`
 }
 
 func (u *User) GetNickname() string {

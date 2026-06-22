@@ -345,6 +345,34 @@ func (u *UserApi) GetUserPrivacySettings(c *gin.Context) {
 	a2r.Call(c, user.UserClient.GetUserPrivacySettings, u.Client)
 }
 
+func (u *UserApi) SetMsgNotificationSwitch(c *gin.Context) {
+	a2r.Call(c, user.UserClient.SetMsgNotificationSwitch, u.Client)
+}
+
+func (u *UserApi) SetSokimPaymentNotificationSwitch(c *gin.Context) {
+	a2r.Call(c, user.UserClient.SetSokimPaymentNotificationSwitch, u.Client)
+}
+
+func (u *UserApi) SetSokimServiceNotificationSwitch(c *gin.Context) {
+	a2r.Call(c, user.UserClient.SetSokimServiceNotificationSwitch, u.Client)
+}
+
+func (u *UserApi) SetAvNotificationSwitch(c *gin.Context) {
+	a2r.Call(c, user.UserClient.SetAvNotificationSwitch, u.Client)
+}
+
+func (u *UserApi) SetAvCallRingtoneSwitch(c *gin.Context) {
+	a2r.Call(c, user.UserClient.SetAvCallRingtoneSwitch, u.Client)
+}
+
+func (u *UserApi) SetPlayCalleeRingtoneOnAnswerSwitch(c *gin.Context) {
+	a2r.Call(c, user.UserClient.SetPlayCalleeRingtoneOnAnswerSwitch, u.Client)
+}
+
+func (u *UserApi) GetUserNotificationSettings(c *gin.Context) {
+	a2r.Call(c, user.UserClient.GetUserNotificationSettings, u.Client)
+}
+
 func (u *UserApi) GetUserByPhone(c *gin.Context) {
 	a2r.Call(c, user.UserClient.GetUserByPhone, u.Client)
 }
