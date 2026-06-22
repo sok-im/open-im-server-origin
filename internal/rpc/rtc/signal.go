@@ -595,8 +595,9 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 		if _, err := s.roomClient.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: dbInv.RoomID}); err != nil {
 			log.ZWarn(ctx, "handleReject: DeleteRoom failed", err, "roomID", dbInv.RoomID, "req", req, "dbInv", dbInv)
 		}
-		if err := s.db.DeleteInvitation(ctx, dbInv.RoomID); err != nil {
-			log.ZWarn(ctx, "handleReject: DeleteInvitation failed", err, "roomID", dbInv.RoomID, "req", req, "dbInv", dbInv)
+		claimed, claimErr := s.db.TryDeleteInvitation(ctx, dbInv.RoomID)
+		if claimErr != nil {
+			log.ZWarn(ctx, "handleReject: TryDeleteInvitation failed", claimErr, "roomID", dbInv.RoomID, "req", req, "dbInv", dbInv)
 		}
 
 		s.sendCallRecordChatMsg(ctx, dbInv, callStatusRejected, 0)
@@ -605,8 +606,9 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 
 		go s.broadcastGroupCallStatusToNonInvited(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
 
-		//go s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, 0)
-		//log.ZInfo(ctx, "group call ended", "dbInv", dbInv)
+		if claimed {
+			s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, 0)
+		}
 
 	} else {
 		if err := s.db.DeleteInvitation(ctx, dbInv.RoomID); err != nil {
@@ -653,15 +655,23 @@ func (s *rtcServer) handleCancel(ctx context.Context, req *rtc.SignalCancelReq, 
 		}
 	}
 
-	if err := s.db.DeleteInvitation(ctx, dbInv.RoomID); err != nil {
+	var groupCallEndedClaimed bool
+	if dbInv.GroupID != "" {
+		var claimErr error
+		groupCallEndedClaimed, claimErr = s.db.TryDeleteInvitation(ctx, dbInv.RoomID)
+		if claimErr != nil {
+			log.ZWarn(ctx, "handleCancel: TryDeleteInvitation failed", claimErr, "roomID", dbInv.RoomID)
+		}
+	} else if err := s.db.DeleteInvitation(ctx, dbInv.RoomID); err != nil {
 		log.ZWarn(ctx, "DeleteInvitation failed", err, "roomID", dbInv.RoomID)
 	}
 
 	// For group calls, notify non-invited members that the call was cancelled.
 	if dbInv.GroupID != "" {
 		go s.broadcastGroupCallStatusToNonInvited(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
-		//go s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, 0)
-		//log.ZInfo(ctx, "group call ended", "dbInv", dbInv)
+		if groupCallEndedClaimed {
+			s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, 0)
+		}
 	}
 
 	s.sendCallRecordChatMsg(ctx, dbInv, callStatusCancelled, 0)
@@ -1840,15 +1850,24 @@ func (s *rtcServer) handleTimeout(ctx context.Context, req *rtc.SignalTimeoutReq
 	if _, err := s.roomClient.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: dbInv.RoomID}); err != nil {
 		log.ZWarn(ctx, "handleTimeout: LiveKit DeleteRoom failed", err, "roomID", dbInv.RoomID)
 	}
-	if err := s.db.DeleteInvitation(ctx, dbInv.RoomID); err != nil {
+
+	var groupCallEndedClaimed bool
+	if dbInv.GroupID != "" {
+		var claimErr error
+		groupCallEndedClaimed, claimErr = s.db.TryDeleteInvitation(ctx, dbInv.RoomID)
+		if claimErr != nil {
+			log.ZWarn(ctx, "handleTimeout: TryDeleteInvitation failed", claimErr, "roomID", dbInv.RoomID)
+		}
+	} else if err := s.db.DeleteInvitation(ctx, dbInv.RoomID); err != nil {
 		log.ZWarn(ctx, "handleTimeout: DeleteInvitation failed", err, "roomID", dbInv.RoomID)
 	}
 
 	// For group calls, notify non-invited members that the call timed out.
 	if dbInv.GroupID != "" {
 		go s.broadcastGroupCallStatusToNonInvited(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
-		//go s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, 0)
-		//log.ZInfo(ctx, "group call ended", "dbInv", dbInv)
+		if groupCallEndedClaimed {
+			s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, 0)
+		}
 	}
 
 	s.sendCallRecordChatMsg(ctx, dbInv, callStatusNotConnected, 0)
