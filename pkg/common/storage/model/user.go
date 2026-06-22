@@ -93,6 +93,8 @@ type User struct {
 	MsgBurnDuration int32 `bson:"msg_burn_duration"`
 	// DeleteAccountInterval 删除账号间隔（秒）；0 表示关闭
 	DeleteAccountInterval int32 `bson:"delete_account_interval"`
+	// AppLanguage 用户应用语言（如 zh-CN、en-US）
+	AppLanguage string `bson:"app_language"`
 }
 
 func (u *User) GetNickname() string {

@@ -95,6 +95,7 @@ func UserDB2Pb(user *relationtb.User) *sdkws.UserInfo {
 		CallRingtoneCover:  user.CallRingtoneCover,
 		CallRingtoneAuthor: user.CallRingtoneAuthor,
 		MsgBurnDuration:    user.MsgBurnDuration,
+		AppLanguage:        user.AppLanguage,
 	}
 }
 
@@ -240,6 +241,9 @@ func UserPb2DBMapEx(user *sdkws.UserInfoWithEx, defaults *config.CallRingtoneDef
 	}
 	if user.MsgBurnDuration != nil {
 		val["msg_burn_duration"] = user.MsgBurnDuration.Value
+	}
+	if user.AppLanguage != nil {
+		val["app_language"] = user.AppLanguage.Value
 	}
 	return val
 }
