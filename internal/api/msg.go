@@ -346,8 +346,8 @@ func (m *MessageApi) collectBatchRecvUserIDs(c *gin.Context, isSendAll bool, rec
 	return recvIDs, nil
 }
 
-func (m *MessageApi) sendNotificationChatMsg(c *gin.Context, sendUserID, recvUserID string, contentType int32, content any) {
-	if !authverify.IsAppManagerUid(c, m.imAdminUserID) {
+func (m *MessageApi) sendNotificationChatMsg(c *gin.Context, sendUserID, recvUserID string, contentType int32, content any, requireAdmin bool) {
+	if requireAdmin && !authverify.IsAppManagerUid(c, m.imAdminUserID) {
 		apiresp.GinError(c, errs.ErrNoPermission.WrapMsg("only app manager can send notification"))
 		return
 	}
@@ -384,7 +384,7 @@ func (m *MessageApi) SendServiceNotification(c *gin.Context) {
 		apiresp.GinError(c, errs.ErrArgs.WithDetail(err.Error()).Wrap())
 		return
 	}
-	m.sendNotificationChatMsg(c, req.SendUserID, req.RecvUserID, constant.ServiceNotification, req.Content)
+	m.sendNotificationChatMsg(c, req.SendUserID, req.RecvUserID, constant.ServiceNotification, req.Content, true)
 }
 
 func (m *MessageApi) BatchSendServiceNotification(c *gin.Context) {
@@ -448,7 +448,7 @@ func (m *MessageApi) SendPaymentNotification(c *gin.Context) {
 		apiresp.GinError(c, errs.ErrArgs.WithDetail(err.Error()).Wrap())
 		return
 	}
-	m.sendNotificationChatMsg(c, req.SendUserID, req.RecvUserID, constant.PaymentNotification, req.Content)
+	m.sendNotificationChatMsg(c, req.SendUserID, req.RecvUserID, constant.PaymentNotification, req.Content, false)
 }
 
 func (m *MessageApi) BatchSendMsg(c *gin.Context) {
