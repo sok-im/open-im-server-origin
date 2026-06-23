@@ -170,6 +170,20 @@ func (s *userServer) GetDesignateUsers(ctx context.Context, req *pbuser.GetDesig
 
 	pbUsers := convert.UsersDB2Pb(users)
 	viewerID := mcontext.GetOpUserID(ctx)
+	if len(pbUsers) < len(req.UserIDs) {
+		found := make(map[string]struct{}, len(users))
+		for _, u := range users {
+			found[u.UserID] = struct{}{}
+		}
+		missing := make([]string, 0)
+		for _, id := range req.UserIDs {
+			if _, ok := found[id]; !ok {
+				missing = append(missing, id)
+			}
+		}
+		log.ZInfo(ctx, "lintao GetDesignateUsers: partial result (user may be deleted)",
+			"opUserID", viewerID, "requested", req.UserIDs, "missing", missing, "foundCount", len(pbUsers))
+	}
 	if err := s.applyPhoneVisibility(ctx, viewerID, pbUsers, users); err != nil {
 		log.ZError(ctx, "GetDesignateUsers: applyPhoneVisibility failed", err,
 			"opUserID", viewerID, "userCount", len(users))

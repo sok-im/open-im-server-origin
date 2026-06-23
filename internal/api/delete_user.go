@@ -92,6 +92,8 @@ func (d *DeleteUserApi) DeleteUser(c *gin.Context) {
 	}
 
 	notifyUserIDs := d.collectAccountDeletedNotifyUserIDs(c, req.UserID)
+	log.ZInfo(c, "lintao DeleteUser: collected notify targets before cleanup",
+		"deletedUserID", req.UserID, "notifyUserIDs", notifyUserIDs, "notifyCount", len(notifyUserIDs))
 
 	// 2. Force logout from every client platform (skip Admin; only IDs accepted by ForceLogout RPC).
 	for platformID := range constant.PlatformID2Name {
@@ -118,6 +120,9 @@ func (d *DeleteUserApi) DeleteUser(c *gin.Context) {
 				FriendUserID: friendID,
 			}); err != nil {
 				log.ZWarn(c, "DeleteUser: DeleteFriend (owner→friend) failed", err,
+					"ownerUserID", req.UserID, "friendUserID", friendID)
+			} else {
+				log.ZInfo(c, "lintao DeleteUser: DeleteFriend (owner→friend) ok",
 					"ownerUserID", req.UserID, "friendUserID", friendID)
 			}
 		}
@@ -231,6 +236,8 @@ func (d *DeleteUserApi) deleteFriendsReferencingUser(ctx context.Context, delete
 		log.ZWarn(ctx, "DeleteUser: FindFriendUserID failed", err, "userID", deletedUserID)
 		return
 	}
+	log.ZInfo(ctx, "lintao DeleteUser: owners referencing deleted user",
+		"deletedUserID", deletedUserID, "ownerUserIDs", ownerUserIDs, "count", len(ownerUserIDs))
 	if len(ownerUserIDs) == 0 {
 		return
 	}
@@ -245,14 +252,24 @@ func (d *DeleteUserApi) deleteFriendsReferencingUser(ctx context.Context, delete
 		}); err != nil {
 			log.ZWarn(ctx, "DeleteUser: DeleteFriend (friend→owner) failed", err,
 				"ownerUserID", ownerUserID, "friendUserID", deletedUserID)
+		} else {
+			log.ZInfo(ctx, "lintao DeleteUser: DeleteFriend (friend→owner) ok",
+				"ownerUserID", ownerUserID, "friendUserID", deletedUserID)
 		}
 	}
 }
 
 func (d *DeleteUserApi) collectAccountDeletedNotifyUserIDs(ctx context.Context, deletedUserID string) []string {
 	userIDSet := make(map[string]struct{})
+	var ownersReferencingDeleted []string
+	var deletedUserFriendIDs []string
+
 	if d.friendDB != nil {
-		if ownerUserIDs, err := d.friendDB.FindFriendUserID(ctx, deletedUserID); err == nil {
+		ownerUserIDs, err := d.friendDB.FindFriendUserID(ctx, deletedUserID)
+		if err != nil {
+			log.ZWarn(ctx, "lintao DeleteUser: collect notify FindFriendUserID failed", err, "deletedUserID", deletedUserID)
+		} else {
+			ownersReferencingDeleted = ownerUserIDs
 			for _, id := range ownerUserIDs {
 				if id != deletedUserID {
 					userIDSet[id] = struct{}{}
@@ -260,7 +277,11 @@ func (d *DeleteUserApi) collectAccountDeletedNotifyUserIDs(ctx context.Context, 
 			}
 		}
 	}
-	if resp, err := d.friendClient.GetFriendIDs(ctx, &relation.GetFriendIDsReq{UserID: deletedUserID}); err == nil {
+	resp, err := d.friendClient.GetFriendIDs(ctx, &relation.GetFriendIDsReq{UserID: deletedUserID})
+	if err != nil {
+		log.ZWarn(ctx, "lintao DeleteUser: collect notify GetFriendIDs failed", err, "deletedUserID", deletedUserID)
+	} else {
+		deletedUserFriendIDs = resp.FriendIDs
 		for _, id := range resp.FriendIDs {
 			if id != deletedUserID {
 				userIDSet[id] = struct{}{}
@@ -271,11 +292,23 @@ func (d *DeleteUserApi) collectAccountDeletedNotifyUserIDs(ctx context.Context, 
 	for id := range userIDSet {
 		notifyUserIDs = append(notifyUserIDs, id)
 	}
+	log.ZInfo(ctx, "lintao DeleteUser: collectAccountDeletedNotifyUserIDs",
+		"deletedUserID", deletedUserID,
+		"ownersReferencingDeleted", ownersReferencingDeleted,
+		"deletedUserFriendIDs", deletedUserFriendIDs,
+		"notifyUserIDs", notifyUserIDs)
 	return notifyUserIDs
 }
 
 func (d *DeleteUserApi) notifyAccountDeleted(ctx context.Context, deletedUserID string, notifyUserIDs []string) {
-	if d.friendNotifier == nil || len(notifyUserIDs) == 0 {
+	if d.friendNotifier == nil {
+		log.ZWarn(ctx, "lintao DeleteUser: skip account-deleted notify, friendNotifier is nil",
+			nil, "deletedUserID", deletedUserID, "notifyUserIDs", notifyUserIDs)
+		return
+	}
+	if len(notifyUserIDs) == 0 {
+		log.ZInfo(ctx, "lintao DeleteUser: skip account-deleted notify, no related users",
+			"deletedUserID", deletedUserID)
 		return
 	}
 	adminCtx := d.adminCtx(ctx)
@@ -283,6 +316,11 @@ func (d *DeleteUserApi) notifyAccountDeleted(ctx context.Context, deletedUserID 
 		if notifyUserID == deletedUserID {
 			continue
 		}
+		log.ZInfo(ctx, "lintao DeleteUser: dispatch account-deleted notifications",
+			"deletedUserID", deletedUserID,
+			"notifyUserID", notifyUserID,
+			"friendsInfoUpdate", true,
+			"friendInfoUpdated", true)
 		d.friendNotifier.FriendsInfoUpdateNotification(adminCtx, notifyUserID, []string{deletedUserID})
 		d.friendNotifier.FriendInfoUpdatedNotification(adminCtx, deletedUserID, notifyUserID)
 	}

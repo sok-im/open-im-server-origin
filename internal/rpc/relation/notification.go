@@ -291,6 +291,8 @@ func (f *FriendNotificationSender) FriendsInfoUpdateNotification(ctx context.Con
 	tips := sdkws.FriendsInfoUpdateTips{FromToUserID: &sdkws.FromToUserID{}}
 	tips.FromToUserID.ToUserID = toUserID
 	tips.FriendIDs = friendIDs
+	log.ZInfo(ctx, "lintao FriendsInfoUpdateNotification dispatch",
+		"toUserID", toUserID, "friendIDs", friendIDs)
 	f.Notification(ctx, toUserID, toUserID, constant.FriendsInfoUpdateNotification, &tips)
 }
 
