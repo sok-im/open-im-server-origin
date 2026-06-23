@@ -18,7 +18,7 @@ prometheus:
 
 maxConcurrentWorkers: 3
 # Use geTui, fcm, jpush, or engagelab for offline push notifications; corresponding configuration settings must be specified.
-enable:
+enable: engagelab
 geTui:
   pushUrl: https://restapi.getui.com/v2/$appId
   masterSecret:
@@ -47,10 +47,12 @@ engagelab:
   pushURL:
   pushIntent:
 
-# iOS system push sound and badge count
+# iOS push options (used by EngageLab as APNSProduction in push requests)
 iosPush:
-  pushSound: xxx
+  pushSound: default
   badgeCount: true
-  production: false
+  # false: APNS sandbox (Xcode debug / development certificate)
+  # true:  APNS production (App Store / TestFlight / production certificate)
+  production: true
 
 fullUserCache: true
