@@ -366,7 +366,7 @@ func (s *friendServer) GetFriendInfo(ctx context.Context, req *relation.GetFrien
 	if err != nil {
 		return nil, err
 	}
-	return &relation.GetFriendInfoResp{FriendInfos: convert.FriendOnlyDB2PbOnly(friends, users)}, nil
+	return &relation.GetFriendInfoResp{FriendInfos: convert.FriendOnlyDB2PbOnly(friends, users, s.deactivatedUserDefaults())}, nil
 }
 
 func (s *friendServer) GetDesignatedFriends(ctx context.Context, req *relation.GetDesignatedFriendsReq) (resp *relation.GetDesignatedFriendsResp, err error) {

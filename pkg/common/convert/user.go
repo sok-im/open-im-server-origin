@@ -56,9 +56,10 @@ func DeactivatedUserInfo(userID string, defaults config.DeactivatedUserDefaults)
 	d := defaults
 	config.FillDeactivatedUserDefaults(&d)
 	return &sdkws.UserInfo{
-		UserID:   userID,
-		Nickname: d.Nickname,
-		FaceURL:  d.FaceURL,
+		UserID:    userID,
+		Nickname:  d.Nickname,
+		FaceURL:   d.FaceURL,
+		FirstName: d.Nickname,
 	}
 }
 

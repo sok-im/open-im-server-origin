@@ -95,7 +95,7 @@ func FriendsDB2Pb(ctx context.Context, friendsDB []*model.Friend, getUsers func(
 	return friendsPb, nil
 }
 
-func FriendOnlyDB2PbOnly(friendsDB []*model.Friend, users map[string]*sdkws.UserInfo) []*relation.FriendInfoOnly {
+func FriendOnlyDB2PbOnly(friendsDB []*model.Friend, users map[string]*sdkws.UserInfo, defaults config.DeactivatedUserDefaults) []*relation.FriendInfoOnly {
 	return datautil.Slice(friendsDB, func(f *model.Friend) *relation.FriendInfoOnly {
 		info := &relation.FriendInfoOnly{
 			OwnerUserID:    f.OwnerUserID,
@@ -113,6 +113,12 @@ func FriendOnlyDB2PbOnly(friendsDB []*model.Friend, users map[string]*sdkws.User
 		if u, ok := users[f.FriendUserID]; ok {
 			info.FirstName = u.FirstName
 			info.LastName = u.LastName
+			if info.FirstName == "" && info.LastName == "" && u.Nickname != "" {
+				info.FirstName = u.Nickname
+			}
+		} else {
+			deactivated := DeactivatedUserInfo(f.FriendUserID, defaults)
+			info.FirstName = deactivated.FirstName
 		}
 		return info
 	})

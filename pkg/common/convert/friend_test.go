@@ -39,4 +39,26 @@ func TestFriendsDB2Pb_missingUser(t *testing.T) {
 	if got[0].FriendUser.FaceURL != defaults.FaceURL {
 		t.Fatalf("faceURL: got %q, want %q", got[0].FriendUser.FaceURL, defaults.FaceURL)
 	}
+	if got[0].FriendUser.FirstName != defaults.Nickname {
+		t.Fatalf("firstName: got %q, want %q", got[0].FriendUser.FirstName, defaults.Nickname)
+	}
+}
+
+func TestFriendOnlyDB2PbOnly_missingUser(t *testing.T) {
+	friendsDB := []*model.Friend{{
+		OwnerUserID:  "owner",
+		FriendUserID: "missing-user",
+	}}
+	defaults := config.DeactivatedUserDefaults{
+		Nickname: "Deactivated user",
+		FaceURL:  "http://example.com/avatar.jpg",
+	}
+
+	got := FriendOnlyDB2PbOnly(friendsDB, map[string]*sdkws.UserInfo{}, defaults)
+	if len(got) != 1 {
+		t.Fatalf("len: got %d, want 1", len(got))
+	}
+	if got[0].FirstName != defaults.Nickname {
+		t.Fatalf("firstName: got %q, want %q", got[0].FirstName, defaults.Nickname)
+	}
 }
