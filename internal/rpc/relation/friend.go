@@ -288,6 +288,7 @@ func (s *friendServer) DeleteFriend(ctx context.Context, req *relation.DeleteFri
 	}
 
 	s.notificationSender.FriendDeletedNotification(ctx, req)
+	s.notificationSender.FriendsInfoUpdateNotification(ctx, req.OwnerUserID, []string{req.FriendUserID})
 	s.webhookAfterDeleteFriend(ctx, &s.config.WebhooksConfig.AfterDeleteFriend, req)
 
 	return &relation.DeleteFriendResp{}, nil

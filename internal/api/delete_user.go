@@ -5,7 +5,9 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	relationrpc "github.com/openimsdk/open-im-server/v3/internal/rpc/relation"
 	"github.com/openimsdk/open-im-server/v3/pkg/authverify"
+	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/controller"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/database"
 	"github.com/openimsdk/open-im-server/v3/pkg/rpcli"
 	"github.com/openimsdk/protocol/constant"
@@ -21,19 +23,20 @@ import (
 // DeleteUserApi handles real account deletion (hard delete).
 // It follows the same direct-DB pattern as UserGlobalBlackApi.
 type DeleteUserApi struct {
-	userDB         database.User
-	friendDB       database.Friend
-	phoneSNDB      database.PhoneSN
-	totpDB         database.UserTotp
-	totpRecoveryDB database.UserTotpRecovery
-	authClient     *rpcli.AuthClient
-	groupClient    group.GroupClient
-	friendClient   relation.FriendClient
-	imAdminUserIDs []string
+	userDB           controller.UserDatabase
+	friendDB         database.Friend
+	phoneSNDB        database.PhoneSN
+	totpDB           database.UserTotp
+	totpRecoveryDB   database.UserTotpRecovery
+	authClient       *rpcli.AuthClient
+	groupClient      group.GroupClient
+	friendClient     relation.FriendClient
+	friendNotifier   *relationrpc.FriendNotificationSender
+	imAdminUserIDs   []string
 }
 
 func NewDeleteUserApi(
-	userDB database.User,
+	userDB controller.UserDatabase,
 	friendDB database.Friend,
 	phoneSNDB database.PhoneSN,
 	totpDB database.UserTotp,
@@ -41,18 +44,20 @@ func NewDeleteUserApi(
 	authClient *rpcli.AuthClient,
 	groupClient group.GroupClient,
 	friendClient relation.FriendClient,
+	friendNotifier *relationrpc.FriendNotificationSender,
 	imAdminUserIDs []string,
 ) *DeleteUserApi {
 	return &DeleteUserApi{
-		userDB:         userDB,
-		friendDB:       friendDB,
-		phoneSNDB:      phoneSNDB,
-		totpDB:         totpDB,
-		totpRecoveryDB: totpRecoveryDB,
-		authClient:     authClient,
-		groupClient:    groupClient,
-		friendClient:   friendClient,
-		imAdminUserIDs: imAdminUserIDs,
+		userDB:           userDB,
+		friendDB:         friendDB,
+		phoneSNDB:        phoneSNDB,
+		totpDB:           totpDB,
+		totpRecoveryDB:   totpRecoveryDB,
+		authClient:       authClient,
+		groupClient:      groupClient,
+		friendClient:     friendClient,
+		friendNotifier:   friendNotifier,
+		imAdminUserIDs:   imAdminUserIDs,
 	}
 }
 
@@ -85,6 +90,8 @@ func (d *DeleteUserApi) DeleteUser(c *gin.Context) {
 		apiresp.GinError(c, errs.ErrRecordNotFound.WrapMsg("user not found", "userID", req.UserID))
 		return
 	}
+
+	notifyUserIDs := d.collectAccountDeletedNotifyUserIDs(c, req.UserID)
 
 	// 2. Force logout from every client platform (skip Admin; only IDs accepted by ForceLogout RPC).
 	for platformID := range constant.PlatformID2Name {
@@ -192,13 +199,13 @@ func (d *DeleteUserApi) DeleteUser(c *gin.Context) {
 		}
 	}
 
-	// 6. Hard-delete user document from MongoDB.
-	// Redis cache will become stale and expire via TTL; the user can no longer
-	// authenticate because their tokens were already invalidated in step 2.
+	// 6. Hard-delete user document and invalidate Redis / local user-info cache.
 	if err := d.userDB.Delete(c, []string{req.UserID}); err != nil {
 		apiresp.GinError(c, err)
 		return
 	}
+
+	d.notifyAccountDeleted(c, req.UserID, notifyUserIDs)
 
 	log.ZInfo(c, "DeleteUser: user deleted", "userID", req.UserID)
 	apiresp.GinSuccess(c, nil)
@@ -237,6 +244,46 @@ func (d *DeleteUserApi) deleteFriendsReferencingUser(ctx context.Context, delete
 				"ownerUserID", ownerUserID, "friendUserID", deletedUserID)
 		}
 	}
+}
+
+func (d *DeleteUserApi) collectAccountDeletedNotifyUserIDs(ctx context.Context, deletedUserID string) []string {
+	userIDSet := make(map[string]struct{})
+	if d.friendDB != nil {
+		if ownerUserIDs, err := d.friendDB.FindFriendUserID(ctx, deletedUserID); err == nil {
+			for _, id := range ownerUserIDs {
+				if id != deletedUserID {
+					userIDSet[id] = struct{}{}
+				}
+			}
+		}
+	}
+	if resp, err := d.friendClient.GetFriendIDs(ctx, &relation.GetFriendIDsReq{UserID: deletedUserID}); err == nil {
+		for _, id := range resp.FriendIDs {
+			if id != deletedUserID {
+				userIDSet[id] = struct{}{}
+			}
+		}
+	}
+	notifyUserIDs := make([]string, 0, len(userIDSet))
+	for id := range userIDSet {
+		notifyUserIDs = append(notifyUserIDs, id)
+	}
+	return notifyUserIDs
+}
+
+func (d *DeleteUserApi) notifyAccountDeleted(ctx context.Context, deletedUserID string, notifyUserIDs []string) {
+	if d.friendNotifier == nil || len(notifyUserIDs) == 0 {
+		return
+	}
+	adminCtx := d.adminCtx(ctx)
+	for _, notifyUserID := range notifyUserIDs {
+		if notifyUserID == deletedUserID {
+			continue
+		}
+		d.friendNotifier.FriendsInfoUpdateNotification(adminCtx, notifyUserID, []string{deletedUserID})
+		d.friendNotifier.FriendInfoUpdatedNotification(adminCtx, deletedUserID, notifyUserID)
+	}
+	log.ZInfo(ctx, "DeleteUser: notified related users", "deletedUserID", deletedUserID, "notifyCount", len(notifyUserIDs))
 }
 
 func (d *DeleteUserApi) adminCtx(ctx context.Context) context.Context {
