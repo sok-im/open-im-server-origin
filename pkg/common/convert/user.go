@@ -95,7 +95,7 @@ func UserDB2Pb(user *relationtb.User) *sdkws.UserInfo {
 		CallRingtoneCover:  user.CallRingtoneCover,
 		CallRingtoneAuthor: user.CallRingtoneAuthor,
 		MsgBurnDuration:            user.MsgBurnDuration,
-		AppLanguage:                user.AppLanguage,
+		Language:                   user.Language,
 		MsgNotification:            user.MsgNotification,
 		SokimPaymentNotification:   user.SokimPaymentNotification,
 		SokimServiceNotification:   user.SokimServiceNotification,
@@ -248,8 +248,8 @@ func UserPb2DBMapEx(user *sdkws.UserInfoWithEx, defaults *config.CallRingtoneDef
 	if user.MsgBurnDuration != nil {
 		val["msg_burn_duration"] = user.MsgBurnDuration.Value
 	}
-	if user.AppLanguage != nil {
-		val["app_language"] = user.AppLanguage.Value
+	if user.Language != nil {
+		val["language"] = user.Language.Value
 	}
 	return val
 }

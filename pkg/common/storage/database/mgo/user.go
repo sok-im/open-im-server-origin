@@ -85,6 +85,7 @@ func (u *UserMgo) UpdateByMap(ctx context.Context, userID string, args map[strin
 		"face_url",
 		"phone_number",
 		"area_code",
+		"language",
 	} {
 		if v, ok := args[key]; ok {
 			attributeSet[key] = v
@@ -93,9 +94,6 @@ func (u *UserMgo) UpdateByMap(ctx context.Context, userID string, args map[strin
 	//// user collection uses "phone"; attribute collection uses "phone_number".
 	if v, ok := args["phone"]; ok {
 		attributeSet["phone_number"] = v
-	}
-	if v, ok := args["app_language"]; ok {
-		attributeSet["language"] = v
 	}
 	if len(attributeSet) == 0 {
 		return nil
