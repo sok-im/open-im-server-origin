@@ -40,6 +40,7 @@ type ConsumerHandler struct {
 	onlineCache            *rpccache.OnlineCache
 	groupLocalCache        *rpccache.GroupLocalCache
 	conversationLocalCache *rpccache.ConversationLocalCache
+	userLocalCache         *rpccache.UserLocalCache
 	webhookClient          *webhook.Client
 	config                 *Config
 	userClient             *rpcli.UserClient
@@ -83,6 +84,7 @@ func NewConsumerHandler(ctx context.Context, config *Config, database controller
 	consumerHandler.onlinePusher = NewOnlinePusher(client, config)
 	consumerHandler.groupLocalCache = rpccache.NewGroupLocalCache(consumerHandler.groupClient, &config.LocalCacheConfig, rdb)
 	consumerHandler.conversationLocalCache = rpccache.NewConversationLocalCache(consumerHandler.conversationClient, &config.LocalCacheConfig, rdb)
+	consumerHandler.userLocalCache = rpccache.NewUserLocalCache(consumerHandler.userClient, &config.LocalCacheConfig, rdb)
 	consumerHandler.webhookClient = webhook.NewWebhookClient(config.WebhooksConfig.URL)
 	consumerHandler.config = config
 	consumerHandler.pushDatabase = database
@@ -194,6 +196,14 @@ func (c *ConsumerHandler) Push2User(ctx context.Context, userIDs []string, msg *
 
 	if len(offlinePushUserID) > 0 {
 		needOfflinePushUserID = offlinePushUserID
+	}
+	needOfflinePushUserID, err = filterOfflinePushByNotificationSwitch(ctx, c.userLocalCache, msg, needOfflinePushUserID)
+	if err != nil {
+		return err
+	}
+	if len(needOfflinePushUserID) == 0 {
+		log.ZDebug(ctx, "offline push skipped: all users disabled notification switch", "clientMsgID", msg.ClientMsgID, "contentType", msg.ContentType)
+		return nil
 	}
 	err = c.offlinePushMsg(ctx, msg, needOfflinePushUserID)
 	if err != nil {
@@ -379,15 +389,18 @@ func (c *ConsumerHandler) filterGroupMessageOfflinePush(ctx context.Context, gro
 	if err != nil {
 		return nil, err
 	}
-	if c.groupMuteDB == nil || len(needOfflinePushUserIDs) == 0 {
+	if len(needOfflinePushUserIDs) == 0 {
 		return needOfflinePushUserIDs, nil
+	}
+	if c.groupMuteDB == nil {
+		return filterOfflinePushByNotificationSwitch(ctx, c.userLocalCache, msg, needOfflinePushUserIDs)
 	}
 	muted, err := c.groupMuteDB.ListActiveMutedUserIDs(ctx, groupID, needOfflinePushUserIDs)
 	if err != nil {
 		return nil, err
 	}
 	if len(muted) == 0 {
-		return needOfflinePushUserIDs, nil
+		return filterOfflinePushByNotificationSwitch(ctx, c.userLocalCache, msg, needOfflinePushUserIDs)
 	}
 	mutedSet := make(map[string]struct{}, len(muted))
 	for _, u := range muted {
@@ -399,7 +412,7 @@ func (c *ConsumerHandler) filterGroupMessageOfflinePush(ctx context.Context, gro
 			out = append(out, u)
 		}
 	}
-	return out, nil
+	return filterOfflinePushByNotificationSwitch(ctx, c.userLocalCache, msg, out)
 }
 
 func (c *ConsumerHandler) DeleteMemberAndSetConversationSeq(ctx context.Context, groupID string, userIDs []string) error {

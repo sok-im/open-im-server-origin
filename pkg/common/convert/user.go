@@ -98,6 +98,8 @@ func UserDB2Pb(user *relationtb.User) *sdkws.UserInfo {
 		AppLanguage:                user.AppLanguage,
 		MsgNotification:            user.MsgNotification,
 		SokimPaymentNotification:   user.SokimPaymentNotification,
+		SokimServiceNotification:   user.SokimServiceNotification,
+		AvNotification:             user.AvNotification,
 		AvCallRingtone:             user.AvCallRingtone,
 		PlayCalleeRingtoneOnAnswer: user.PlayCalleeRingtoneOnAnswer,
 	}
