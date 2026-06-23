@@ -632,7 +632,7 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 		log.ZDebug(ctx, "handleReject: sendGroupCallEndedNotification", "dbInv", dbInv, "claimed", claimed)
 
 		if claimed {
-			s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, 0)
+			s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, groupCallDurationFromInvitation(dbInv))
 		}
 
 	} else {
@@ -698,7 +698,7 @@ func (s *rtcServer) handleCancel(ctx context.Context, req *rtc.SignalCancelReq, 
 		log.ZDebug(ctx, "handleCancel: sendGroupCallEndedNotification", "dbInv", dbInv, "groupCallEndedClaimed", groupCallEndedClaimed)
 
 		if groupCallEndedClaimed {
-			s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, 0)
+			s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, groupCallDurationFromInvitation(dbInv))
 		}
 	}
 
@@ -826,11 +826,7 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 		s.sendCallRecordChatMsg(ctx, dbInv, callStatus, duration)
 		log.ZInfo(ctx, "handleHungUp", "dbInv", dbInv, "duration", duration, "status", callStatus, "clientDuration", req.CallDuration)
 	} else {
-		if dbInv.InitiateTime > 0 {
-			if nowMs := time.Now().UnixMilli(); nowMs > dbInv.InitiateTime {
-				duration = (nowMs - dbInv.InitiateTime) / 1000
-			}
-		}
+		duration = groupCallDurationFromInvitation(dbInv)
 		// Atomically claim the invitation so only one path (HungUp or
 		// SignalNotifyGroupCallEnded) sends GroupCallEndedNotification.
 		claimed, claimErr := s.db.TryDeleteInvitation(ctx, dbInv.RoomID)
@@ -1139,7 +1135,7 @@ func (s *rtcServer) SignalNotifyGroupCallEnded(ctx context.Context, req *rtc.Sig
 
 	log.ZDebug(ctx, "SignalNotifyGroupCallEnded: sendGroupCallEndedNotification", "req", req, "claimed", claimed, "claimErr", claimErr)
 
-	s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), req.GroupID, inviterUserID, mediaType, req.DurationSecs)
+	s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), req.GroupID, inviterUserID, mediaType, resolveGroupCallDurationSecs(inv, req.DurationSecs))
 
 	return &rtc.SignalNotifyGroupCallEndedResp{}, nil
 }
@@ -1720,6 +1716,26 @@ func modelToInvitationInfo(m *model.SignalInvitation) *rtc.InvitationInfo {
 
 // ---- call record chat message ----
 
+// groupCallDurationFromInvitation returns elapsed seconds since the group call was initiated.
+func groupCallDurationFromInvitation(inv *model.SignalInvitation) int64 {
+	if inv == nil || inv.InitiateTime <= 0 {
+		return 0
+	}
+	if nowMs := time.Now().UnixMilli(); nowMs > inv.InitiateTime {
+		return (nowMs - inv.InitiateTime) / 1000
+	}
+	return 0
+}
+
+// resolveGroupCallDurationSecs prefers client-reported duration when positive,
+// otherwise falls back to server-side calculation from the invitation record.
+func resolveGroupCallDurationSecs(inv *model.SignalInvitation, clientDuration int64) int64 {
+	if clientDuration > 0 {
+		return clientDuration
+	}
+	return groupCallDurationFromInvitation(inv)
+}
+
 // singleChatCallDuration computes 1:1 talk duration from AcceptTime.
 // Returns (durationSecs, status); status is answered when AcceptTime > 0.
 func singleChatCallDuration(inv *model.SignalInvitation) (int64, string) {
@@ -1904,7 +1920,7 @@ func (s *rtcServer) handleTimeout(ctx context.Context, req *rtc.SignalTimeoutReq
 		log.ZDebug(ctx, "handleTimeout: sendGroupCallEndedNotification", "dbInv", dbInv, "groupCallEndedClaimed", groupCallEndedClaimed)
 
 		if groupCallEndedClaimed {
-			s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, 0)
+			s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, groupCallDurationFromInvitation(dbInv))
 		}
 	}
 
