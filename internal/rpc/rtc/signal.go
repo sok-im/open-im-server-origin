@@ -144,7 +144,9 @@ func (s *rtcServer) handleInvite(ctx context.Context, req *rtc.SignalInviteReq, 
 
 	// 从主叫用户资料获取铃声 URL，注入到邀请信息中，被叫方收到后播放主叫方铃声
 	if inviterInfo, err := s.userClient.GetUserInfo(ctx, req.UserID); err == nil && inviterInfo.CallRingtoneURL != "" {
-		inv.CallerRingtoneURL = inviterInfo.CallRingtoneURL
+		if model.NotificationSwitchToBool(inviterInfo.AvCallRingtone) {
+			inv.CallerRingtoneURL = inviterInfo.CallRingtoneURL
+		}
 	}
 
 	// 查询被叫方铃声 URL，供主叫方在等待时播放
@@ -219,6 +221,7 @@ func (s *rtcServer) handleInvite(ctx context.Context, req *rtc.SignalInviteReq, 
 		BusyLineUserIDList: busyUserIDs,
 		NotAllowUserIDList: notAllowUserIDs,
 		CalleeRingtoneURL:  calleeRingtoneURL,
+		CallerRingtoneURL:  inv.CallerRingtoneURL,
 	}, nil
 }
 
