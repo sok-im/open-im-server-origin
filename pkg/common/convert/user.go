@@ -94,8 +94,11 @@ func UserDB2Pb(user *relationtb.User) *sdkws.UserInfo {
 		CallRingtoneName:   user.CallRingtoneName,
 		CallRingtoneCover:  user.CallRingtoneCover,
 		CallRingtoneAuthor: user.CallRingtoneAuthor,
-		MsgBurnDuration:    user.MsgBurnDuration,
-		AppLanguage:        user.AppLanguage,
+		MsgBurnDuration:            user.MsgBurnDuration,
+		AppLanguage:                user.AppLanguage,
+		MsgNotification:            user.MsgNotification,
+		SokimPaymentNotification:   user.SokimPaymentNotification,
+		AvCallRingtone:             user.AvCallRingtone,
 	}
 }
 

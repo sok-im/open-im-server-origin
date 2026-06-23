@@ -157,7 +157,9 @@ func (s *rtcServer) handleInvite(ctx context.Context, req *rtc.SignalInviteReq, 
 			continue
 		}
 		if inviteeInfo, err := s.userClient.GetUserInfo(ctx, inviteeID); err == nil {
-			calleeRingtoneURL = inviteeInfo.CallRingtoneURL
+			if model.NotificationSwitchToBool(inviteeInfo.AvCallRingtone) {
+				calleeRingtoneURL = inviteeInfo.CallRingtoneURL
+			}
 		}
 		break
 	}
