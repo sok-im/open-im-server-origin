@@ -94,6 +94,9 @@ func (u *UserMgo) UpdateByMap(ctx context.Context, userID string, args map[strin
 	if v, ok := args["phone"]; ok {
 		attributeSet["phone_number"] = v
 	}
+	if v, ok := args["app_language"]; ok {
+		attributeSet["language"] = v
+	}
 	if len(attributeSet) == 0 {
 		return nil
 	}

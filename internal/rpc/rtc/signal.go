@@ -515,14 +515,20 @@ func (s *rtcServer) handleAccept(ctx context.Context, req *rtc.SignalAcceptReq, 
 	// For group calls, notify all members that the participant count has increased.
 	if dbInv.GroupID != "" {
 		lp, listErr := s.roomClient.ListParticipants(ctx, &livekit.ListParticipantsRequest{Room: dbInv.RoomID})
-		count := int32(1)
+		var participantUserIDs []string
 		if listErr == nil {
-			// The accepting user has not yet joined LiveKit, so add 1 to the current count.
-			count = int32(len(lp.Participants)) + 1
+			// The accepting user has not yet joined LiveKit, so include current participants + acceptor.
+			for _, p := range lp.Participants {
+				participantUserIDs = append(participantUserIDs, p.GetIdentity())
+			}
 		} else {
-			log.ZWarn(ctx, "handleAccept: ListParticipants failed (using count=1)", listErr, "roomID", dbInv.RoomID)
+			log.ZWarn(ctx, "handleAccept: ListParticipants failed (falling back to inviter only)", listErr, "roomID", dbInv.RoomID)
+			// Fallback: at minimum the inviter is in the call.
+			participantUserIDs = append(participantUserIDs, dbInv.InviterUserID)
 		}
-		go s.sendGroupCallParticipantCountUpdatedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, count)
+		// The accepting user hasn't joined LiveKit yet but is about to; include them now.
+		participantUserIDs = append(participantUserIDs, req.UserID)
+		go s.sendGroupCallParticipantCountUpdatedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, participantUserIDs)
 	}
 
 	// 接受邀请后不删除 invitation：通话仍在进行，双方应被标记为忙线（BusyLineUserIDList）。
@@ -760,6 +766,7 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 		// rare race where the client hasn't fully left the LiveKit room yet).
 		lp, listErr := s.roomClient.ListParticipants(ctx, &livekit.ListParticipantsRequest{Room: dbInv.RoomID})
 		remaining := 0
+		var participantUserIDs []string
 		if listErr != nil {
 			// LiveKit query failed — fall back to the DB participant list rather
 			// than assuming the call ended.  Treating a transient error as
@@ -768,15 +775,18 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 			log.ZWarn(ctx, "handleHungUp: ListParticipants failed, falling back to DB participant count", listErr, "roomID", dbInv.RoomID)
 			for _, uid := range dbInv.InviteeUserIDList {
 				if uid != req.UserID {
+					participantUserIDs = append(participantUserIDs, uid)
 					remaining++
 				}
 			}
 			if dbInv.InviterUserID != req.UserID {
+				participantUserIDs = append(participantUserIDs, dbInv.InviterUserID)
 				remaining++
 			}
 		} else {
 			for _, p := range lp.Participants {
 				if p.GetIdentity() != req.UserID {
+					participantUserIDs = append(participantUserIDs, p.GetIdentity())
 					remaining++
 				}
 			}
@@ -795,8 +805,8 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 				}
 			}
 			log.ZInfo(ctx, "handleHungUp: group call continues", "roomID", dbInv.RoomID, "remaining", remaining)
-			// Notify all members that the participant count has decreased.
-			go s.sendGroupCallParticipantCountUpdatedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, int32(remaining))
+			// Notify all members that the participant count and list have changed.
+			go s.sendGroupCallParticipantCountUpdatedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, participantUserIDs)
 			return &rtc.SignalHungUpResp{}, nil
 		}
 		// remaining == 0: fall through to tear-down logic below.
@@ -1521,7 +1531,7 @@ func groupCallParticipantCountDefaultTips(count int32) string {
 // bubble is created, reliabilityLevel=1 so it is only delivered to online
 // clients without being persisted.
 // Errors are non-fatal and only logged.
-func (s *rtcServer) sendGroupCallParticipantCountUpdatedNotification(ctx context.Context, groupID, roomID, mediaType string, participantCount int32) {
+func (s *rtcServer) sendGroupCallParticipantCountUpdatedNotification(ctx context.Context, groupID, roomID, mediaType string, participantUserIDs []string) {
 	if groupID == "" {
 		return
 	}
@@ -1532,12 +1542,20 @@ func (s *rtcServer) sendGroupCallParticipantCountUpdatedNotification(ctx context
 		return
 	}
 
+	participantCount := int32(len(participantUserIDs))
+
+	publicUserList := make([]*sdkws.PublicUserInfo, 0, len(participantUserIDs))
+	for _, userID := range participantUserIDs {
+		publicUserList = append(publicUserList, &sdkws.PublicUserInfo{UserID: userID})
+	}
+
 	tips := &sdkws.GroupCallParticipantCountUpdatedTips{
-		Group:            groupInfo,
-		RoomID:           roomID,
-		ParticipantCount: participantCount,
-		MediaType:        mediaType,
-		DefaultTips:      groupCallParticipantCountDefaultTips(participantCount),
+		Group:               groupInfo,
+		RoomID:              roomID,
+		ParticipantCount:    participantCount,
+		MediaType:           mediaType,
+		DefaultTips:         groupCallParticipantCountDefaultTips(participantCount),
+		ParticipantUserList: publicUserList,
 	}
 
 	detail := jsonutil.StructToJsonString(tips)
