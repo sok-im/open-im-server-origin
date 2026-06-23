@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -360,6 +361,27 @@ func (s *openMLSServer) SubmitCommit(ctx context.Context, req *pbopenmls.SubmitC
 				"groupID", req.GroupID, "epoch", newEpoch)
 		} else {
 			broadcastCount = int32(len(memberIDs))
+		}
+	}
+
+	// 1:1 MLS sessions use si_/c_1v1_ group IDs that do not map to OpenIM
+	// groups, so the group broadcast above is skipped. Deliver the Commit
+	// point-to-point so the peer can advance epoch without polling GetCommits.
+	if broadcastCount == 0 {
+		for _, peerID := range singleChatPeerUserIDs(req.GroupID, req.SenderUserID) {
+			if err := s.sendMLSMsg(ctx,
+				req.SenderUserID,
+				peerID,
+				"",
+				constant.SingleChatType,
+				req.CommitMessage,
+				"[MLS Commit]",
+			); err != nil {
+				log.ZWarn(ctx, "SubmitCommit: 1:1 commit delivery failed", err,
+					"groupID", req.GroupID, "peerID", peerID, "epoch", newEpoch)
+			} else {
+				broadcastCount++
+			}
 		}
 	}
 
@@ -739,6 +761,31 @@ func (s *openMLSServer) GetRootPublicKey(ctx context.Context, req *pbopenmls.Get
 }
 
 // splitIdentity splits "userID:deviceID:platform" by the first two colons.
+// singleChatPeerUserIDs returns peer user IDs for a 1:1 MLS groupID (si_ or
+// c_1v1_ prefix). IDs in the groupID are lexicographically sorted.
+func singleChatPeerUserIDs(groupID, senderUserID string) []string {
+	var raw string
+	switch {
+	case strings.HasPrefix(groupID, "si_"):
+		raw = strings.TrimPrefix(groupID, "si_")
+	case strings.HasPrefix(groupID, "c_1v1_"):
+		raw = strings.TrimPrefix(groupID, "c_1v1_")
+	default:
+		return nil
+	}
+	ids := strings.Split(raw, "_")
+	if len(ids) != 2 {
+		return nil
+	}
+	peers := make([]string, 0, 1)
+	for _, id := range ids {
+		if id != "" && id != senderUserID {
+			peers = append(peers, id)
+		}
+	}
+	return peers
+}
+
 func splitIdentity(identity string) []string {
 	var parts []string
 	start := 0
