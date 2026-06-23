@@ -232,6 +232,8 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 		userRouterGroup.POST("/get_users_by_nickname", u.GetUsersByNickname)
 		// 检查昵称是否已被占用（精确匹配，可选 excludeUserID 排除本人）
 		userRouterGroup.POST("/check_nickname", u.CheckNickname)
+		// 检查指定 userID 的用户是否存在
+		userRouterGroup.POST("/check_user_exist", u.CheckUserExist)
 
 		// 全局黑名单管理（仅管理员）
 		userRouterGroup.POST("/add_global_blacklist", bl.AddGlobalBlacklist)
