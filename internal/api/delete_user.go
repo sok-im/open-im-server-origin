@@ -25,7 +25,7 @@ import (
 // It follows the same direct-DB pattern as UserGlobalBlackApi.
 type DeleteUserApi struct {
 	userDB         controller.UserDatabase
-	friendDB       database.Friend
+	friendCtrl     controller.FriendDatabase
 	phoneSNDB      database.PhoneSN
 	totpDB         database.UserTotp
 	totpRecoveryDB database.UserTotpRecovery
@@ -38,7 +38,7 @@ type DeleteUserApi struct {
 
 func NewDeleteUserApi(
 	userDB controller.UserDatabase,
-	friendDB database.Friend,
+	friendCtrl controller.FriendDatabase,
 	phoneSNDB database.PhoneSN,
 	totpDB database.UserTotp,
 	totpRecoveryDB database.UserTotpRecovery,
@@ -50,7 +50,7 @@ func NewDeleteUserApi(
 ) *DeleteUserApi {
 	return &DeleteUserApi{
 		userDB:         userDB,
-		friendDB:       friendDB,
+		friendCtrl:     friendCtrl,
 		phoneSNDB:      phoneSNDB,
 		totpDB:         totpDB,
 		totpRecoveryDB: totpRecoveryDB,
@@ -116,14 +116,14 @@ func (d *DeleteUserApi) DeleteUser(c *gin.Context) {
 		log.ZWarn(c, "DeleteUser: GetFriendIDs failed", err, "userID", req.UserID)
 	} else {
 		for _, friendID := range friendIDsResp.FriendIDs {
-			if _, err := d.friendClient.DeleteFriend(c, &relation.DeleteFriendReq{
+			if _, err := d.friendClient.DeleteFriendOneway(c, &relation.DeleteFriendReq{
 				OwnerUserID:  req.UserID,
 				FriendUserID: friendID,
 			}); err != nil {
-				log.ZWarn(c, "DeleteUser: DeleteFriend (owner→friend) failed", err,
+				log.ZWarn(c, "DeleteUser: DeleteFriendOneway (owner→friend) failed", err,
 					"ownerUserID", req.UserID, "friendUserID", friendID)
 			} else {
-				log.ZInfo(c, "lintao DeleteUser: DeleteFriend (owner→friend) ok",
+				log.ZInfo(c, "lintao DeleteUser: DeleteFriendOneway (owner→friend) ok",
 					"ownerUserID", req.UserID, "friendUserID", friendID)
 			}
 		}
@@ -222,8 +222,8 @@ func (d *DeleteUserApi) collectAccountDeletedNotifyUserIDs(ctx context.Context, 
 	var ownersReferencingDeleted []string
 	var deletedUserFriendIDs []string
 
-	if d.friendDB != nil {
-		ownerUserIDs, err := d.friendDB.FindFriendUserID(ctx, deletedUserID)
+	if d.friendCtrl != nil {
+		ownerUserIDs, err := d.friendCtrl.FindFriendUserID(ctx, deletedUserID)
 		if err != nil {
 			log.ZWarn(ctx, "lintao DeleteUser: collect notify FindFriendUserID failed", err, "deletedUserID", deletedUserID)
 		} else {
@@ -281,17 +281,17 @@ func (d *DeleteUserApi) notifyAccountDeleted(ctx context.Context, deletedUserID 
 			"notifyUserID", notifyUserID,
 			"friendsInfoUpdate", true,
 			"friendInfoUpdated", true)
-		d.friendNotifier.FriendsInfoUpdateNotification(adminCtx, notifyUserID, []string{deletedUserID})
+		d.friendNotifier.AccountDeletedFriendsNotification(adminCtx, notifyUserID, []string{deletedUserID})
 		d.friendNotifier.FriendInfoUpdatedNotification(adminCtx, deletedUserID, notifyUserID)
 	}
 	log.ZInfo(ctx, "DeleteUser: notified related users", "deletedUserID", deletedUserID, "notifyCount", len(notifyUserIDs))
 }
 
 func (d *DeleteUserApi) bumpFriendVersionForDeletedUser(ctx context.Context, deletedUserID string) {
-	if d.friendDB == nil {
+	if d.friendCtrl == nil {
 		return
 	}
-	ownerUserIDs, err := d.friendDB.FindFriendUserID(ctx, deletedUserID)
+	ownerUserIDs, err := d.friendCtrl.FindFriendUserID(ctx, deletedUserID)
 	if err != nil {
 		log.ZWarn(ctx, "DeleteUser: bumpFriendVersion FindFriendUserID failed", err, "userID", deletedUserID)
 		return
@@ -300,8 +300,8 @@ func (d *DeleteUserApi) bumpFriendVersionForDeletedUser(ctx context.Context, del
 		if ownerUserID == deletedUserID {
 			continue
 		}
-		if err := d.friendDB.IncrVersion(ctx, ownerUserID, []string{deletedUserID}, relationtb.VersionStateUpdate); err != nil {
-			log.ZWarn(ctx, "DeleteUser: bumpFriendVersion IncrVersion failed", err,
+		if err := d.friendCtrl.OwnerIncrVersion(ctx, ownerUserID, []string{deletedUserID}, relationtb.VersionStateUpdate); err != nil {
+			log.ZWarn(ctx, "DeleteUser: bumpFriendVersion OwnerIncrVersion failed", err,
 				"ownerUserID", ownerUserID, "friendUserID", deletedUserID)
 		}
 	}

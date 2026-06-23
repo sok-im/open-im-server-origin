@@ -288,11 +288,30 @@ func (f *FriendNotificationSender) FriendRemarkSetNotification(ctx context.Conte
 }
 
 func (f *FriendNotificationSender) FriendsInfoUpdateNotification(ctx context.Context, toUserID string, friendIDs []string) {
+	f.friendsInfoUpdateNotification(ctx, toUserID, friendIDs, false)
+}
+
+// AccountDeletedFriendsNotification notifies ownerUserID to refresh friends whose accounts were deleted.
+// It includes the latest friend-list version so clients can incremental-sync updated deactivated profiles.
+func (f *FriendNotificationSender) AccountDeletedFriendsNotification(ctx context.Context, ownerUserID string, deletedFriendIDs []string) {
+	f.friendsInfoUpdateNotification(ctx, ownerUserID, deletedFriendIDs, true)
+}
+
+func (f *FriendNotificationSender) friendsInfoUpdateNotification(ctx context.Context, toUserID string, friendIDs []string, includeVersion bool) {
 	tips := sdkws.FriendsInfoUpdateTips{FromToUserID: &sdkws.FromToUserID{}}
 	tips.FromToUserID.ToUserID = toUserID
 	tips.FriendIDs = friendIDs
+	if includeVersion && f.db != nil {
+		if vl, err := f.db.FindMaxFriendVersionCache(ctx, toUserID); err != nil {
+			log.ZWarn(ctx, "friendsInfoUpdateNotification: FindMaxFriendVersionCache failed", err, "toUserID", toUserID)
+		} else if vl != nil {
+			tips.FriendVersion = uint64(vl.Version)
+			tips.FriendVersionID = vl.ID.Hex()
+		}
+	}
 	log.ZInfo(ctx, "lintao FriendsInfoUpdateNotification dispatch",
-		"toUserID", toUserID, "friendIDs", friendIDs)
+		"toUserID", toUserID, "friendIDs", friendIDs, "includeVersion", includeVersion,
+		"friendVersion", tips.FriendVersion, "friendVersionID", tips.FriendVersionID)
 	f.Notification(ctx, toUserID, toUserID, constant.FriendsInfoUpdateNotification, &tips)
 }
 
