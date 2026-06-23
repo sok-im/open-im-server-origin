@@ -23,16 +23,16 @@ import (
 // DeleteUserApi handles real account deletion (hard delete).
 // It follows the same direct-DB pattern as UserGlobalBlackApi.
 type DeleteUserApi struct {
-	userDB           controller.UserDatabase
-	friendDB         database.Friend
-	phoneSNDB        database.PhoneSN
-	totpDB           database.UserTotp
-	totpRecoveryDB   database.UserTotpRecovery
-	authClient       *rpcli.AuthClient
-	groupClient      group.GroupClient
-	friendClient     relation.FriendClient
-	friendNotifier   *relationrpc.FriendNotificationSender
-	imAdminUserIDs   []string
+	userDB         controller.UserDatabase
+	friendDB       database.Friend
+	phoneSNDB      database.PhoneSN
+	totpDB         database.UserTotp
+	totpRecoveryDB database.UserTotpRecovery
+	authClient     *rpcli.AuthClient
+	groupClient    group.GroupClient
+	friendClient   relation.FriendClient
+	friendNotifier *relationrpc.FriendNotificationSender
+	imAdminUserIDs []string
 }
 
 func NewDeleteUserApi(
@@ -48,16 +48,16 @@ func NewDeleteUserApi(
 	imAdminUserIDs []string,
 ) *DeleteUserApi {
 	return &DeleteUserApi{
-		userDB:           userDB,
-		friendDB:         friendDB,
-		phoneSNDB:        phoneSNDB,
-		totpDB:           totpDB,
-		totpRecoveryDB:   totpRecoveryDB,
-		authClient:       authClient,
-		groupClient:      groupClient,
-		friendClient:     friendClient,
-		friendNotifier:   friendNotifier,
-		imAdminUserIDs:   imAdminUserIDs,
+		userDB:         userDB,
+		friendDB:       friendDB,
+		phoneSNDB:      phoneSNDB,
+		totpDB:         totpDB,
+		totpRecoveryDB: totpRecoveryDB,
+		authClient:     authClient,
+		groupClient:    groupClient,
+		friendClient:   friendClient,
+		friendNotifier: friendNotifier,
+		imAdminUserIDs: imAdminUserIDs,
 	}
 }
 
@@ -155,6 +155,8 @@ func (d *DeleteUserApi) DeleteUser(c *gin.Context) {
 					GroupID: g.GroupID,
 				}); err != nil {
 					log.ZWarn(c, "DeleteUser: DismissGroup failed", err, "userID", req.UserID, "groupID", g.GroupID)
+				} else {
+					log.ZDebug(ownerCtx, "DeleteUser: DismissGroup success", "groupID", g.GroupID, "userID", req.UserID, "ownerUserID", g.OwnerUserID)
 				}
 				continue
 			}
