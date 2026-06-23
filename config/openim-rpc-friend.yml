@@ -15,3 +15,8 @@ prometheus:
   # List of ports that Prometheus listens on; these must match the number of rpc.ports to ensure correct monitoring setup
   # It will only take effect when autoSetPorts is set to false.
   ports: [ 12240 ]
+
+# Placeholder profile shown in friend lists for deleted accounts.
+deactivatedUserDefaults:
+  nickname: Deactivated user
+  faceURL: http://13.215.203.29:10002/object/6794065114/mmexport1782219627453.jpg

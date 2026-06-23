@@ -16,8 +16,8 @@ package convert
 
 import (
 	"context"
-	"fmt"
 
+	"github.com/openimsdk/open-im-server/v3/pkg/common/config"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/model"
 	"github.com/openimsdk/open-im-server/v3/pkg/notification/common_user"
 	"github.com/openimsdk/protocol/relation"
@@ -38,25 +38,26 @@ func FriendPb2DB(friend *sdkws.FriendInfo) *model.Friend {
 	return dbFriend
 }
 
-func FriendDB2Pb(ctx context.Context, friendDB *model.Friend, getUsers func(ctx context.Context, userIDs []string) (map[string]*sdkws.UserInfo, error)) (*sdkws.FriendInfo, error) {
+func FriendDB2Pb(ctx context.Context, friendDB *model.Friend, getUsers func(ctx context.Context, userIDs []string) (map[string]*sdkws.UserInfo, error), defaults config.DeactivatedUserDefaults) (*sdkws.FriendInfo, error) {
 	users, err := getUsers(ctx, []string{friendDB.FriendUserID})
 	if err != nil {
 		return nil, err
 	}
 	user, ok := users[friendDB.FriendUserID]
-	if !ok {
-		return nil, fmt.Errorf("user not found: %s", friendDB.FriendUserID)
+	var displayUser sdkws.UserInfo
+	if ok {
+		displayUser = *user
+		displayUser.Nickname = DisplayNickname(friendDB.Remark, user)
+	} else {
+		displayUser = *DeactivatedUserInfo(friendDB.FriendUserID, defaults)
 	}
-
-	displayUser := *user
-	displayUser.Nickname = DisplayNickname(friendDB.Remark, user)
 	return &sdkws.FriendInfo{
 		FriendUser: &displayUser,
 		CreateTime: friendDB.CreateTime.Unix(),
 	}, nil
 }
 
-func FriendsDB2Pb(ctx context.Context, friendsDB []*model.Friend, getUsers func(ctx context.Context, userIDs []string) (map[string]*sdkws.UserInfo, error)) (friendsPb []*sdkws.FriendInfo, err error) {
+func FriendsDB2Pb(ctx context.Context, friendsDB []*model.Friend, getUsers func(ctx context.Context, userIDs []string) (map[string]*sdkws.UserInfo, error), defaults config.DeactivatedUserDefaults) (friendsPb []*sdkws.FriendInfo, err error) {
 	if len(friendsDB) == 0 {
 		return nil, nil
 	}
@@ -76,17 +77,14 @@ func FriendsDB2Pb(ctx context.Context, friendsDB []*model.Friend, getUsers func(
 			return nil, err
 		}
 
-		u := users[friend.FriendUserID]
-		if u == nil {
-			// User deleted or missing; skip orphan friend record.
-			continue
+		var displayUser sdkws.UserInfo
+		if u := users[friend.FriendUserID]; u != nil {
+			displayUser = *u
+			displayUser.Nickname = DisplayNickname(friend.Remark, u)
+		} else {
+			displayUser = *DeactivatedUserInfo(friend.FriendUserID, defaults)
 		}
-		friendPb.FriendUser.UserID = u.UserID
-		friendPb.FriendUser.Nickname = DisplayNickname(friend.Remark, u)
-		friendPb.FriendUser.FaceURL = u.FaceURL
-		friendPb.FriendUser.Ex = u.Ex
-		friendPb.FriendUser.FirstName = u.FirstName
-		friendPb.FriendUser.LastName = u.LastName
+		friendPb.FriendUser = &displayUser
 		friendPb.CreateTime = friend.CreateTime.Unix()
 		friendPb.IsPinned = friend.IsPinned
 		friendPb.IsMute = friend.IsMuted

@@ -9,6 +9,7 @@ import (
 	"github.com/openimsdk/open-im-server/v3/pkg/authverify"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/controller"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/database"
+	relationtb "github.com/openimsdk/open-im-server/v3/pkg/common/storage/model"
 	"github.com/openimsdk/open-im-server/v3/pkg/rpcli"
 	"github.com/openimsdk/protocol/constant"
 	"github.com/openimsdk/protocol/group"
@@ -128,9 +129,6 @@ func (d *DeleteUserApi) DeleteUser(c *gin.Context) {
 		}
 	}
 
-	// 3b. Remove this user from every other user's friend list (friend_user_id = req.UserID).
-	d.deleteFriendsReferencingUser(c, req.UserID)
-
 	// 4. Leave all joined groups: dismiss groups owned by the user, quit the rest.
 	// Use admin identity for group RPCs (same as deleteFriendsReferencingUser) so DismissGroup /
 	// GetGroupMembersInfo succeed reliably during account deletion.
@@ -219,46 +217,6 @@ func (d *DeleteUserApi) DeleteUser(c *gin.Context) {
 	apiresp.GinSuccess(c, nil)
 }
 
-// deleteFriendsReferencingUser 删除所有 owner 侧仍引用被删用户的好友记录（friend_user_id = deletedUserID）。
-// 使用管理员身份调用 DeleteFriend，避免自删账号时 opUserID 无权操作他人 owner_user_id。
-func (d *DeleteUserApi) deleteFriendsReferencingUser(ctx context.Context, deletedUserID string) {
-	if d.friendDB == nil {
-		log.ZWarn(ctx, "DeleteUser: friendDB is nil, skip reversal friend cleanup", nil, "userID", deletedUserID)
-		return
-	}
-	if len(d.imAdminUserIDs) == 0 {
-		log.ZWarn(ctx, "DeleteUser: no imAdminUserID, skip reversal friend cleanup", nil, "userID", deletedUserID)
-		return
-	}
-
-	ownerUserIDs, err := d.friendDB.FindFriendUserID(ctx, deletedUserID)
-	if err != nil {
-		log.ZWarn(ctx, "DeleteUser: FindFriendUserID failed", err, "userID", deletedUserID)
-		return
-	}
-	log.ZInfo(ctx, "lintao DeleteUser: owners referencing deleted user",
-		"deletedUserID", deletedUserID, "ownerUserIDs", ownerUserIDs, "count", len(ownerUserIDs))
-	if len(ownerUserIDs) == 0 {
-		return
-	}
-
-	for _, ownerUserID := range ownerUserIDs {
-		if ownerUserID == deletedUserID {
-			continue
-		}
-		if _, err := d.friendClient.DeleteFriend(d.adminCtx(ctx), &relation.DeleteFriendReq{
-			OwnerUserID:  ownerUserID,
-			FriendUserID: deletedUserID,
-		}); err != nil {
-			log.ZWarn(ctx, "DeleteUser: DeleteFriend (friend→owner) failed", err,
-				"ownerUserID", ownerUserID, "friendUserID", deletedUserID)
-		} else {
-			log.ZInfo(ctx, "lintao DeleteUser: DeleteFriend (friend→owner) ok",
-				"ownerUserID", ownerUserID, "friendUserID", deletedUserID)
-		}
-	}
-}
-
 func (d *DeleteUserApi) collectAccountDeletedNotifyUserIDs(ctx context.Context, deletedUserID string) []string {
 	userIDSet := make(map[string]struct{})
 	var ownersReferencingDeleted []string
@@ -301,6 +259,8 @@ func (d *DeleteUserApi) collectAccountDeletedNotifyUserIDs(ctx context.Context, 
 }
 
 func (d *DeleteUserApi) notifyAccountDeleted(ctx context.Context, deletedUserID string, notifyUserIDs []string) {
+	d.bumpFriendVersionForDeletedUser(ctx, deletedUserID)
+
 	if d.friendNotifier == nil {
 		log.ZWarn(ctx, "lintao DeleteUser: skip account-deleted notify, friendNotifier is nil",
 			nil, "deletedUserID", deletedUserID, "notifyUserIDs", notifyUserIDs)
@@ -325,6 +285,26 @@ func (d *DeleteUserApi) notifyAccountDeleted(ctx context.Context, deletedUserID 
 		d.friendNotifier.FriendInfoUpdatedNotification(adminCtx, deletedUserID, notifyUserID)
 	}
 	log.ZInfo(ctx, "DeleteUser: notified related users", "deletedUserID", deletedUserID, "notifyCount", len(notifyUserIDs))
+}
+
+func (d *DeleteUserApi) bumpFriendVersionForDeletedUser(ctx context.Context, deletedUserID string) {
+	if d.friendDB == nil {
+		return
+	}
+	ownerUserIDs, err := d.friendDB.FindFriendUserID(ctx, deletedUserID)
+	if err != nil {
+		log.ZWarn(ctx, "DeleteUser: bumpFriendVersion FindFriendUserID failed", err, "userID", deletedUserID)
+		return
+	}
+	for _, ownerUserID := range ownerUserIDs {
+		if ownerUserID == deletedUserID {
+			continue
+		}
+		if err := d.friendDB.IncrVersion(ctx, ownerUserID, []string{deletedUserID}, relationtb.VersionStateUpdate); err != nil {
+			log.ZWarn(ctx, "DeleteUser: bumpFriendVersion IncrVersion failed", err,
+				"ownerUserID", ownerUserID, "friendUserID", deletedUserID)
+		}
+	}
 }
 
 func (d *DeleteUserApi) adminCtx(ctx context.Context) context.Context {
