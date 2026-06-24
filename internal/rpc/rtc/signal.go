@@ -1795,10 +1795,10 @@ func singleChatCallDuration(inv *model.SignalInvitation) (int64, string) {
 }
 
 const (
-	callStatusAnswered  = "answered"
-	callStatusCancelled = "cancelled"
-	callStatusRejected  = "rejected"
-	callStatusTimeout   = "timeout"
+	callStatusAnswered     = "answered"
+	callStatusCancelled    = "cancelled"
+	callStatusRejected     = "rejected"
+	callStatusNotConnected = "not_connected"
 )
 
 // callRecordData is the JSON payload embedded in a Custom (110) chat message
@@ -1996,7 +1996,7 @@ func (s *rtcServer) handleTimeout(ctx context.Context, req *rtc.SignalTimeoutReq
 		}
 	}
 
-	s.sendCallRecordChatMsg(ctx, dbInv, callStatusTimeout, 0)
+	s.sendCallRecordChatMsg(ctx, dbInv, callStatusNotConnected, 0)
 
 	log.ZInfo(ctx, "handleTimeout", "dbInv", dbInv)
 
