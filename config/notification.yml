@@ -233,6 +233,17 @@ groupCallParticipantCountUpdated:
     desc: ""
     ext: ""
 
+# 1v1 / 群音视频邀请信令离线推送（SignalingNotification）
+signalingInvite:
+  isSendMsg: false
+  reliabilityLevel: 1
+  unreadCount: false
+  offlinePush:
+    enable: true
+    title: SOK
+    desc: 你收到一条音视频通话邀请
+    ext: ""
+
 groupBurnDurationSet:
   isSendMsg: true
   reliabilityLevel: 2

@@ -180,7 +180,9 @@ func (s *rtcServer) handleInvite(ctx context.Context, req *rtc.SignalInviteReq, 
 		return nil, err
 	}
 
-	if err := s.db.CreateInvitation(ctx, invitationToModel(inv, req.OfflinePushInfo)); err != nil {
+	inviteOfflinePush := s.resolveInviteOfflinePushInfo(ctx, inv, req.OfflinePushInfo)
+
+	if err := s.db.CreateInvitation(ctx, invitationToModel(inv, inviteOfflinePush)); err != nil {
 		if mongo.IsDuplicateKeyError(err) {
 			log.ZWarn(ctx, "handleInvite: duplicate invitation (idempotent retry)", err, "roomID", inv.RoomID)
 		} else {
@@ -207,7 +209,7 @@ func (s *rtcServer) handleInvite(ctx context.Context, req *rtc.SignalInviteReq, 
 			continue
 		}
 		log.ZInfo(ctx, "sendSignalingNotification to invitee", "sendID", req.UserID, "recvID", inviteeID)
-		if err := s.sendSignalingNotification(ctx, req.UserID, inviteeID, int32(constant.SingleChatType), "", req.OfflinePushInfo, content); err != nil {
+		if err := s.sendSignalingNotification(ctx, req.UserID, inviteeID, int32(constant.SingleChatType), "", inviteOfflinePush, content); err != nil {
 			log.ZError(ctx, "sendSignalingNotification to invitee failed", err, "inviteeID", inviteeID)
 			return nil, errs.WrapMsg(err, "failed to notify invitee", "inviteeID", inviteeID)
 		}
@@ -309,7 +311,9 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 		return nil, err
 	}
 
-	if err := s.db.CreateInvitation(ctx, invitationToModel(inv, req.OfflinePushInfo)); err != nil {
+	inviteOfflinePush := s.resolveInviteOfflinePushInfo(ctx, inv, req.OfflinePushInfo)
+
+	if err := s.db.CreateInvitation(ctx, invitationToModel(inv, inviteOfflinePush)); err != nil {
 		if !mongo.IsDuplicateKeyError(err) {
 			if _, delErr := s.roomClient.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: inv.RoomID}); delErr != nil {
 				log.ZWarn(ctx, "handleInviteInGroup: rollback DeleteRoom failed", delErr, "roomID", inv.RoomID)
@@ -333,7 +337,7 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 			log.ZInfo(ctx, "handleInviteInGroup: skip busy invitee", "inviteeID", inviteeID)
 			continue
 		}
-		if err := s.sendSignalingNotification(ctx, req.UserID, inviteeID, int32(constant.ReadGroupChatType), inv.GroupID, req.OfflinePushInfo, content); err != nil {
+		if err := s.sendSignalingNotification(ctx, req.UserID, inviteeID, int32(constant.ReadGroupChatType), inv.GroupID, inviteOfflinePush, content); err != nil {
 			log.ZWarn(ctx, "handleInviteInGroup to group invitee failed", err, "inviteeID", inviteeID)
 			return nil, errs.WrapMsg(err, "failed to notify invitee", "inviteeID", inviteeID)
 		}
@@ -1243,9 +1247,9 @@ func (s *rtcServer) genToken(roomID, userID string) (string, error) {
 //  3. IsUnreadCount/IsConversationUpdate 默认 true，污染未读数和会话列表
 //
 // 信令消息应走 Notification 通道（对话 ID 前缀 "n_"），绕过聊天消息权限校验，
-// 且不写历史、不计未读、不更新会话。离线推送根据 offlinePushInfo 控制，此处不强制关闭。
+// 且不写历史、不计未读、不更新会话。默认关闭离线推送，仅邀请信令在携带 offlinePushInfo 时开启。
 func signalingMsgOptions() map[string]bool {
-	opts := make(map[string]bool, 8)
+	opts := make(map[string]bool, 9)
 	// IsNotNotification=false 表示"这是通知消息"，让 IsNotificationByMsg 返回 true
 	// 从而跳过 modifyMessageByUserMessageReceiveOpt 中的黑名单/好友关系等校验
 	datautil.SetSwitchFromOptions(opts, constant.IsNotNotification, false)
@@ -1256,6 +1260,7 @@ func signalingMsgOptions() map[string]bool {
 	datautil.SetSwitchFromOptions(opts, constant.IsConversationUpdate, false)
 	datautil.SetSwitchFromOptions(opts, constant.IsSenderConversationUpdate, false)
 	datautil.SetSwitchFromOptions(opts, constant.IsSenderSync, false)
+	datautil.SetSwitchFromOptions(opts, constant.IsOfflinePush, false)
 	return opts
 }
 
@@ -1263,6 +1268,10 @@ func signalingMsgOptions() map[string]bool {
 // groupID 在 SessionType 为群类型（如 ReadGroupChatType）时必须非空，否则 msg 服务群聊校验会失败。
 func (s *rtcServer) sendSignalingNotification(ctx context.Context, sendID, recvID string, sessionType int32, groupID string, offlinePush *sdkws.OfflinePushInfo, content []byte) error {
 	now := time.Now().UnixMilli()
+	opts := signalingMsgOptions()
+	if offlinePush != nil {
+		datautil.SetSwitchFromOptions(opts, constant.IsOfflinePush, true)
+	}
 	msgData := &sdkws.MsgData{
 		SendID:      sendID,
 		RecvID:      recvID,
@@ -1275,7 +1284,7 @@ func (s *rtcServer) sendSignalingNotification(ctx context.Context, sendID, recvI
 		SendTime:    now,
 		ServerMsgID: uuid.New().String(),
 		ClientMsgID: uuid.New().String(),
-		Options:     signalingMsgOptions(),
+		Options:     opts,
 	}
 	if offlinePush != nil {
 		msgData.OfflinePushInfo = offlinePush
