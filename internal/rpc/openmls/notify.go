@@ -57,14 +57,19 @@ const mlsExtensionRemoveMemberTrigger = "mls_remove_member_trigger"
 // must NOT appear in chat history, unread counts, or conversation lists — they
 // route through the notification (n_) conversation channel, identical to RTC
 // signaling messages.
+//
+// IsHistory=true persists handshake messages so offline peers can catch up MLS
+// epoch state after reconnecting (e.g. 1:1 sessions where Commit is not group-
+// broadcast). Without persistence, a Welcome/Commit delivered while the peer is
+// offline is lost and subsequent E2EE messages cannot be decrypted.
 func mlsHandshakeMsgOptions() map[string]bool {
 	opts := make(map[string]bool, 7)
 	// IsNotNotification=false routes through the n_ notification conversation,
 	// bypassing friend/block checks that apply to normal chat messages.
 	datautil.SetSwitchFromOptions(opts, constant.IsNotNotification, false)
 	datautil.SetSwitchFromOptions(opts, constant.IsSendMsg, false)
-	datautil.SetSwitchFromOptions(opts, constant.IsHistory, false)
-	datautil.SetSwitchFromOptions(opts, constant.IsPersistent, false)
+	datautil.SetSwitchFromOptions(opts, constant.IsHistory, true)
+	datautil.SetSwitchFromOptions(opts, constant.IsPersistent, true)
 	datautil.SetSwitchFromOptions(opts, constant.IsUnreadCount, false)
 	datautil.SetSwitchFromOptions(opts, constant.IsConversationUpdate, false)
 	datautil.SetSwitchFromOptions(opts, constant.IsSenderConversationUpdate, false)

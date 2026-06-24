@@ -693,6 +693,20 @@ func (s *userServer) CheckNickname(ctx context.Context, req *pbuser.CheckNicknam
 	return &pbuser.CheckNicknameResp{Exists: len(users) > 0}, nil
 }
 
+// CheckUserExist 检查指定 userID 的用户是否存在。
+func (s *userServer) CheckUserExist(ctx context.Context, req *pbuser.CheckUserExistReq) (*pbuser.CheckUserExistResp, error) {
+	userID := strings.TrimSpace(req.UserID)
+	if userID == "" {
+		return nil, errs.ErrArgs.WrapMsg("userID is required")
+	}
+	exist, err := s.db.IsExist(ctx, []string{userID})
+	if err != nil {
+		log.ZError(ctx, "CheckUserExist: IsExist failed", err, "userID", userID)
+		return nil, err
+	}
+	return &pbuser.CheckUserExistResp{Exists: exist}, nil
+}
+
 func (s *userServer) AccountCheck(ctx context.Context, req *pbuser.AccountCheckReq) (resp *pbuser.AccountCheckResp, err error) {
 	resp = &pbuser.AccountCheckResp{}
 	if datautil.Duplicate(req.CheckUserIDs) {

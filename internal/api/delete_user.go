@@ -138,12 +138,14 @@ func (d *DeleteUserApi) DeleteUser(c *gin.Context) {
 		if len(groupListResp.Groups) == 0 {
 			break
 		}
+		ownerCtx := mcontext.SetOpUserID(adminCtx, req.UserID)
 		for _, g := range groupListResp.Groups {
 			if d.isGroupOwnerForDelete(adminCtx, g.GroupID, req.UserID, g.OwnerUserID) {
-				log.ZDebug(adminCtx, "DeleteUser: DismissGroup", "groupID", g.GroupID, "userID", req.UserID, "ownerUserID", g.OwnerUserID)
-				if _, err := d.groupClient.DismissGroup(adminCtx, &group.DismissGroupReq{
-					GroupID:      g.GroupID,
-					DeleteMember: true,
+				log.ZDebug(ownerCtx, "DeleteUser: DismissGroup", "groupID", g.GroupID, "userID", req.UserID, "ownerUserID", g.OwnerUserID)
+				// DeleteMember must be false so GroupDismissedNotification is sent to remaining
+				// members (DeleteMember=true skips notification; push then clears members).
+				if _, err := d.groupClient.DismissGroup(ownerCtx, &group.DismissGroupReq{
+					GroupID: g.GroupID,
 				}); err != nil {
 					log.ZWarn(c, "DeleteUser: DismissGroup failed", err, "userID", req.UserID, "groupID", g.GroupID)
 				}
@@ -156,9 +158,8 @@ func (d *DeleteUserApi) DeleteUser(c *gin.Context) {
 			}); err != nil {
 				// Owner detection may fail when OwnerUserID is stale; QuitGroup rejects owners.
 				if errs.ErrNoPermission.Is(err) && strings.Contains(err.Error(), "group owner can't quit") {
-					if _, dismissErr := d.groupClient.DismissGroup(adminCtx, &group.DismissGroupReq{
-						GroupID:      g.GroupID,
-						DeleteMember: true,
+					if _, dismissErr := d.groupClient.DismissGroup(ownerCtx, &group.DismissGroupReq{
+						GroupID: g.GroupID,
 					}); dismissErr != nil {
 						log.ZWarn(c, "DeleteUser: DismissGroup fallback failed", dismissErr,
 							"userID", req.UserID, "groupID", g.GroupID)
