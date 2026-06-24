@@ -97,6 +97,9 @@ func (f *Fcm) Push(ctx context.Context, userIDs []string, title, content string,
 	var msgErrBuilder strings.Builder
 	for userID, personTokens := range allTokens {
 		apns := &messaging.APNSConfig{Payload: &messaging.APNSPayload{Aps: &messaging.Aps{Sound: opts.IOSPushSound}}}
+		if collapseID := opts.APNsCollapseID(); collapseID != "" {
+			apns.Headers = map[string]string{"apns-collapse-id": collapseID}
+		}
 		if opts.IsWakePush() {
 			apns.Payload.Aps.ContentAvailable = true
 			apns.Payload.Aps.MutableContent = true

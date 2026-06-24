@@ -84,6 +84,9 @@ func (j *JPush) Push(ctx context.Context, userIDs []string, title, content strin
 	msg.SetExtras("ex", opts.Ex)
 	var opt body.Options
 	opt.SetApnsProduction(j.pushConf.IOSPush.Production)
+	if collapseID := opts.APNsCollapseID(); collapseID != "" {
+		opt.SetApnsCollapseID(collapseID)
+	}
 	var pushObj body.PushObj
 	pushObj.SetPlatform(&pf)
 	pushObj.SetAudience(&au)

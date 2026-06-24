@@ -56,6 +56,9 @@ func (e *EngageLab) Push(ctx context.Context, userIDs []string, title, content s
 
 	apnsProduction := e.conf.IOSPush.Production
 	pushOpts := &el.Options{APNSProduction: &apnsProduction}
+	if collapseID := opts.APNsCollapseID(); collapseID != "" {
+		pushOpts.APNSCollapseID = collapseID
+	}
 
 	if opts.IsWakePush() {
 		// EngageLab rejects requests that include both notification and custom message (error 21036).

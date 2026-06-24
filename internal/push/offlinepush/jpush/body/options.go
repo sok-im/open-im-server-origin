@@ -15,9 +15,14 @@
 package body
 
 type Options struct {
-	ApnsProduction bool `json:"apns_production"`
+	ApnsProduction bool   `json:"apns_production"`
+	ApnsCollapseID string `json:"apns_collapse_id,omitempty"`
 }
 
 func (o *Options) SetApnsProduction(c bool) {
 	o.ApnsProduction = c
+}
+
+func (o *Options) SetApnsCollapseID(id string) {
+	o.ApnsCollapseID = id
 }
