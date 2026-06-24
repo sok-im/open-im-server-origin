@@ -51,6 +51,18 @@ func ApplyCallRingtoneDefaults(user *relationtb.User, defaults config.CallRingto
 	}
 }
 
+// DeactivatedUserInfo returns placeholder profile for a deleted account.
+func DeactivatedUserInfo(userID string, defaults config.DeactivatedUserDefaults) *sdkws.UserInfo {
+	d := defaults
+	config.FillDeactivatedUserDefaults(&d)
+	return &sdkws.UserInfo{
+		UserID:    userID,
+		Nickname:  d.Nickname,
+		FaceURL:   d.FaceURL,
+		FirstName: d.Nickname,
+	}
+}
+
 func BuildFullName(firstName, lastName string) string {
 	if firstName == "" {
 		return lastName

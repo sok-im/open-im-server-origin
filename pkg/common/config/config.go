@@ -302,6 +302,8 @@ type Friend struct {
 		Ports        []int  `mapstructure:"ports"`
 	} `mapstructure:"rpc"`
 	Prometheus Prometheus `mapstructure:"prometheus"`
+	// DeactivatedUserDefaults 已注销用户在好友侧展示的昵称与头像；留空则使用内置默认值。
+	DeactivatedUserDefaults DeactivatedUserDefaults `mapstructure:"deactivatedUserDefaults"`
 }
 
 // GroupInviteLinkConfig 群邀请链接的全局默认值和硬上限。
@@ -401,6 +403,30 @@ type CallRingtoneDefaults struct {
 	Name   string `mapstructure:"name"`
 	Cover  string `mapstructure:"cover"`
 	Author string `mapstructure:"author"`
+}
+
+// DeactivatedUserDefaults 已注销用户在好友列表中的占位展示信息。
+type DeactivatedUserDefaults struct {
+	Nickname string `mapstructure:"nickname"`
+	FaceURL  string `mapstructure:"faceURL"`
+}
+
+const (
+	defaultDeactivatedUserNickname = "Deactivated user"
+	defaultDeactivatedUserFaceURL  = "http://13.215.203.29:10002/object/6794065114/mmexport1782219627453.jpg"
+)
+
+// FillDeactivatedUserDefaults applies defaults when nickname or faceURL is empty.
+func FillDeactivatedUserDefaults(d *DeactivatedUserDefaults) {
+	if d == nil {
+		return
+	}
+	if strings.TrimSpace(d.Nickname) == "" {
+		d.Nickname = defaultDeactivatedUserNickname
+	}
+	if strings.TrimSpace(d.FaceURL) == "" {
+		d.FaceURL = defaultDeactivatedUserFaceURL
+	}
 }
 
 type User struct {

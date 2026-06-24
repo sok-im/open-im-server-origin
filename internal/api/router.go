@@ -22,6 +22,7 @@ import (
 	pbvirgil "github.com/openimsdk/protocol/virgilsecurity"
 
 	"github.com/openimsdk/open-im-server/v3/internal/api/jssdk"
+	relationrpc "github.com/openimsdk/open-im-server/v3/internal/rpc/relation"
 
 	"github.com/gin-contrib/gzip"
 
@@ -30,11 +31,13 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/prommetrics"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/servererrs"
+	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/cache/redis"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/controller"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/database/mgo"
 	"github.com/openimsdk/protocol/constant"
 	"github.com/openimsdk/tools/apiresp"
 	"github.com/openimsdk/tools/db/mongoutil"
+	"github.com/openimsdk/tools/db/redisutil"
 	"github.com/openimsdk/tools/discovery"
 	"github.com/openimsdk/tools/log"
 	"github.com/openimsdk/tools/mw"
@@ -91,6 +94,18 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 	if err != nil {
 		return nil, err
 	}
+	friendRequestDB, err := mgo.NewFriendRequestMongo(mgocli.GetDB())
+	if err != nil {
+		return nil, err
+	}
+	rdb, err := redisutil.NewRedisClient(ctx, config.RedisConfig.Build())
+	if err != nil {
+		return nil, err
+	}
+	userCache := redis.NewUserCacheRedis(rdb, &config.LocalCacheConfig, userDB, redis.GetRocksCacheOptions())
+	userCtrl := controller.NewUserDatabase(userDB, userCache, mgocli.GetTx())
+	friendCache := redis.NewFriendCacheRedis(rdb, &config.LocalCacheConfig, friendDB, redis.GetRocksCacheOptions())
+	friendCtrl := controller.NewFriendDatabase(friendDB, friendRequestDB, friendCache, mgocli.GetTx())
 	blacklistCtrl := controller.NewUserGlobalBlackDatabase(userGlobalBlackDB)
 
 	authConn, err := client.GetConn(ctx, config.Share.RpcRegisterName.Auth)
@@ -168,7 +183,8 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 	m := NewMessageApi(msg.NewMsgClient(msgConn), rpcli.NewUserClient(userConn), config.Share.IMAdminUserID)
 	cp := NewCaptchaApi(pbcaptcha.NewCaptchaClient(captchaConn))
 	bl := NewUserGlobalBlackApi(blacklistCtrl, userDB, config.Share.IMAdminUserID, rpcli.NewAuthClient(authConn))
-	du := NewDeleteUserApi(userDB, friendDB, phoneSNDB, totpDB, totpRecoveryDB, rpcli.NewAuthClient(authConn), group.NewGroupClient(groupConn), relation.NewFriendClient(friendConn), config.Share.IMAdminUserID)
+	friendNotifier := relationrpc.NewFriendNotificationSender(&config.NotificationConfig, rpcli.NewMsgClient(msgConn), relationrpc.WithFriendDB(friendCtrl))
+	du := NewDeleteUserApi(userCtrl, friendCtrl, phoneSNDB, totpDB, totpRecoveryDB, rpcli.NewAuthClient(authConn), group.NewGroupClient(groupConn), relation.NewFriendClient(friendConn), friendNotifier, config.Share.IMAdminUserID)
 	phoneSN := NewPhoneSNApi(phoneSNDB)
 	userRouterGroup := r.Group("/user")
 	{

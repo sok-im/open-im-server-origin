@@ -288,6 +288,7 @@ func (s *friendServer) DeleteFriend(ctx context.Context, req *relation.DeleteFri
 	}
 
 	s.notificationSender.FriendDeletedNotification(ctx, req)
+	s.notificationSender.FriendsInfoUpdateNotification(ctx, req.OwnerUserID, []string{req.FriendUserID})
 	s.webhookAfterDeleteFriend(ctx, &s.config.WebhooksConfig.AfterDeleteFriend, req)
 
 	return &relation.DeleteFriendResp{}, nil
@@ -365,7 +366,7 @@ func (s *friendServer) GetFriendInfo(ctx context.Context, req *relation.GetFrien
 	if err != nil {
 		return nil, err
 	}
-	return &relation.GetFriendInfoResp{FriendInfos: convert.FriendOnlyDB2PbOnly(friends, users)}, nil
+	return &relation.GetFriendInfoResp{FriendInfos: convert.FriendOnlyDB2PbOnly(friends, users, s.deactivatedUserDefaults())}, nil
 }
 
 func (s *friendServer) GetDesignatedFriends(ctx context.Context, req *relation.GetDesignatedFriendsReq) (resp *relation.GetDesignatedFriendsResp, err error) {
@@ -407,6 +408,14 @@ func (s *friendServer) checkUsersNotGlobalBlocked(ctx context.Context, userIDs [
 	return servererrs.ErrUserBlocked.WrapMsg("user is banned", "userIDs", bannedIDs)
 }
 
+func (s *friendServer) deactivatedUserDefaults() config.DeactivatedUserDefaults {
+	return s.config.RpcConfig.DeactivatedUserDefaults
+}
+
+func (s *friendServer) friendsDB2Pb(ctx context.Context, friends []*model.Friend) ([]*sdkws.FriendInfo, error) {
+	return convert.FriendsDB2Pb(ctx, friends, s.userClient.GetUsersInfoMap, s.deactivatedUserDefaults())
+}
+
 func (s *friendServer) getFriend(ctx context.Context, ownerUserID string, friendUserIDs []string) ([]*sdkws.FriendInfo, error) {
 	if len(friendUserIDs) == 0 {
 		return nil, nil
@@ -415,7 +424,7 @@ func (s *friendServer) getFriend(ctx context.Context, ownerUserID string, friend
 	if err != nil {
 		return nil, err
 	}
-	return convert.FriendsDB2Pb(ctx, friends, s.userClient.GetUsersInfoMap)
+	return s.friendsDB2Pb(ctx, friends)
 }
 
 // Get the list of friend requests sent out proactively.
@@ -504,19 +513,8 @@ func (s *friendServer) GetPaginationFriends(ctx context.Context, req *relation.G
 		return nil, err
 	}
 
-	friends, orphanCount, err := s.filterAndPurgeMissingFriendUsers(ctx, req.UserID, friends)
-	if err != nil {
-		return nil, err
-	}
-	if orphanCount > 0 {
-		total -= int64(orphanCount)
-		if total < 0 {
-			total = 0
-		}
-	}
-
 	resp = &relation.GetPaginationFriendsResp{}
-	resp.FriendsInfo, err = convert.FriendsDB2Pb(ctx, friends, s.userClient.GetUsersInfoMap)
+	resp.FriendsInfo, err = s.friendsDB2Pb(ctx, friends)
 	if err != nil {
 		return nil, err
 	}
@@ -524,39 +522,6 @@ func (s *friendServer) GetPaginationFriends(ctx context.Context, req *relation.G
 	resp.Total = int32(total)
 
 	return resp, nil
-}
-
-// filterAndPurgeMissingFriendUsers drops friend rows whose friend_user_id no longer exists in the user service,
-// and deletes those orphan documents from the owner's friend list.
-func (s *friendServer) filterAndPurgeMissingFriendUsers(ctx context.Context, ownerUserID string, friends []*model.Friend) ([]*model.Friend, int, error) {
-	if len(friends) == 0 {
-		return friends, 0, nil
-	}
-	userIDs := datautil.Slice(friends, func(f *model.Friend) string {
-		return f.FriendUserID
-	})
-	users, err := s.userClient.GetUsersInfoMap(ctx, userIDs)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	valid := make([]*model.Friend, 0, len(friends))
-	orphanIDs := make([]string, 0)
-	for _, f := range friends {
-		if users[f.FriendUserID] == nil {
-			orphanIDs = append(orphanIDs, f.FriendUserID)
-			continue
-		}
-		valid = append(valid, f)
-	}
-	if len(orphanIDs) == 0 {
-		return valid, 0, nil
-	}
-	if err := s.db.Delete(ctx, ownerUserID, orphanIDs); err != nil {
-		log.ZWarn(ctx, "filterAndPurgeMissingFriendUsers: delete orphan friends failed", err,
-			"ownerUserID", ownerUserID, "friendUserIDs", orphanIDs)
-	}
-	return valid, len(orphanIDs), nil
 }
 
 func (s *friendServer) GetFriendIDs(ctx context.Context, req *relation.GetFriendIDsReq) (resp *relation.GetFriendIDsResp, err error) {
@@ -615,9 +580,11 @@ func (s *friendServer) GetSpecifiedFriendsInfo(ctx context.Context, req *relatio
 
 	for _, userID := range req.UserIDList {
 		user := userMap[userID]
-
 		if user == nil {
-			continue
+			if friendMap[userID] == nil {
+				continue
+			}
+			user = convert.DeactivatedUserInfo(userID, s.deactivatedUserDefaults())
 		}
 
 		var friendInfo *sdkws.FriendInfo

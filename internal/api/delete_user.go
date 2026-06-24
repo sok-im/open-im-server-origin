@@ -5,8 +5,11 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	relationrpc "github.com/openimsdk/open-im-server/v3/internal/rpc/relation"
 	"github.com/openimsdk/open-im-server/v3/pkg/authverify"
+	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/controller"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/database"
+	relationtb "github.com/openimsdk/open-im-server/v3/pkg/common/storage/model"
 	"github.com/openimsdk/open-im-server/v3/pkg/rpcli"
 	"github.com/openimsdk/protocol/constant"
 	"github.com/openimsdk/protocol/group"
@@ -21,37 +24,40 @@ import (
 // DeleteUserApi handles real account deletion (hard delete).
 // It follows the same direct-DB pattern as UserGlobalBlackApi.
 type DeleteUserApi struct {
-	userDB         database.User
-	friendDB       database.Friend
+	userDB         controller.UserDatabase
+	friendCtrl     controller.FriendDatabase
 	phoneSNDB      database.PhoneSN
 	totpDB         database.UserTotp
 	totpRecoveryDB database.UserTotpRecovery
 	authClient     *rpcli.AuthClient
 	groupClient    group.GroupClient
 	friendClient   relation.FriendClient
+	friendNotifier *relationrpc.FriendNotificationSender
 	imAdminUserIDs []string
 }
 
 func NewDeleteUserApi(
-	userDB database.User,
-	friendDB database.Friend,
+	userDB controller.UserDatabase,
+	friendCtrl controller.FriendDatabase,
 	phoneSNDB database.PhoneSN,
 	totpDB database.UserTotp,
 	totpRecoveryDB database.UserTotpRecovery,
 	authClient *rpcli.AuthClient,
 	groupClient group.GroupClient,
 	friendClient relation.FriendClient,
+	friendNotifier *relationrpc.FriendNotificationSender,
 	imAdminUserIDs []string,
 ) *DeleteUserApi {
 	return &DeleteUserApi{
 		userDB:         userDB,
-		friendDB:       friendDB,
+		friendCtrl:     friendCtrl,
 		phoneSNDB:      phoneSNDB,
 		totpDB:         totpDB,
 		totpRecoveryDB: totpRecoveryDB,
 		authClient:     authClient,
 		groupClient:    groupClient,
 		friendClient:   friendClient,
+		friendNotifier: friendNotifier,
 		imAdminUserIDs: imAdminUserIDs,
 	}
 }
@@ -86,6 +92,10 @@ func (d *DeleteUserApi) DeleteUser(c *gin.Context) {
 		return
 	}
 
+	notifyUserIDs := d.collectAccountDeletedNotifyUserIDs(c, req.UserID)
+	log.ZInfo(c, "lintao DeleteUser: collected notify targets before cleanup",
+		"deletedUserID", req.UserID, "notifyUserIDs", notifyUserIDs, "notifyCount", len(notifyUserIDs))
+
 	// 2. Force logout from every client platform (skip Admin; only IDs accepted by ForceLogout RPC).
 	for platformID := range constant.PlatformID2Name {
 		plf := int32(platformID)
@@ -106,18 +116,18 @@ func (d *DeleteUserApi) DeleteUser(c *gin.Context) {
 		log.ZWarn(c, "DeleteUser: GetFriendIDs failed", err, "userID", req.UserID)
 	} else {
 		for _, friendID := range friendIDsResp.FriendIDs {
-			if _, err := d.friendClient.DeleteFriend(c, &relation.DeleteFriendReq{
+			if _, err := d.friendClient.DeleteFriendOneway(c, &relation.DeleteFriendReq{
 				OwnerUserID:  req.UserID,
 				FriendUserID: friendID,
 			}); err != nil {
-				log.ZWarn(c, "DeleteUser: DeleteFriend (owner→friend) failed", err,
+				log.ZWarn(c, "DeleteUser: DeleteFriendOneway (owner→friend) failed", err,
+					"ownerUserID", req.UserID, "friendUserID", friendID)
+			} else {
+				log.ZInfo(c, "lintao DeleteUser: DeleteFriendOneway (owner→friend) ok",
 					"ownerUserID", req.UserID, "friendUserID", friendID)
 			}
 		}
 	}
-
-	// 3b. Remove this user from every other user's friend list (friend_user_id = req.UserID).
-	d.deleteFriendsReferencingUser(c, req.UserID)
 
 	// 4. Leave all joined groups: dismiss groups owned by the user, quit the rest.
 	// Use admin identity for group RPCs (same as deleteFriendsReferencingUser) so DismissGroup /
@@ -148,6 +158,8 @@ func (d *DeleteUserApi) DeleteUser(c *gin.Context) {
 					GroupID: g.GroupID,
 				}); err != nil {
 					log.ZWarn(c, "DeleteUser: DismissGroup failed", err, "userID", req.UserID, "groupID", g.GroupID)
+				} else {
+					log.ZDebug(ownerCtx, "DeleteUser: DismissGroup success", "groupID", g.GroupID, "userID", req.UserID, "ownerUserID", g.OwnerUserID)
 				}
 				continue
 			}
@@ -193,48 +205,103 @@ func (d *DeleteUserApi) DeleteUser(c *gin.Context) {
 		}
 	}
 
-	// 6. Hard-delete user document from MongoDB.
-	// Redis cache will become stale and expire via TTL; the user can no longer
-	// authenticate because their tokens were already invalidated in step 2.
+	// 6. Hard-delete user document and invalidate Redis / local user-info cache.
 	if err := d.userDB.Delete(c, []string{req.UserID}); err != nil {
 		apiresp.GinError(c, err)
 		return
 	}
 
+	d.notifyAccountDeleted(c, req.UserID, notifyUserIDs)
+
 	log.ZInfo(c, "DeleteUser: user deleted", "userID", req.UserID)
 	apiresp.GinSuccess(c, nil)
 }
 
-// deleteFriendsReferencingUser 删除所有 owner 侧仍引用被删用户的好友记录（friend_user_id = deletedUserID）。
-// 使用管理员身份调用 DeleteFriend，避免自删账号时 opUserID 无权操作他人 owner_user_id。
-func (d *DeleteUserApi) deleteFriendsReferencingUser(ctx context.Context, deletedUserID string) {
-	if d.friendDB == nil {
-		log.ZWarn(ctx, "DeleteUser: friendDB is nil, skip reversal friend cleanup", nil, "userID", deletedUserID)
-		return
-	}
-	if len(d.imAdminUserIDs) == 0 {
-		log.ZWarn(ctx, "DeleteUser: no imAdminUserID, skip reversal friend cleanup", nil, "userID", deletedUserID)
-		return
-	}
+func (d *DeleteUserApi) collectAccountDeletedNotifyUserIDs(ctx context.Context, deletedUserID string) []string {
+	userIDSet := make(map[string]struct{})
+	var ownersReferencingDeleted []string
+	var deletedUserFriendIDs []string
 
-	ownerUserIDs, err := d.friendDB.FindFriendUserID(ctx, deletedUserID)
+	if d.friendCtrl != nil {
+		ownerUserIDs, err := d.friendCtrl.FindFriendUserID(ctx, deletedUserID)
+		if err != nil {
+			log.ZWarn(ctx, "lintao DeleteUser: collect notify FindFriendUserID failed", err, "deletedUserID", deletedUserID)
+		} else {
+			ownersReferencingDeleted = ownerUserIDs
+			for _, id := range ownerUserIDs {
+				if id != deletedUserID {
+					userIDSet[id] = struct{}{}
+				}
+			}
+		}
+	}
+	resp, err := d.friendClient.GetFriendIDs(ctx, &relation.GetFriendIDsReq{UserID: deletedUserID})
 	if err != nil {
-		log.ZWarn(ctx, "DeleteUser: FindFriendUserID failed", err, "userID", deletedUserID)
-		return
+		log.ZWarn(ctx, "lintao DeleteUser: collect notify GetFriendIDs failed", err, "deletedUserID", deletedUserID)
+	} else {
+		deletedUserFriendIDs = resp.FriendIDs
+		for _, id := range resp.FriendIDs {
+			if id != deletedUserID {
+				userIDSet[id] = struct{}{}
+			}
+		}
 	}
-	if len(ownerUserIDs) == 0 {
-		return
+	notifyUserIDs := make([]string, 0, len(userIDSet))
+	for id := range userIDSet {
+		notifyUserIDs = append(notifyUserIDs, id)
 	}
+	log.ZInfo(ctx, "lintao DeleteUser: collectAccountDeletedNotifyUserIDs",
+		"deletedUserID", deletedUserID,
+		"ownersReferencingDeleted", ownersReferencingDeleted,
+		"deletedUserFriendIDs", deletedUserFriendIDs,
+		"notifyUserIDs", notifyUserIDs)
+	return notifyUserIDs
+}
 
+func (d *DeleteUserApi) notifyAccountDeleted(ctx context.Context, deletedUserID string, notifyUserIDs []string) {
+	d.bumpFriendVersionForDeletedUser(ctx, deletedUserID)
+
+	if d.friendNotifier == nil {
+		log.ZWarn(ctx, "lintao DeleteUser: skip account-deleted notify, friendNotifier is nil",
+			nil, "deletedUserID", deletedUserID, "notifyUserIDs", notifyUserIDs)
+		return
+	}
+	if len(notifyUserIDs) == 0 {
+		log.ZInfo(ctx, "lintao DeleteUser: skip account-deleted notify, no related users",
+			"deletedUserID", deletedUserID)
+		return
+	}
+	adminCtx := d.adminCtx(ctx)
+	for _, notifyUserID := range notifyUserIDs {
+		if notifyUserID == deletedUserID {
+			continue
+		}
+		log.ZInfo(ctx, "lintao DeleteUser: dispatch account-deleted notifications",
+			"deletedUserID", deletedUserID,
+			"notifyUserID", notifyUserID,
+			"friendsInfoUpdate", true,
+			"friendInfoUpdated", true)
+		d.friendNotifier.AccountDeletedFriendsNotification(adminCtx, notifyUserID, []string{deletedUserID})
+		d.friendNotifier.FriendInfoUpdatedNotification(adminCtx, deletedUserID, notifyUserID)
+	}
+	log.ZInfo(ctx, "DeleteUser: notified related users", "deletedUserID", deletedUserID, "notifyCount", len(notifyUserIDs))
+}
+
+func (d *DeleteUserApi) bumpFriendVersionForDeletedUser(ctx context.Context, deletedUserID string) {
+	if d.friendCtrl == nil {
+		return
+	}
+	ownerUserIDs, err := d.friendCtrl.FindFriendUserID(ctx, deletedUserID)
+	if err != nil {
+		log.ZWarn(ctx, "DeleteUser: bumpFriendVersion FindFriendUserID failed", err, "userID", deletedUserID)
+		return
+	}
 	for _, ownerUserID := range ownerUserIDs {
 		if ownerUserID == deletedUserID {
 			continue
 		}
-		if _, err := d.friendClient.DeleteFriend(d.adminCtx(ctx), &relation.DeleteFriendReq{
-			OwnerUserID:  ownerUserID,
-			FriendUserID: deletedUserID,
-		}); err != nil {
-			log.ZWarn(ctx, "DeleteUser: DeleteFriend (friend→owner) failed", err,
+		if err := d.friendCtrl.OwnerIncrVersion(ctx, ownerUserID, []string{deletedUserID}, relationtb.VersionStateUpdate); err != nil {
+			log.ZWarn(ctx, "DeleteUser: bumpFriendVersion OwnerIncrVersion failed", err,
 				"ownerUserID", ownerUserID, "friendUserID", deletedUserID)
 		}
 	}
