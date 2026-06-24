@@ -549,6 +549,7 @@ func (s *rtcServer) handleAccept(ctx context.Context, req *rtc.SignalAcceptReq, 
 	//   - 主叫取消：handleCancel → TryDeleteInvitation
 	//   - 被叫拒绝：handleReject → TryDeleteInvitation
 	//   - 超时未接：handleTimeout → TryDeleteInvitation
+	//   - 异常中断：MongoDB TTL 索引（expire_at 字段）自动清理；接听后清除 expire_at
 
 	return &rtc.SignalAcceptResp{
 		Token:   token,
@@ -792,8 +793,9 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 		return nil, err
 	}
 	// Notify peers using the authoritative DB participant list.
+	// Hang-up is online-only; do not trigger offline push (invite signaling only).
 	for _, peerID := range hungUpPeerIDsFromDB(dbInv, req.UserID) {
-		if err := s.sendSignalingNotification(ctx, req.UserID, peerID, sessionType, dbInv.GroupID, req.OfflinePushInfo, content); err != nil {
+		if err := s.sendSignalingNotification(ctx, req.UserID, peerID, sessionType, dbInv.GroupID, nil, content); err != nil {
 			log.ZWarn(ctx, "sendSignalingNotification hungUp to peer failed", err, "peerID", peerID)
 		}
 	}
@@ -1768,6 +1770,15 @@ func newRoomID() string {
 	return fmt.Sprintf("room-%s", uuid.New().String())
 }
 
+// invitationExpireAt returns when an unanswered invitation should be auto-cleaned by TTL.
+func invitationExpireAt(now time.Time, timeoutSec int32) time.Time {
+	if timeoutSec <= 0 {
+		timeoutSec = 30
+	}
+	// Extra 30s buffer beyond client-side ring timeout for network/reporting delay.
+	return now.Add(time.Duration(timeoutSec+1) * time.Second)
+}
+
 // invitationToModel converts a proto InvitationInfo to the database model.
 func invitationToModel(inv *rtc.InvitationInfo, push *sdkws.OfflinePushInfo) *model.SignalInvitation {
 	now := time.Now()
@@ -1784,6 +1795,7 @@ func invitationToModel(inv *rtc.InvitationInfo, push *sdkws.OfflinePushInfo) *mo
 		InitiateTime:       inv.InitiateTime,
 		BusyLineUserIDList: inv.BusyLineUserIDList,
 		CreateTime:         now.UnixMilli(),
+		ExpireAt:           invitationExpireAt(now, inv.Timeout),
 	}
 	if push != nil {
 		m.OfflinePushTitle = push.Title
