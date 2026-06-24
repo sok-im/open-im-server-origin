@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	pushFrom               = "sokim"
-	engagelabErrNoTarget   = 21011 // no alias/tag/regid for the requested platform
+	pushFrom             = "sokim"
+	engagelabErrNoTarget = 21011 // no alias/tag/regid for the requested platform
 )
 
 type EngageLab struct {
@@ -45,7 +45,6 @@ func NewClient(pushConf *config.Push) *EngageLab {
 }
 
 func (e *EngageLab) Push(ctx context.Context, userIDs []string, title, content string, opts *options.Opts) error {
-	log.ZInfo(ctx, "engagelab push start", "userIDs", userIDs, "title", title, "wakePush", opts.IsWakePush())
 
 	extras := options.WakeExtras(opts)
 	if !opts.IsWakePush() {
@@ -62,7 +61,13 @@ func (e *EngageLab) Push(ctx context.Context, userIDs []string, title, content s
 		// EngageLab rejects requests that include both notification and custom message (error 21036).
 		// Android wake push uses custom message passthrough; iOS uses notification + mutable-content.
 		// Each platform is sent separately; 21011 (no device on that platform) is non-fatal.
-		return e.sendWakePush(ctx, userIDs, title, content, extras, opts, pushOpts)
+		err := e.sendWakePush(ctx, userIDs, title, content, extras, opts, pushOpts)
+		if err != nil {
+			log.ZError(ctx, "engagelab wake push failed", err, "userIDs", userIDs, "title", title, "content", content, "extras", extras, "pushOpts", pushOpts)
+			return err
+		}
+		log.ZDebug(ctx, "engagelab wake push success", "userIDs", userIDs, "title", title, "content", content, "extras", extras, "pushOpts", pushOpts)
+		return nil
 	}
 
 	androidNotif := &el.AndroidNotification{
@@ -74,7 +79,7 @@ func (e *EngageLab) Push(ctx context.Context, userIDs []string, title, content s
 		androidNotif.Intent = &el.AndroidIntent{URL: intent}
 	}
 
-	return e.send(ctx, userIDs, title, content, &el.PushBody{
+	body := &el.PushBody{
 		Platform: "all",
 		Notification: &el.NotificationMessage{
 			Alert:   content,
@@ -82,7 +87,16 @@ func (e *EngageLab) Push(ctx context.Context, userIDs []string, title, content s
 			IOS:     e.buildIOSNotification(title, content, extras, opts),
 		},
 		Options: pushOpts,
-	})
+	}
+
+	err := e.send(ctx, userIDs, title, content, body)
+	if err != nil {
+		log.ZError(ctx, "engagelab push failed", err, "userIDs", userIDs, "title", title, "content", content, "body", body)
+		return err
+	}
+
+	log.ZDebug(ctx, "engagelab push success", "userIDs", userIDs, "title", title, "content", content, "body", body)
+	return nil
 }
 
 func (e *EngageLab) buildIOSNotification(title, content string, extras map[string]interface{}, opts *options.Opts) *el.IOSNotification {
@@ -134,6 +148,7 @@ func (e *EngageLab) sendWakePush(ctx context.Context, userIDs []string, title, c
 	var sent, noTarget int
 	var lastErr error
 	for _, body := range bodies {
+		log.ZDebug(ctx, "engagelab wake push send", "userIDs", userIDs, "title", title, "content", content, "body", body)
 		err := e.send(ctx, userIDs, title, content, body)
 		if err == nil {
 			sent++
@@ -141,7 +156,7 @@ func (e *EngageLab) sendWakePush(ctx context.Context, userIDs []string, title, c
 		}
 		if isNoTargetError(err) {
 			noTarget++
-			log.ZDebug(ctx, "engagelab wake push skipped: no device on platform", "platform", body.Platform, "userIDs", userIDs)
+			log.ZWarn(ctx, "engagelab wake push skipped: no device on platform", nil, "platform", body.Platform, "userIDs", userIDs)
 			continue
 		}
 		lastErr = err
@@ -183,6 +198,7 @@ func (e *EngageLab) send(ctx context.Context, userIDs []string, title, content s
 		}
 		return err
 	}
-	log.ZInfo(ctx, "engagelab push success", "userIDs", userIDs, "title", title, "content", content, "platform", body.Platform, "resp", resp)
+
+	log.ZDebug(ctx, "engagelab push success", "userIDs", userIDs, "param", param, "title", title, "content", content, "platform", body.Platform, "resp", resp)
 	return nil
 }
