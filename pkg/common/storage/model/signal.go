@@ -14,8 +14,6 @@
 
 package model
 
-import "time"
-
 // SignalInvitation stores an ongoing or pending signal invitation, keyed by roomID.
 // It is created when a call is initiated and can be queried when the callee starts the app.
 type SignalInvitation struct {
@@ -35,9 +33,6 @@ type SignalInvitation struct {
 	OfflinePushDesc    string   `bson:"offline_push_desc"`
 	OfflinePushEx      string   `bson:"offline_push_ex"`
 	CreateTime         int64    `bson:"create_time"`
-	// ExpireAt is a BSON Date used by the MongoDB TTL index to auto-clean unanswered
-	// invitations. Cleared on accept so active calls are not removed mid-session.
-	ExpireAt time.Time `bson:"expire_at,omitempty"`
 }
 
 // SignalRecord stores a completed call record used for history queries.

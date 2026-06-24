@@ -127,21 +127,6 @@ func (s *rtcServer) handleInvite(ctx context.Context, req *rtc.SignalInviteReq, 
 		return nil, callInviteAllNotAllowedErr(blacklistedSet, globalBlockedSet, inv.InviteeUserIDList)
 	}
 
-	// 检测哪些被叫用户正忙（已在通话中），记录到 BusyLineUserIDList
-	busyUserIDs, err := s.db.GetBusyUserIDs(ctx, inv.InviteeUserIDList)
-	if err != nil {
-		log.ZWarn(ctx, "handleInvite", err, "GetBusyUserIDs failed", "req", req)
-	}
-	busySet := make(map[string]struct{}, len(busyUserIDs))
-	for _, uid := range busyUserIDs {
-		busySet[uid] = struct{}{}
-	}
-	inv.BusyLineUserIDList = busyUserIDs
-
-	if len(busyUserIDs) == len(inv.InviteeUserIDList) {
-		return nil, servererrs.ErrAllUserBusy.WrapMsg("all invitees are busy", "inviteeUserIDList", inv.InviteeUserIDList)
-	}
-
 	// 从主叫用户资料获取铃声 URL，注入到邀请信息中，被叫方收到后播放主叫方铃声
 	if inviterInfo, err := s.userClient.GetUserInfo(ctx, req.UserID); err == nil && inviterInfo.CallRingtoneURL != "" {
 		if model.NotificationSwitchToBool(inviterInfo.AvCallRingtone) {
@@ -153,9 +138,6 @@ func (s *rtcServer) handleInvite(ctx context.Context, req *rtc.SignalInviteReq, 
 	var calleeRingtoneURL string
 	for _, inviteeID := range inv.InviteeUserIDList {
 		if _, notAllow := notAllowSet[inviteeID]; notAllow {
-			continue
-		}
-		if _, busy := busySet[inviteeID]; busy {
 			continue
 		}
 		if inviteeInfo, err := s.userClient.GetUserInfo(ctx, inviteeID); err == nil {
@@ -208,10 +190,6 @@ func (s *rtcServer) handleInvite(ctx context.Context, req *rtc.SignalInviteReq, 
 			log.ZInfo(ctx, "handleInvite: skip not-allowed invitee", "inviteeID", inviteeID)
 			continue
 		}
-		if _, busy := busySet[inviteeID]; busy {
-			log.ZInfo(ctx, "handleInvite: skip busy invitee", "inviteeID", inviteeID)
-			continue
-		}
 		log.ZInfo(ctx, "sendSignalingNotification to invitee", "sendID", req.UserID, "recvID", inviteeID)
 		if err := s.sendSignalingNotification(ctx, req.UserID, inviteeID, int32(constant.SingleChatType), "", inviteOfflinePush, content); err != nil {
 			log.ZError(ctx, "sendSignalingNotification to invitee failed", err, "inviteeID", inviteeID)
@@ -224,7 +202,6 @@ func (s *rtcServer) handleInvite(ctx context.Context, req *rtc.SignalInviteReq, 
 		Token:              token,
 		RoomID:             inv.RoomID,
 		LiveURL:            s.config.RpcConfig.LiveKit.ExternalAddress,
-		BusyLineUserIDList: busyUserIDs,
 		NotAllowUserIDList: notAllowUserIDs,
 		CalleeRingtoneURL:  calleeRingtoneURL,
 		CallerRingtoneURL:  inv.CallerRingtoneURL,
@@ -265,22 +242,6 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 		return nil, err
 	}
 
-	// 检测哪些被叫用户正忙（已在通话中），记录到 BusyLineUserIDList
-	busyUserIDs, err := s.db.GetBusyUserIDs(ctx, inv.InviteeUserIDList)
-	if err != nil {
-		log.ZWarn(ctx, "handleInviteInGroup: GetBusyUserIDs failed (non-fatal)", err)
-	}
-	busySet := make(map[string]struct{}, len(busyUserIDs))
-	for _, uid := range busyUserIDs {
-		busySet[uid] = struct{}{}
-	}
-	inv.BusyLineUserIDList = busyUserIDs
-
-	if len(busyUserIDs) == len(inv.InviteeUserIDList) {
-		log.ZError(ctx, "handleInviteInGroup", servererrs.ErrAllUserBusy, "all invitees are busy", "inviteeUserIDList", inv.InviteeUserIDList, "req", req)
-		return nil, servererrs.ErrAllUserBusy.WrapMsg("all invitees are busy", "inviteeUserIDList", inv.InviteeUserIDList)
-	}
-
 	// 从主叫用户资料获取铃声 URL，注入到邀请s信息中，被叫方收到后播放主叫方铃声
 	if inviterInfo, err := s.userClient.GetUserInfo(ctx, req.UserID); err == nil && inviterInfo.CallRingtoneURL != "" {
 		inv.CallerRingtoneURL = inviterInfo.CallRingtoneURL
@@ -290,9 +251,6 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 	var calleeRingtoneURL string
 	for _, inviteeID := range inv.InviteeUserIDList {
 		if _, notAllow := notAllowSet[inviteeID]; notAllow {
-			continue
-		}
-		if _, busy := busySet[inviteeID]; busy {
 			continue
 		}
 		if inviteeInfo, err := s.userClient.GetUserInfo(ctx, inviteeID); err == nil {
@@ -341,10 +299,6 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 			log.ZInfo(ctx, "handleInviteInGroup: skipping invitee (call setting blocked)", "inviteeID", inviteeID)
 			continue
 		}
-		if _, busy := busySet[inviteeID]; busy {
-			log.ZInfo(ctx, "handleInviteInGroup: skip busy invitee", "inviteeID", inviteeID)
-			continue
-		}
 		if err := s.sendSignalingNotification(ctx, req.UserID, inviteeID, int32(constant.ReadGroupChatType), inv.GroupID, inviteOfflinePush, content); err != nil {
 			log.ZWarn(ctx, "handleInviteInGroup to group invitee failed", err, "inviteeID", inviteeID)
 			return nil, errs.WrapMsg(err, "failed to notify invitee", "inviteeID", inviteeID)
@@ -363,7 +317,6 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 		Token:              token,
 		RoomID:             inv.RoomID,
 		LiveURL:            s.config.RpcConfig.LiveKit.ExternalAddress,
-		BusyLineUserIDList: busyUserIDs,
 		NotAllowUserIDList: notAllowUserIDs,
 		CalleeRingtoneURL:  calleeRingtoneURL,
 	}
@@ -446,19 +399,6 @@ func callInviteAllNotAllowedErr(blacklistedSet, globalBlockedSet map[string]stru
 		return servererrs.ErrMsgReceiveNotAllowed.WrapMsg("invitee is restricted")
 	}
 	return errs.ErrNoPermission.WrapMsg("all invitees do not accept calls from you", "inviteeUserIDList", inviteeIDs)
-}
-
-func hasReachableInvitee(inviteeIDs []string, notAllowSet, busySet map[string]struct{}) bool {
-	for _, inviteeID := range inviteeIDs {
-		if _, notAllow := notAllowSet[inviteeID]; notAllow {
-			continue
-		}
-		if _, busy := busySet[inviteeID]; busy {
-			continue
-		}
-		return true
-	}
-	return false
 }
 
 // isCallAllowed 判断 inviterID 是否被允许向 inviteeID 发起单聊音视频通话。
@@ -549,7 +489,6 @@ func (s *rtcServer) handleAccept(ctx context.Context, req *rtc.SignalAcceptReq, 
 	//   - 主叫取消：handleCancel → TryDeleteInvitation
 	//   - 被叫拒绝：handleReject → TryDeleteInvitation
 	//   - 超时未接：handleTimeout → TryDeleteInvitation
-	//   - 异常中断：MongoDB TTL 索引（expire_at 字段）自动清理；接听后清除 expire_at
 
 	return &rtc.SignalAcceptResp{
 		Token:   token,
@@ -1770,15 +1709,6 @@ func newRoomID() string {
 	return fmt.Sprintf("room-%s", uuid.New().String())
 }
 
-// invitationExpireAt returns when an unanswered invitation should be auto-cleaned by TTL.
-func invitationExpireAt(now time.Time, timeoutSec int32) time.Time {
-	if timeoutSec <= 0 {
-		timeoutSec = 30
-	}
-	// Extra 30s buffer beyond client-side ring timeout for network/reporting delay.
-	return now.Add(time.Duration(timeoutSec+1) * time.Second)
-}
-
 // invitationToModel converts a proto InvitationInfo to the database model.
 func invitationToModel(inv *rtc.InvitationInfo, push *sdkws.OfflinePushInfo) *model.SignalInvitation {
 	now := time.Now()
@@ -1795,7 +1725,6 @@ func invitationToModel(inv *rtc.InvitationInfo, push *sdkws.OfflinePushInfo) *mo
 		InitiateTime:       inv.InitiateTime,
 		BusyLineUserIDList: inv.BusyLineUserIDList,
 		CreateTime:         now.UnixMilli(),
-		ExpireAt:           invitationExpireAt(now, inv.Timeout),
 	}
 	if push != nil {
 		m.OfflinePushTitle = push.Title

@@ -28,6 +28,10 @@ import (
 
 func NewSignalMongo(db *mongo.Database) (database.SignalDatabase, error) {
 	invColl := db.Collection(database.SignalInvitationName)
+	// Earlier releases created a TTL index on expire_at; drop it so invitations
+	// are only removed by explicit call-end paths (reject/cancel/hangup/timeout).
+	_, _ = invColl.Indexes().DropOne(context.Background(), "expire_at_1")
+
 	_, err := invColl.Indexes().CreateMany(context.Background(), []mongo.IndexModel{
 		{
 			Keys:    bson.D{{Key: "room_id", Value: 1}},
@@ -38,12 +42,6 @@ func NewSignalMongo(db *mongo.Database) (database.SignalDatabase, error) {
 		},
 		{
 			Keys: bson.D{{Key: "create_time", Value: -1}},
-		},
-		// expire_at is a BSON Date; MongoDB scans periodically and deletes expired docs.
-		// Covers abnormal interruption when no Cancel/Reject/HungUp/Timeout is reported.
-		{
-			Keys:    bson.D{{Key: "expire_at", Value: 1}},
-			Options: options.Index().SetExpireAfterSeconds(0),
 		},
 	})
 	if err != nil {
@@ -140,10 +138,7 @@ func (s *signalMgo) SetAcceptTime(ctx context.Context, roomID string, acceptTime
 			bson.M{"accept_time": int64(0)},
 		},
 	}
-	update := bson.M{
-		"$set":   bson.M{"accept_time": acceptTime},
-		"$unset": bson.M{"expire_at": ""},
-	}
+	update := bson.M{"$set": bson.M{"accept_time": acceptTime}}
 	return mongoutil.UpdateOne(ctx, s.invColl, filter, update, false)
 }
 
