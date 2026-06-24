@@ -28,6 +28,7 @@ import (
 	"github.com/openimsdk/open-im-server/v3/pkg/common/config"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/servererrs"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/model"
+	"github.com/openimsdk/open-im-server/v3/pkg/msgprocessor"
 	"github.com/openimsdk/protocol/constant"
 	pbmsg "github.com/openimsdk/protocol/msg"
 	"github.com/openimsdk/protocol/rtc"
@@ -661,7 +662,7 @@ func (s *rtcServer) handleCancel(ctx context.Context, req *rtc.SignalCancelReq, 
 		return nil, err
 	}
 	for _, inviteeID := range dbInv.InviteeUserIDList {
-		if err := s.sendSignalingNotification(ctx, req.UserID, inviteeID, sessionType, dbInv.GroupID, req.OfflinePushInfo, content); err != nil {
+		if err := s.sendSignalingNotification(ctx, req.UserID, inviteeID, sessionType, dbInv.GroupID, nil, content); err != nil {
 			log.ZWarn(ctx, "sendSignalingNotification cancel to invitee failed", err, "inviteeID", inviteeID)
 		}
 	}
@@ -1218,6 +1219,10 @@ func signalingMsgOptions() map[string]bool {
 func (s *rtcServer) sendSignalingNotification(ctx context.Context, sendID, recvID string, sessionType int32, groupID string, offlinePush *sdkws.OfflinePushInfo, content []byte) error {
 	now := time.Now().UnixMilli()
 	opts := signalingMsgOptions()
+	// Only invite signaling may wake offline devices; cancel/hang-up/etc. are online-only.
+	if offlinePush != nil && !msgprocessor.IsInviteSignalingContent(content) {
+		offlinePush = nil
+	}
 	if offlinePush != nil {
 		datautil.SetSwitchFromOptions(opts, constant.IsOfflinePush, true)
 	}

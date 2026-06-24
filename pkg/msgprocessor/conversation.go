@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/openimsdk/protocol/constant"
+	"github.com/openimsdk/protocol/rtc"
 	"github.com/openimsdk/protocol/sdkws"
 	"github.com/openimsdk/tools/errs"
 	"google.golang.org/protobuf/proto"
@@ -130,6 +131,24 @@ func IsNotificationContentType(contentType int32) bool {
 // IsSignalingContentType 判断消息类型是否为音视频信令（挂断/取消/接听等）。
 func IsSignalingContentType(contentType int32) bool {
 	return contentType >= constant.SignalingNotificationBegin && contentType <= constant.SignalingNotificationEnd
+}
+
+// IsInviteSignalingContent reports whether serialized SignalReq content is an invite.
+// Only invite signaling should trigger offline push; cancel/hang-up/etc. are online-only.
+func IsInviteSignalingContent(content []byte) bool {
+	if len(content) == 0 {
+		return false
+	}
+	var req rtc.SignalReq
+	if err := proto.Unmarshal(content, &req); err != nil {
+		return false
+	}
+	switch req.Payload.(type) {
+	case *rtc.SignalReq_Invite, *rtc.SignalReq_InviteInGroup:
+		return true
+	default:
+		return false
+	}
 }
 
 type MsgBySeq []*sdkws.MsgData
