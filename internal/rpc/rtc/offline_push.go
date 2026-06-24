@@ -31,19 +31,47 @@ type callWakePushEx struct {
 // Client-provided fields are preserved; missing title/desc/ex/sound are filled server-side.
 func (s *rtcServer) resolveInviteOfflinePushInfo(ctx context.Context, inv *rtc.InvitationInfo, clientPush *sdkws.OfflinePushInfo) *sdkws.OfflinePushInfo {
 	if inv == nil {
+		log.ZWarn(ctx, "lintao resolveInviteOfflinePushInfo: invitation is nil", nil, "clientPushProvided", clientPush != nil)
 		return clientPush
 	}
 	cfg := s.config.NotificationConfig.SignalingInvite
+	log.ZInfo(ctx, "lintao resolveInviteOfflinePushInfo start",
+		"roomID", inv.RoomID,
+		"inviterUserID", inv.InviterUserID,
+		"groupID", inv.GroupID,
+		"mediaType", inv.MediaType,
+		"sessionType", inv.SessionType,
+		"clientPushProvided", clientPush != nil,
+		"configOfflinePushEnable", cfg.OfflinePush.Enable,
+	)
 	if !cfg.OfflinePush.Enable && clientPush == nil {
+		log.ZInfo(ctx, "lintao resolveInviteOfflinePushInfo skipped: config disabled and no client offlinePushInfo",
+			"roomID", inv.RoomID,
+		)
 		return nil
 	}
 	if clientPush != nil && !cfg.OfflinePush.Enable {
+		log.ZInfo(ctx, "lintao resolveInviteOfflinePushInfo: using client offlinePushInfo only (config disabled)",
+			"roomID", inv.RoomID,
+			"clientTitle", clientPush.Title,
+			"clientExLen", len(clientPush.Ex),
+		)
 		return clientPush
 	}
 
 	push := cloneOfflinePushInfo(clientPush)
 	if push == nil {
 		push = &sdkws.OfflinePushInfo{}
+	}
+	clientTitle := ""
+	clientDesc := ""
+	clientExLen := 0
+	clientSound := ""
+	if clientPush != nil {
+		clientTitle = clientPush.Title
+		clientDesc = clientPush.Desc
+		clientExLen = len(clientPush.Ex)
+		clientSound = clientPush.IOSPushSound
 	}
 
 	sessionType := inv.SessionType
@@ -84,6 +112,20 @@ func (s *rtcServer) resolveInviteOfflinePushInfo(ctx context.Context, inv *rtc.I
 	if push.IOSPushSound == "" {
 		push.IOSPushSound = callIOSPushSound
 	}
+	log.ZInfo(ctx, "lintao resolveInviteOfflinePushInfo done",
+		"roomID", inv.RoomID,
+		"title", push.Title,
+		"desc", push.Desc,
+		"exLen", len(push.Ex),
+		"iosPushSound", push.IOSPushSound,
+		"clientTitle", clientTitle,
+		"clientDesc", clientDesc,
+		"clientExLen", clientExLen,
+		"clientSound", clientSound,
+		"titleFromClient", push.Title == clientTitle && clientTitle != "",
+		"descFromClient", push.Desc == clientDesc && clientDesc != "",
+		"exFromClient", push.Ex != "" && clientExLen > 0 && len(push.Ex) == clientExLen,
+	)
 	return push
 }
 
@@ -97,14 +139,18 @@ func (s *rtcServer) resolveInviterDisplayName(ctx context.Context, inv *rtc.Invi
 				return name
 			}
 		} else {
-			log.ZDebug(ctx, "resolveInviterDisplayName: GetGroupMemberCache failed", "groupID", inv.GroupID, "inviterUserID", inv.InviterUserID, "err", err)
+			log.ZDebug(ctx, "lintao resolveInviterDisplayName: GetGroupMemberCache failed", "groupID", inv.GroupID, "inviterUserID", inv.InviterUserID, "err", err)
 		}
 	}
 	if user, err := s.userClient.GetUserInfo(ctx, inv.InviterUserID); err == nil {
 		if name := strings.TrimSpace(user.Nickname); name != "" {
+			log.ZDebug(ctx, "lintao resolveInviterDisplayName: use user nickname", "inviterUserID", inv.InviterUserID, "nickname", name)
 			return name
 		}
+		log.ZDebug(ctx, "lintao resolveInviterDisplayName: user nickname empty, fallback userID", "inviterUserID", inv.InviterUserID)
 		return user.UserID
+	} else {
+		log.ZDebug(ctx, "lintao resolveInviterDisplayName: GetUserInfo failed, fallback userID", "inviterUserID", inv.InviterUserID, "err", err)
 	}
 	return inv.InviterUserID
 }

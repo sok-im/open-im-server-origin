@@ -173,7 +173,18 @@ func (c *ConsumerHandler) Push2User(ctx context.Context, userIDs []string, msg *
 	if !c.shouldPushOffline(ctx, msg) {
 		return nil
 	}
-	log.ZInfo(ctx, "pushOffline start", "userIDs", userIDs, "msg", msg.String())
+	if isSignalingNotification(msg.ContentType) {
+		log.ZInfo(ctx, "lintao signaling offline push start",
+			"recvID", msg.RecvID,
+			"sendID", msg.SendID,
+			"clientMsgID", msg.ClientMsgID,
+			"sessionType", msg.SessionType,
+			"groupID", msg.GroupID,
+			"offlinePushTitle", offlinePushSummary(msg).title,
+			"offlinePushExLen", offlinePushSummary(msg).exLen,
+		)
+	}
+	log.ZInfo(ctx, "lintao pushOffline start", "userIDs", userIDs, "msg", msg.String())
 
 	for _, v := range wsResults {
 		//message sender do not need offline push
@@ -182,7 +193,16 @@ func (c *ConsumerHandler) Push2User(ctx context.Context, userIDs []string, msg *
 		}
 		//receiver online push success
 		if v.OnlinePush {
-			log.ZDebug(ctx, "offline push skipped: receiver already received via online push", "userID", v.UserID, "clientMsgID", msg.ClientMsgID)
+			if isSignalingNotification(msg.ContentType) {
+				log.ZInfo(ctx, "lintao signaling offline push skipped: receiver online",
+					"userID", v.UserID,
+					"clientMsgID", msg.ClientMsgID,
+					"recvID", msg.RecvID,
+					"sendID", msg.SendID,
+				)
+			} else {
+				log.ZDebug(ctx, "lintao offline push skipped: receiver already received via online push", "userID", v.UserID, "clientMsgID", msg.ClientMsgID)
+			}
 			return nil
 		}
 	}
@@ -202,12 +222,21 @@ func (c *ConsumerHandler) Push2User(ctx context.Context, userIDs []string, msg *
 		return err
 	}
 	if len(needOfflinePushUserID) == 0 {
-		log.ZDebug(ctx, "offline push skipped: all users disabled notification switch", "clientMsgID", msg.ClientMsgID, "contentType", msg.ContentType)
+		if isSignalingNotification(msg.ContentType) {
+			log.ZInfo(ctx, "lintao signaling offline push skipped: no eligible users after filter",
+				"clientMsgID", msg.ClientMsgID,
+				"recvID", msg.RecvID,
+				"sendID", msg.SendID,
+				"contentType", msg.ContentType,
+			)
+		} else {
+			log.ZDebug(ctx, "lintao offline push skipped: all users disabled notification switch", "clientMsgID", msg.ClientMsgID, "contentType", msg.ContentType)
+		}
 		return nil
 	}
 	err = c.offlinePushMsg(ctx, msg, needOfflinePushUserID)
 	if err != nil {
-		log.ZWarn(ctx, "offlinePushMsg failed", err, "needOfflinePushUserID length", len(needOfflinePushUserID), "msg", msg)
+		log.ZWarn(ctx, "lintao offlinePushMsg failed", err, "needOfflinePushUserID length", len(needOfflinePushUserID), "msg", msg)
 		return nil
 	}
 
@@ -217,15 +246,24 @@ func (c *ConsumerHandler) Push2User(ctx context.Context, userIDs []string, msg *
 func (c *ConsumerHandler) shouldPushOffline(ctx context.Context, msg *sdkws.MsgData) bool {
 	isOfflinePush := datautil.GetSwitchFromOptions(msg.Options, constant.IsOfflinePush)
 	if !isOfflinePush {
-		log.ZDebug(ctx, "offline push skipped: IsOfflinePush option not set", "clientMsgID", msg.ClientMsgID, "contentType", msg.ContentType)
+		if isSignalingNotification(msg.ContentType) {
+			log.ZInfo(ctx, "lintao signaling offline push skipped: IsOfflinePush option false",
+				"clientMsgID", msg.ClientMsgID,
+				"recvID", msg.RecvID,
+				"sendID", msg.SendID,
+				"contentType", msg.ContentType,
+			)
+		} else {
+			log.ZDebug(ctx, "lintao offline push skipped: IsOfflinePush option not set", "clientMsgID", msg.ClientMsgID, "contentType", msg.ContentType)
+		}
 		return false
 	}
 	switch msg.ContentType {
 	case constant.RoomParticipantsConnectedNotification:
-		log.ZDebug(ctx, "offline push skipped: RoomParticipantsConnectedNotification", "clientMsgID", msg.ClientMsgID)
+		log.ZDebug(ctx, "lintao offline push skipped: RoomParticipantsConnectedNotification", "clientMsgID", msg.ClientMsgID)
 		return false
 	case constant.RoomParticipantsDisconnectedNotification:
-		log.ZDebug(ctx, "offline push skipped: RoomParticipantsDisconnectedNotification", "clientMsgID", msg.ClientMsgID)
+		log.ZDebug(ctx, "lintao offline push skipped: RoomParticipantsDisconnectedNotification", "clientMsgID", msg.ClientMsgID)
 		return false
 	}
 	return true
@@ -374,13 +412,63 @@ func (c *ConsumerHandler) offlinePushMsg(ctx context.Context, msg *sdkws.MsgData
 		log.ZError(ctx, "getOfflinePushInfos failed", err, "msg", msg)
 		return err
 	}
-	log.ZInfo(ctx, "offlinePushMsg calling pusher", "userIDs", offlinePushUserIDs, "title", title, "clientMsgID", msg.ClientMsgID)
+	exLen := 0
+	wakePush := false
+	if opts != nil {
+		exLen = len(opts.Ex)
+		wakePush = opts.IsWakePush()
+	}
+	if isSignalingNotification(msg.ContentType) {
+		log.ZInfo(ctx, "lintao signaling offlinePushMsg calling pusher",
+			"userIDs", offlinePushUserIDs,
+			"title", title,
+			"content", content,
+			"clientMsgID", msg.ClientMsgID,
+			"recvID", msg.RecvID,
+			"sendID", msg.SendID,
+			"exLen", exLen,
+			"wakePush", wakePush,
+		)
+	} else {
+		log.ZInfo(ctx, "lintao offlinePushMsg calling pusher", "userIDs", offlinePushUserIDs, "title", title, "clientMsgID", msg.ClientMsgID)
+	}
 	err = c.offlinePusher.Push(ctx, offlinePushUserIDs, title, content, opts)
 	if err != nil {
+		if isSignalingNotification(msg.ContentType) {
+			log.ZWarn(ctx, "lintao signaling offlinePushMsg failed", err,
+				"userIDs", offlinePushUserIDs,
+				"clientMsgID", msg.ClientMsgID,
+				"recvID", msg.RecvID,
+				"sendID", msg.SendID,
+			)
+		}
 		prommetrics.MsgOfflinePushFailedCounter.Inc()
 		return err
 	}
+	if isSignalingNotification(msg.ContentType) {
+		log.ZInfo(ctx, "lintao signaling offlinePushMsg success",
+			"userIDs", offlinePushUserIDs,
+			"clientMsgID", msg.ClientMsgID,
+			"recvID", msg.RecvID,
+			"sendID", msg.SendID,
+		)
+	}
 	return nil
+}
+
+type offlinePushLogSummary struct {
+	title string
+	exLen int
+}
+
+func offlinePushSummary(msg *sdkws.MsgData) offlinePushLogSummary {
+	if msg == nil || msg.OfflinePushInfo == nil {
+		return offlinePushLogSummary{}
+	}
+	return offlinePushLogSummary{
+		title: msg.OfflinePushInfo.Title,
+		exLen: len(msg.OfflinePushInfo.Ex),
+	}
 }
 
 func (c *ConsumerHandler) filterGroupMessageOfflinePush(ctx context.Context, groupID string, msg *sdkws.MsgData,

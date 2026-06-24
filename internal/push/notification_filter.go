@@ -10,6 +10,10 @@ import (
 	"github.com/openimsdk/tools/log"
 )
 
+func isSignalingNotification(contentType int32) bool {
+	return contentType >= constant.SignalingNotificationBegin && contentType <= constant.SignalingNotificationEnd
+}
+
 func userNotificationEnabled(user *sdkws.UserInfo, contentType int32) bool {
 	if user == nil {
 		return true
@@ -44,7 +48,22 @@ func filterOfflinePushByNotificationSwitch(ctx context.Context, userLocalCache *
 			out = append(out, userID)
 			continue
 		}
-		log.ZDebug(ctx, "offline push skipped: user notification switch off",
+		if isSignalingNotification(msg.ContentType) {
+			avSwitch := int32(0)
+			if user := userMap[userID]; user != nil {
+				avSwitch = user.AvNotification
+			}
+			log.ZInfo(ctx, "lintao signaling offline push skipped: AvNotification switch off",
+				"userID", userID,
+				"contentType", msg.ContentType,
+				"clientMsgID", msg.ClientMsgID,
+				"recvID", msg.RecvID,
+				"sendID", msg.SendID,
+				"avNotification", avSwitch,
+			)
+			continue
+		}
+		log.ZDebug(ctx, "lintao offline push skipped: user notification switch off",
 			"userID", userID, "contentType", msg.ContentType, "clientMsgID", msg.ClientMsgID)
 	}
 	return out, nil

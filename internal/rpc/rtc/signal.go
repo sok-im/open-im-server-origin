@@ -181,6 +181,10 @@ func (s *rtcServer) handleInvite(ctx context.Context, req *rtc.SignalInviteReq, 
 	}
 
 	inviteOfflinePush := s.resolveInviteOfflinePushInfo(ctx, inv, req.OfflinePushInfo)
+	if inviteOfflinePush == nil {
+		log.ZWarn(ctx, "lintao handleInvite: invite offline push info is nil, callee may not receive offline call push",
+			nil, "roomID", inv.RoomID, "inviterUserID", req.UserID, "inviteeUserIDList", inv.InviteeUserIDList)
+	}
 
 	if err := s.db.CreateInvitation(ctx, invitationToModel(inv, inviteOfflinePush)); err != nil {
 		if mongo.IsDuplicateKeyError(err) {
@@ -312,6 +316,10 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 	}
 
 	inviteOfflinePush := s.resolveInviteOfflinePushInfo(ctx, inv, req.OfflinePushInfo)
+	if inviteOfflinePush == nil {
+		log.ZWarn(ctx, "lintao handleInviteInGroup: invite offline push info is nil, callee may not receive offline call push",
+			nil, "roomID", inv.RoomID, "groupID", inv.GroupID, "inviterUserID", req.UserID, "inviteeUserIDList", inv.InviteeUserIDList)
+	}
 
 	if err := s.db.CreateInvitation(ctx, invitationToModel(inv, inviteOfflinePush)); err != nil {
 		if !mongo.IsDuplicateKeyError(err) {
@@ -1290,12 +1298,44 @@ func (s *rtcServer) sendSignalingNotification(ctx context.Context, sendID, recvI
 		msgData.OfflinePushInfo = offlinePush
 	}
 
+	offlinePushEnabled := offlinePush != nil
+	offlinePushTitle := ""
+	offlinePushDesc := ""
+	offlinePushExLen := 0
+	offlinePushSound := ""
+	if offlinePush != nil {
+		offlinePushTitle = offlinePush.Title
+		offlinePushDesc = offlinePush.Desc
+		offlinePushExLen = len(offlinePush.Ex)
+		offlinePushSound = offlinePush.IOSPushSound
+	}
+
 	_, err := s.msgClient.MsgClient.SendMsg(ctx, &pbmsg.SendMsgReq{MsgData: msgData})
 	if err != nil {
-		log.ZError(ctx, "sendSignalingNotification", err, "msgdata", msgData)
+		log.ZError(ctx, "lintao sendSignalingNotification failed", err,
+			"sendID", sendID,
+			"recvID", recvID,
+			"sessionType", sessionType,
+			"groupID", groupID,
+			"clientMsgID", msgData.ClientMsgID,
+			"offlinePushEnabled", offlinePushEnabled,
+		)
 		return err
 	}
-	log.ZInfo(ctx, "sendSignalingNotification", "msgData", msgData)
+	log.ZInfo(ctx, "lintao sendSignalingNotification ok",
+		"sendID", sendID,
+		"recvID", recvID,
+		"sessionType", sessionType,
+		"groupID", groupID,
+		"clientMsgID", msgData.ClientMsgID,
+		"serverMsgID", msgData.ServerMsgID,
+		"contentType", msgData.ContentType,
+		"offlinePushEnabled", offlinePushEnabled,
+		"offlinePushTitle", offlinePushTitle,
+		"offlinePushDesc", offlinePushDesc,
+		"offlinePushExLen", offlinePushExLen,
+		"offlinePushSound", offlinePushSound,
+	)
 
 	return nil
 }
