@@ -93,10 +93,13 @@ type ConversationElem struct {
 
 // BatchSendServiceNotificationReq 批量/全员发送服务通知。
 type BatchSendServiceNotificationReq struct {
-	SendUserID string                       `json:"sendUserID" binding:"required"`
-	Content    ServiceNotificationContent   `json:"content" binding:"required"`
-	IsSendAll  bool                         `json:"isSendAll"`
-	RecvIDs    []string                     `json:"recvIDs"`
+	SendUserID string                     `json:"sendUserID" binding:"required"`
+	Content    ServiceNotificationContent `json:"content" binding:"required"`
+	IsSendAll  bool                       `json:"isSendAll"`
+	RecvIDs    []string                   `json:"recvIDs"`
+	// OfflinePushInfo 离线推送展示信息；未传时默认使用 content.title / content.content。
+	// 是否实际推送由接收方 sokim_service_notification 开关决定。
+	OfflinePushInfo *sdkws.OfflinePushInfo `json:"offlinePushInfo"`
 }
 
 // BatchSendMsgReq defines the structure for sending a message to multiple recipients.

@@ -296,10 +296,24 @@ func (m *MessageApi) SendBusinessNotification(c *gin.Context) {
 	apiresp.GinSuccess(c, respPb)
 }
 
-func (m *MessageApi) buildNotificationChatSendMsgReq(sendUserID, recvUserID string, contentType int32, content any, clientMsgID string) (*msg.SendMsgReq, error) {
+func (m *MessageApi) buildNotificationChatSendMsgReq(
+	sendUserID, recvUserID string,
+	contentType int32,
+	content any,
+	clientMsgID string,
+	offlinePushInfo *sdkws.OfflinePushInfo,
+) (*msg.SendMsgReq, error) {
 	if err := m.validate.Struct(content); err != nil {
 		return nil, errs.WrapMsg(err, "validation error")
 	}
+	notifCfg := config.NotificationConfig{
+		IsSendMsg:        true,
+		ReliabilityLevel: constant.ReliableNotificationNoMsg,
+	}
+	if offlinePushInfo != nil {
+		notifCfg.OfflinePush.Enable = true
+	}
+	opts := config.GetOptionsByNotification(notifCfg, nil)
 	return &msg.SendMsgReq{
 		MsgData: &sdkws.MsgData{
 			SendID: sendUserID,
@@ -307,17 +321,39 @@ func (m *MessageApi) buildNotificationChatSendMsgReq(sendUserID, recvUserID stri
 			Content: []byte(jsonutil.StructToJsonString(&sdkws.NotificationElem{
 				Detail: jsonutil.StructToJsonString(content),
 			})),
-			MsgFrom:     constant.SysMsgType,
-			ContentType: contentType,
-			SessionType: constant.NotificationChatType,
-			CreateTime:  timeutil.GetCurrentTimestampByMill(),
-			ClientMsgID: clientMsgID,
-			Options: config.GetOptionsByNotification(config.NotificationConfig{
-				IsSendMsg:        true,
-				ReliabilityLevel: constant.ReliableNotificationNoMsg,
-			}, nil),
+			MsgFrom:         constant.SysMsgType,
+			ContentType:     contentType,
+			SessionType:     constant.NotificationChatType,
+			CreateTime:      timeutil.GetCurrentTimestampByMill(),
+			ClientMsgID:     clientMsgID,
+			Options:         opts,
+			OfflinePushInfo: offlinePushInfo,
 		},
 	}, nil
+}
+
+func resolveServiceNotificationOfflinePush(content apistruct.ServiceNotificationContent, push *sdkws.OfflinePushInfo) *sdkws.OfflinePushInfo {
+	if push == nil {
+		return &sdkws.OfflinePushInfo{
+			Title: content.Title,
+			Desc:  content.Content,
+		}
+	}
+	resolved := &sdkws.OfflinePushInfo{
+		Title:         push.Title,
+		Desc:          push.Desc,
+		Ex:            push.Ex,
+		IOSPushSound:  push.IOSPushSound,
+		IOSBadgeCount: push.IOSBadgeCount,
+		SignalInfo:    push.SignalInfo,
+	}
+	if resolved.Title == "" {
+		resolved.Title = content.Title
+	}
+	if resolved.Desc == "" {
+		resolved.Desc = content.Content
+	}
+	return resolved
 }
 
 func (m *MessageApi) collectBatchRecvUserIDs(c *gin.Context, isSendAll bool, recvIDs []string) ([]string, error) {
@@ -361,6 +397,7 @@ func (m *MessageApi) sendNotificationChatMsg(c *gin.Context, sendUserID, recvUse
 		contentType,
 		content,
 		idutil.GetMsgIDByMD5(mcontext.GetOpUserID(c)+recvUserID),
+		nil,
 	)
 	if err != nil {
 		apiresp.GinError(c, err)
@@ -411,6 +448,7 @@ func (m *MessageApi) BatchSendServiceNotification(c *gin.Context) {
 	}
 	log.ZInfo(c, "BatchSendServiceNotification", "nums", len(recvIDs), "isSendAll", req.IsSendAll)
 	opUserID := mcontext.GetOpUserID(c)
+	offlinePushInfo := resolveServiceNotificationOfflinePush(req.Content, req.OfflinePushInfo)
 	for _, recvID := range recvIDs {
 		sendMsgReq, err := m.buildNotificationChatSendMsgReq(
 			req.SendUserID,
@@ -418,6 +456,7 @@ func (m *MessageApi) BatchSendServiceNotification(c *gin.Context) {
 			constant.ServiceNotification,
 			req.Content,
 			idutil.GetMsgIDByMD5(opUserID+recvID),
+			offlinePushInfo,
 		)
 		if err != nil {
 			apiresp.GinError(c, err)
