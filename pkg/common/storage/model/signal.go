@@ -14,6 +14,35 @@
 
 package model
 
+const (
+	// CallStatusConnecting means the call has been initiated but not yet answered.
+	// Both the inviter (after sending) and each invitee (after receiving the invite
+	// notification) are set to this status.
+	CallStatusConnecting int32 = 1
+	// CallStatusInCall means the call is active (at least one invitee accepted).
+	CallStatusInCall int32 = 2
+)
+
+// UserCallStatus is the per-user audio/video call state stored in Redis.
+// It is created when a call is initiated, updated when answered, and deleted
+// when the call ends (hung-up, rejected, cancelled, or timed out).
+type UserCallStatus struct {
+	// Status is CallStatusConnecting or CallStatusInCall.
+	Status int32 `json:"status"`
+	// RoomID is the LiveKit room this user belongs to.
+	RoomID string `json:"room_id"`
+	// MediaType is "audio" or "video".
+	MediaType string `json:"media_type"`
+	// SessionType is constant.SingleChatType or constant.ReadGroupChatType.
+	SessionType int32 `json:"session_type"`
+	// GroupID is non-empty for group calls.
+	GroupID string `json:"group_id,omitempty"`
+	// PeerIDs lists the other participants (inviter or invitees) for this user.
+	PeerIDs []string `json:"peer_ids"`
+	// UpdatedAt is the Unix-millisecond timestamp of the last state transition.
+	UpdatedAt int64 `json:"updated_at"`
+}
+
 // SignalInvitation stores an ongoing or pending signal invitation, keyed by roomID.
 // It is created when a call is initiated and can be queried when the callee starts the app.
 type SignalInvitation struct {

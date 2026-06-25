@@ -37,6 +37,7 @@ func NewRtcRpcCmd() *RtcRpcCmd {
 	ret.configMap = map[string]any{
 		OpenIMRPCRtcCfgFileName: &rtcConfig.RpcConfig,
 		MongodbConfigFileName:   &rtcConfig.MongodbConfig,
+		RedisConfigFileName:     &rtcConfig.RedisConfig,
 		ShareFileName:           &rtcConfig.Share,
 		NotificationFileName:    &rtcConfig.NotificationConfig,
 		DiscoveryConfigFilename: &rtcConfig.Discovery,
