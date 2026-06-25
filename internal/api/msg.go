@@ -21,6 +21,7 @@ import (
 	"github.com/openimsdk/open-im-server/v3/pkg/apistruct"
 	"github.com/openimsdk/open-im-server/v3/pkg/authverify"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/config"
+	"github.com/openimsdk/open-im-server/v3/pkg/msgprocessor"
 	"github.com/openimsdk/open-im-server/v3/pkg/rpcli"
 	"github.com/openimsdk/protocol/constant"
 	"github.com/openimsdk/protocol/msg"
@@ -314,6 +315,19 @@ func (m *MessageApi) buildNotificationChatSendMsgReq(
 		notifCfg.OfflinePush.Enable = true
 	}
 	opts := config.GetOptionsByNotification(notifCfg, nil)
+
+	if offlinePushInfo == nil {
+		offlinePushInfo = &sdkws.OfflinePushInfo{}
+	}
+	offlinePushInfo.Ex = jsonutil.StructToJsonString(map[string]interface{}{
+		"navigateToChat": true,
+		"source":         "offline",
+		"conversationID": msgprocessor.GetConversationIDBySessionType(constant.NotificationChatType, sendUserID, recvUserID),
+		"sessionType":    4,
+		"sourceID":       "service_notification_bot",
+		"clientMsgID":    clientMsgID,
+	})
+
 	return &msg.SendMsgReq{
 		MsgData: &sdkws.MsgData{
 			SendID: sendUserID,
@@ -413,8 +427,8 @@ func (m *MessageApi) sendNotificationChatMsg(c *gin.Context, sendUserID, recvUse
 
 func (m *MessageApi) SendServiceNotification(c *gin.Context) {
 	req := struct {
-		SendUserID string                            `json:"sendUserID" binding:"required"`
-		RecvUserID string                            `json:"recvUserID" binding:"required"`
+		SendUserID string                               `json:"sendUserID" binding:"required"`
+		RecvUserID string                               `json:"recvUserID" binding:"required"`
 		Content    apistruct.ServiceNotificationContent `json:"content" binding:"required"`
 	}{}
 	if err := c.BindJSON(&req); err != nil {
@@ -479,8 +493,8 @@ func (m *MessageApi) BatchSendServiceNotification(c *gin.Context) {
 
 func (m *MessageApi) SendPaymentNotification(c *gin.Context) {
 	req := struct {
-		SendUserID string                             `json:"sendUserID" binding:"required"`
-		RecvUserID string                             `json:"recvUserID" binding:"required"`
+		SendUserID string                               `json:"sendUserID" binding:"required"`
+		RecvUserID string                               `json:"recvUserID" binding:"required"`
 		Content    apistruct.PaymentNotificationContent `json:"content" binding:"required"`
 	}{}
 	if err := c.BindJSON(&req); err != nil {
