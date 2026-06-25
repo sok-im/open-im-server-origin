@@ -319,14 +319,17 @@ func (m *MessageApi) buildNotificationChatSendMsgReq(
 	if offlinePushInfo == nil {
 		offlinePushInfo = &sdkws.OfflinePushInfo{}
 	}
-	offlinePushInfo.Ex = jsonutil.StructToJsonString(map[string]interface{}{
-		"navigateToChat": true,
-		"source":         "offline",
-		"conversationID": msgprocessor.GetConversationIDBySessionType(constant.NotificationChatType, sendUserID, recvUserID),
-		"sessionType":    4,
-		"sourceID":       "service_notification_bot",
-		"clientMsgID":    clientMsgID,
-	})
+
+	if offlinePushInfo == nil {
+		offlinePushInfo.Ex = jsonutil.StructToJsonString(map[string]interface{}{
+			"navigateToChat": true,
+			"source":         "offline",
+			"conversationID": msgprocessor.GetConversationIDBySessionType(constant.NotificationChatType, sendUserID, recvUserID),
+			"sessionType":    4,
+			"sourceID":       "service_notification_bot",
+			"clientMsgID":    clientMsgID,
+		})
+	}
 
 	return &msg.SendMsgReq{
 		MsgData: &sdkws.MsgData{
