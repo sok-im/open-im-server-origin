@@ -851,14 +851,11 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 
 	duration := int64(0)
 	if dbInv.GroupID == "" {
-		callStatus := callStatusAnswered
-		if req.CallDuration > 0 {
-			duration = req.CallDuration
-		} else {
-			duration, callStatus = singleChatCallDuration(dbInv)
-		}
+		// Always compute from AcceptTime so duration = accept→hangup regardless
+		// of any client-reported value.
+		duration, callStatus := singleChatCallDuration(dbInv)
 		s.sendCallRecordChatMsg(ctx, dbInv, callStatus, duration)
-		log.ZInfo(ctx, "handleHungUp", "dbInv", dbInv, "duration", duration, "status", callStatus, "clientDuration", req.CallDuration)
+		log.ZInfo(ctx, "handleHungUp", "dbInv", dbInv, "duration", duration, "status", callStatus)
 	} else {
 		duration = groupCallDurationFromInvitation(dbInv)
 		// Atomically claim the invitation so only one path (HungUp or
