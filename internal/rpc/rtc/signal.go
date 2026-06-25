@@ -943,9 +943,20 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 
 	duration := int64(0)
 	if dbInv.GroupID == "" {
-		// Always compute from AcceptTime so duration = accept→hangup regardless
-		// of any client-reported value.
-		duration, callStatus := singleChatCallDuration(dbInv)
+		// Prefer the SDK-reported accept→hangup seconds so that the chat-message
+		// duration matches both local records exactly.  The SDK always computes
+		// this from connectMs (the moment of acceptance on the client), so it is
+		// already accept→hangup.  We validate AcceptTime > 0 on the server side
+		// to guard against rogue clients sending a non-zero duration for an
+		// unanswered call.  Fall back to server-side computation for unanswered
+		// calls and for older clients that send CallDuration = 0.
+		var callStatus string
+		if req.CallDuration > 0 && dbInv.AcceptTime > 0 {
+			duration = req.CallDuration
+			callStatus = callStatusAnswered
+		} else {
+			duration, callStatus = singleChatCallDuration(dbInv)
+		}
 		s.sendCallRecordChatMsg(ctx, dbInv, callStatus, duration)
 		log.ZInfo(ctx, "handleHungUp", "dbInv", dbInv, "duration", duration, "status", callStatus)
 	} else {
