@@ -313,14 +313,7 @@ func (m *MessageApi) buildNotificationChatSendMsgReq(
 	}
 	if offlinePushInfo != nil {
 		notifCfg.OfflinePush.Enable = true
-	}
-	opts := config.GetOptionsByNotification(notifCfg, nil)
 
-	if offlinePushInfo == nil {
-		offlinePushInfo = &sdkws.OfflinePushInfo{}
-	}
-
-	if offlinePushInfo == nil {
 		offlinePushInfo.Ex = jsonutil.StructToJsonString(map[string]interface{}{
 			"navigateToChat": true,
 			"source":         "offline",
@@ -329,6 +322,11 @@ func (m *MessageApi) buildNotificationChatSendMsgReq(
 			"sourceID":       "service_notification_bot",
 			"clientMsgID":    clientMsgID,
 		})
+	}
+	opts := config.GetOptionsByNotification(notifCfg, nil)
+
+	if offlinePushInfo == nil {
+		offlinePushInfo = &sdkws.OfflinePushInfo{}
 	}
 
 	return &msg.SendMsgReq{
