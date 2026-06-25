@@ -133,9 +133,9 @@ func IsSignalingContentType(contentType int32) bool {
 	return contentType >= constant.SignalingNotificationBegin && contentType <= constant.SignalingNotificationEnd
 }
 
-// IsInviteSignalingContent reports whether serialized SignalReq content is an invite.
-// Only invite signaling should trigger offline push; cancel/hang-up/etc. are online-only.
-func IsInviteSignalingContent(content []byte) bool {
+// IsOfflinePushSignalingContent reports whether serialized SignalReq content should trigger offline push.
+// Invite / cancel / reject / timeout wake offline devices so callees or callers can sync call state.
+func IsOfflinePushSignalingContent(content []byte) bool {
 	if len(content) == 0 {
 		return false
 	}
@@ -144,7 +144,7 @@ func IsInviteSignalingContent(content []byte) bool {
 		return false
 	}
 	switch req.Payload.(type) {
-	case *rtc.SignalReq_Invite, *rtc.SignalReq_InviteInGroup:
+	case *rtc.SignalReq_Invite, *rtc.SignalReq_InviteInGroup, *rtc.SignalReq_Cancel, *rtc.SignalReq_Reject, *rtc.SignalReq_Timeout:
 		return true
 	default:
 		return false

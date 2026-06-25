@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/model"
 	"github.com/openimsdk/protocol/constant"
 	"github.com/openimsdk/protocol/rtc"
 	"github.com/openimsdk/protocol/sdkws"
@@ -15,6 +16,11 @@ const (
 	callWakePushSchemaVersion = 1
 	callWakePushType          = "call"
 	callIOSPushSound          = "call.caf"
+
+	signalCallActionInvite  = "invite"
+	signalCallActionCancel  = "cancel"
+	signalCallActionReject  = "reject"
+	signalCallActionTimeout = "timeout"
 )
 
 type callWakePushEx struct {
@@ -30,14 +36,21 @@ type callWakePushEx struct {
 // resolveInviteOfflinePushInfo builds or completes OfflinePushInfo for call invites.
 // Client-provided fields are preserved; missing title/desc/ex/sound are filled server-side.
 func (s *rtcServer) resolveInviteOfflinePushInfo(ctx context.Context, inv *rtc.InvitationInfo, clientPush *sdkws.OfflinePushInfo) *sdkws.OfflinePushInfo {
+	return s.resolveSignalingOfflinePushInfo(ctx, inv, clientPush, signalCallActionInvite, inv.GetInviterUserID())
+}
+
+// resolveSignalingOfflinePushInfo builds offline push info for invite / cancel / reject / timeout signaling.
+func (s *rtcServer) resolveSignalingOfflinePushInfo(ctx context.Context, inv *rtc.InvitationInfo, clientPush *sdkws.OfflinePushInfo, action, actorUserID string) *sdkws.OfflinePushInfo {
 	if inv == nil {
-		log.ZWarn(ctx, "lintao resolveInviteOfflinePushInfo: invitation is nil", nil, "clientPushProvided", clientPush != nil)
+		log.ZWarn(ctx, "lintao resolveSignalingOfflinePushInfo: invitation is nil", nil, "action", action, "clientPushProvided", clientPush != nil)
 		return clientPush
 	}
 	cfg := s.config.NotificationConfig.SignalingInvite
-	log.ZInfo(ctx, "lintao resolveInviteOfflinePushInfo start",
+	log.ZInfo(ctx, "lintao resolveSignalingOfflinePushInfo start",
+		"action", action,
 		"roomID", inv.RoomID,
 		"inviterUserID", inv.InviterUserID,
+		"actorUserID", actorUserID,
 		"groupID", inv.GroupID,
 		"mediaType", inv.MediaType,
 		"sessionType", inv.SessionType,
@@ -45,23 +58,18 @@ func (s *rtcServer) resolveInviteOfflinePushInfo(ctx context.Context, inv *rtc.I
 		"configOfflinePushEnable", cfg.OfflinePush.Enable,
 	)
 	if !cfg.OfflinePush.Enable && clientPush == nil {
-		log.ZInfo(ctx, "lintao resolveInviteOfflinePushInfo skipped: config disabled and no client offlinePushInfo",
+		log.ZInfo(ctx, "lintao resolveSignalingOfflinePushInfo skipped: config disabled and no client offlinePushInfo",
+			"action", action,
 			"roomID", inv.RoomID,
 		)
 		return nil
 	}
 	if clientPush != nil && !cfg.OfflinePush.Enable {
 		push := cloneOfflinePushInfo(clientPush)
-		sessionType := inv.SessionType
-		if sessionType == 0 {
-			if inv.GroupID != "" {
-				sessionType = int32(constant.ReadGroupChatType)
-			} else {
-				sessionType = int32(constant.SingleChatType)
-			}
-		}
+		sessionType := invitationSessionType(inv)
 		push.Ex = syncCallWakePushEx(inv, sessionType, push.Ex)
-		log.ZInfo(ctx, "lintao resolveInviteOfflinePushInfo: using client offlinePushInfo only (config disabled)",
+		log.ZInfo(ctx, "lintao resolveSignalingOfflinePushInfo: using client offlinePushInfo only (config disabled)",
+			"action", action,
 			"roomID", inv.RoomID,
 			"clientTitle", clientPush.Title,
 			"clientExLen", len(clientPush.Ex),
@@ -84,15 +92,7 @@ func (s *rtcServer) resolveInviteOfflinePushInfo(ctx context.Context, inv *rtc.I
 		clientSound = clientPush.IOSPushSound
 	}
 
-	sessionType := inv.SessionType
-	if sessionType == 0 {
-		if inv.GroupID != "" {
-			sessionType = int32(constant.ReadGroupChatType)
-		} else {
-			sessionType = int32(constant.SingleChatType)
-		}
-	}
-
+	sessionType := invitationSessionType(inv)
 	mediaLabel := callMediaLabel(inv.MediaType)
 
 	if push.Title == "" {
@@ -105,21 +105,18 @@ func (s *rtcServer) resolveInviteOfflinePushInfo(ctx context.Context, inv *rtc.I
 		push.Desc = cfg.OfflinePush.Desc
 	}
 	if push.Desc == "" {
-		inviterName := s.resolveInviterDisplayName(ctx, inv)
-		if inviterName != "" {
-			push.Desc = inviterName + "邀请你" + mediaLabel + "通话"
-		} else {
-			push.Desc = "你收到一条" + mediaLabel + "通话邀请"
-		}
+		actorName := s.resolveUserDisplayName(ctx, inv.GroupID, actorUserID)
+		push.Desc = callActionDefaultDesc(action, mediaLabel, actorName)
 	}
 	if push.Ex == "" && cfg.OfflinePush.Ext != "" {
 		push.Ex = cfg.OfflinePush.Ext
 	}
 	push.Ex = syncCallWakePushEx(inv, sessionType, push.Ex)
-	if push.IOSPushSound == "" {
+	if action == signalCallActionInvite && push.IOSPushSound == "" {
 		push.IOSPushSound = callIOSPushSound
 	}
-	log.ZInfo(ctx, "lintao resolveInviteOfflinePushInfo done",
+	log.ZInfo(ctx, "lintao resolveSignalingOfflinePushInfo done",
+		"action", action,
 		"roomID", inv.RoomID,
 		"title", push.Title,
 		"desc", push.Desc,
@@ -136,30 +133,82 @@ func (s *rtcServer) resolveInviteOfflinePushInfo(ctx context.Context, inv *rtc.I
 	return push
 }
 
+func invitationSessionType(inv *rtc.InvitationInfo) int32 {
+	sessionType := inv.SessionType
+	if sessionType == 0 {
+		if inv.GroupID != "" {
+			sessionType = int32(constant.ReadGroupChatType)
+		} else {
+			sessionType = int32(constant.SingleChatType)
+		}
+	}
+	return sessionType
+}
+
+func callActionDefaultDesc(action, mediaLabel, actorName string) string {
+	switch action {
+	case signalCallActionCancel:
+		if actorName != "" {
+			return actorName + "已取消" + mediaLabel + "通话"
+		}
+		return "对方已取消" + mediaLabel + "通话"
+	case signalCallActionReject:
+		if actorName != "" {
+			return actorName + "已拒绝" + mediaLabel + "通话"
+		}
+		return "对方已拒绝" + mediaLabel + "通话"
+	case signalCallActionTimeout:
+		if actorName != "" {
+			return "未接" + actorName + "的" + mediaLabel + "通话"
+		}
+		return "未接" + mediaLabel + "通话"
+	default:
+		if actorName != "" {
+			return actorName + "邀请你" + mediaLabel + "通话"
+		}
+		return "你收到一条" + mediaLabel + "通话邀请"
+	}
+}
+
+func offlinePushInfoFromInvitationModel(inv *model.SignalInvitation) *sdkws.OfflinePushInfo {
+	if inv == nil || (inv.OfflinePushTitle == "" && inv.OfflinePushDesc == "" && inv.OfflinePushEx == "") {
+		return nil
+	}
+	return &sdkws.OfflinePushInfo{
+		Title: inv.OfflinePushTitle,
+		Desc:  inv.OfflinePushDesc,
+		Ex:    inv.OfflinePushEx,
+	}
+}
+
 func (s *rtcServer) resolveInviterDisplayName(ctx context.Context, inv *rtc.InvitationInfo) string {
 	if inv == nil || inv.InviterUserID == "" {
 		return ""
 	}
-	if inv.GroupID != "" {
-		if member, err := s.groupClient.GetGroupMemberCache(ctx, inv.GroupID, inv.InviterUserID); err == nil {
+	return s.resolveUserDisplayName(ctx, inv.GroupID, inv.InviterUserID)
+}
+
+func (s *rtcServer) resolveUserDisplayName(ctx context.Context, groupID, userID string) string {
+	if userID == "" {
+		return ""
+	}
+	if groupID != "" {
+		if member, err := s.groupClient.GetGroupMemberCache(ctx, groupID, userID); err == nil {
 			if name := strings.TrimSpace(member.Nickname); name != "" {
 				return name
 			}
 		} else {
-			log.ZDebug(ctx, "lintao resolveInviterDisplayName: GetGroupMemberCache failed", "groupID", inv.GroupID, "inviterUserID", inv.InviterUserID, "err", err)
+			log.ZDebug(ctx, "lintao resolveUserDisplayName: GetGroupMemberCache failed", "groupID", groupID, "userID", userID, "err", err)
 		}
 	}
-	if user, err := s.userClient.GetUserInfo(ctx, inv.InviterUserID); err == nil {
+	if user, err := s.userClient.GetUserInfo(ctx, userID); err == nil {
 		if name := strings.TrimSpace(user.Nickname); name != "" {
-			log.ZDebug(ctx, "lintao resolveInviterDisplayName: use user nickname", "inviterUserID", inv.InviterUserID, "nickname", name)
 			return name
 		}
-		log.ZDebug(ctx, "lintao resolveInviterDisplayName: user nickname empty, fallback userID", "inviterUserID", inv.InviterUserID)
 		return user.UserID
-	} else {
-		log.ZDebug(ctx, "lintao resolveInviterDisplayName: GetUserInfo failed, fallback userID", "inviterUserID", inv.InviterUserID, "err", err)
 	}
-	return inv.InviterUserID
+	log.ZDebug(ctx, "lintao resolveUserDisplayName: GetUserInfo failed, fallback userID", "userID", userID)
+	return userID
 }
 
 func callMediaLabel(mediaType string) string {

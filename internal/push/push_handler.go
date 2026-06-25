@@ -266,8 +266,8 @@ func (c *ConsumerHandler) shouldPushOffline(ctx context.Context, msg *sdkws.MsgD
 		log.ZDebug(ctx, "lintao offline push skipped: RoomParticipantsDisconnectedNotification", "clientMsgID", msg.ClientMsgID)
 		return false
 	}
-	if isSignalingNotification(msg.ContentType) && !msgprocessor.IsInviteSignalingContent(msg.Content) {
-		log.ZInfo(ctx, "lintao signaling offline push skipped: non-invite signaling",
+	if isSignalingNotification(msg.ContentType) && !msgprocessor.IsOfflinePushSignalingContent(msg.Content) {
+		log.ZInfo(ctx, "lintao signaling offline push skipped: non-offline-push signaling",
 			"clientMsgID", msg.ClientMsgID,
 			"recvID", msg.RecvID,
 			"sendID", msg.SendID,
