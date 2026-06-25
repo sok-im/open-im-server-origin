@@ -42,11 +42,11 @@ func (s *rtcServer) resolveInviteOfflinePushInfo(ctx context.Context, inv *rtc.I
 // resolveSignalingOfflinePushInfo builds offline push info for invite / cancel / reject / timeout signaling.
 func (s *rtcServer) resolveSignalingOfflinePushInfo(ctx context.Context, inv *rtc.InvitationInfo, clientPush *sdkws.OfflinePushInfo, action, actorUserID string) *sdkws.OfflinePushInfo {
 	if inv == nil {
-		log.ZWarn(ctx, "lintao resolveSignalingOfflinePushInfo: invitation is nil", nil, "action", action, "clientPushProvided", clientPush != nil)
+		log.ZWarn(ctx, "resolveSignalingOfflinePushInfo: invitation is nil", nil, "action", action, "clientPushProvided", clientPush != nil)
 		return clientPush
 	}
 	cfg := s.config.NotificationConfig.SignalingInvite
-	log.ZInfo(ctx, "lintao resolveSignalingOfflinePushInfo start",
+	log.ZInfo(ctx, "resolveSignalingOfflinePushInfo start",
 		"action", action,
 		"roomID", inv.RoomID,
 		"inviterUserID", inv.InviterUserID,
@@ -58,7 +58,7 @@ func (s *rtcServer) resolveSignalingOfflinePushInfo(ctx context.Context, inv *rt
 		"configOfflinePushEnable", cfg.OfflinePush.Enable,
 	)
 	if !cfg.OfflinePush.Enable && clientPush == nil {
-		log.ZInfo(ctx, "lintao resolveSignalingOfflinePushInfo skipped: config disabled and no client offlinePushInfo",
+		log.ZInfo(ctx, "resolveSignalingOfflinePushInfo skipped: config disabled and no client offlinePushInfo",
 			"action", action,
 			"roomID", inv.RoomID,
 		)
@@ -68,7 +68,7 @@ func (s *rtcServer) resolveSignalingOfflinePushInfo(ctx context.Context, inv *rt
 		push := cloneOfflinePushInfo(clientPush)
 		sessionType := invitationSessionType(inv)
 		push.Ex = syncCallWakePushEx(inv, sessionType, push.Ex)
-		log.ZInfo(ctx, "lintao resolveSignalingOfflinePushInfo: using client offlinePushInfo only (config disabled)",
+		log.ZInfo(ctx, "resolveSignalingOfflinePushInfo: using client offlinePushInfo only (config disabled)",
 			"action", action,
 			"roomID", inv.RoomID,
 			"clientTitle", clientPush.Title,
@@ -115,7 +115,7 @@ func (s *rtcServer) resolveSignalingOfflinePushInfo(ctx context.Context, inv *rt
 	if action == signalCallActionInvite && push.IOSPushSound == "" {
 		push.IOSPushSound = callIOSPushSound
 	}
-	log.ZInfo(ctx, "lintao resolveSignalingOfflinePushInfo done",
+	log.ZInfo(ctx, "resolveSignalingOfflinePushInfo done",
 		"action", action,
 		"roomID", inv.RoomID,
 		"title", push.Title,
@@ -198,7 +198,7 @@ func (s *rtcServer) resolveUserDisplayName(ctx context.Context, groupID, userID 
 				return name
 			}
 		} else {
-			log.ZDebug(ctx, "lintao resolveUserDisplayName: GetGroupMemberCache failed", "groupID", groupID, "userID", userID, "err", err)
+			log.ZDebug(ctx, "resolveUserDisplayName: GetGroupMemberCache failed", "groupID", groupID, "userID", userID, "err", err)
 		}
 	}
 	if user, err := s.userClient.GetUserInfo(ctx, userID); err == nil {
@@ -207,7 +207,7 @@ func (s *rtcServer) resolveUserDisplayName(ctx context.Context, groupID, userID 
 		}
 		return user.UserID
 	}
-	log.ZDebug(ctx, "lintao resolveUserDisplayName: GetUserInfo failed, fallback userID", "userID", userID)
+	log.ZDebug(ctx, "resolveUserDisplayName: GetUserInfo failed, fallback userID", "userID", userID)
 	return userID
 }
 

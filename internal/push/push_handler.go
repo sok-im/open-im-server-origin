@@ -174,7 +174,7 @@ func (c *ConsumerHandler) Push2User(ctx context.Context, userIDs []string, msg *
 		return nil
 	}
 	if isSignalingNotification(msg.ContentType) {
-		log.ZInfo(ctx, "lintao signaling offline push start",
+		log.ZInfo(ctx, "signaling offline push start",
 			"recvID", msg.RecvID,
 			"sendID", msg.SendID,
 			"clientMsgID", msg.ClientMsgID,
@@ -184,7 +184,7 @@ func (c *ConsumerHandler) Push2User(ctx context.Context, userIDs []string, msg *
 			"offlinePushExLen", offlinePushSummary(msg).exLen,
 		)
 	}
-	log.ZInfo(ctx, "lintao pushOffline start", "userIDs", userIDs, "msg", msg.String())
+	log.ZInfo(ctx, "pushOffline start", "userIDs", userIDs, "msg", msg.String())
 
 	for _, v := range wsResults {
 		//message sender do not need offline push
@@ -194,14 +194,14 @@ func (c *ConsumerHandler) Push2User(ctx context.Context, userIDs []string, msg *
 		//receiver online push success
 		if v.OnlinePush {
 			if isSignalingNotification(msg.ContentType) {
-				log.ZInfo(ctx, "lintao signaling offline push skipped: receiver online",
+				log.ZInfo(ctx, "signaling offline push skipped: receiver online",
 					"userID", v.UserID,
 					"clientMsgID", msg.ClientMsgID,
 					"recvID", msg.RecvID,
 					"sendID", msg.SendID,
 				)
 			} else {
-				log.ZDebug(ctx, "lintao offline push skipped: receiver already received via online push", "userID", v.UserID, "clientMsgID", msg.ClientMsgID)
+				log.ZDebug(ctx, "offline push skipped: receiver already received via online push", "userID", v.UserID, "clientMsgID", msg.ClientMsgID)
 			}
 			return nil
 		}
@@ -223,20 +223,20 @@ func (c *ConsumerHandler) Push2User(ctx context.Context, userIDs []string, msg *
 	}
 	if len(needOfflinePushUserID) == 0 {
 		if isSignalingNotification(msg.ContentType) {
-			log.ZInfo(ctx, "lintao signaling offline push skipped: no eligible users after filter",
+			log.ZInfo(ctx, "signaling offline push skipped: no eligible users after filter",
 				"clientMsgID", msg.ClientMsgID,
 				"recvID", msg.RecvID,
 				"sendID", msg.SendID,
 				"contentType", msg.ContentType,
 			)
 		} else {
-			log.ZDebug(ctx, "lintao offline push skipped: all users disabled notification switch", "clientMsgID", msg.ClientMsgID, "contentType", msg.ContentType)
+			log.ZDebug(ctx, "offline push skipped: all users disabled notification switch", "clientMsgID", msg.ClientMsgID, "contentType", msg.ContentType)
 		}
 		return nil
 	}
 	err = c.offlinePushMsg(ctx, msg, needOfflinePushUserID)
 	if err != nil {
-		log.ZWarn(ctx, "lintao offlinePushMsg failed", err, "needOfflinePushUserID length", len(needOfflinePushUserID), "msg", msg)
+		log.ZWarn(ctx, "offlinePushMsg failed", err, "needOfflinePushUserID length", len(needOfflinePushUserID), "msg", msg)
 		return nil
 	}
 
@@ -247,27 +247,27 @@ func (c *ConsumerHandler) shouldPushOffline(ctx context.Context, msg *sdkws.MsgD
 	isOfflinePush := datautil.GetSwitchFromOptions(msg.Options, constant.IsOfflinePush)
 	if !isOfflinePush {
 		if isSignalingNotification(msg.ContentType) {
-			log.ZInfo(ctx, "lintao signaling offline push skipped: IsOfflinePush option false",
+			log.ZInfo(ctx, "signaling offline push skipped: IsOfflinePush option false",
 				"clientMsgID", msg.ClientMsgID,
 				"recvID", msg.RecvID,
 				"sendID", msg.SendID,
 				"contentType", msg.ContentType,
 			)
 		} else {
-			log.ZDebug(ctx, "lintao offline push skipped: IsOfflinePush option not set", "clientMsgID", msg.ClientMsgID, "contentType", msg.ContentType)
+			log.ZDebug(ctx, "offline push skipped: IsOfflinePush option not set", "clientMsgID", msg.ClientMsgID, "contentType", msg.ContentType)
 		}
 		return false
 	}
 	switch msg.ContentType {
 	case constant.RoomParticipantsConnectedNotification:
-		log.ZDebug(ctx, "lintao offline push skipped: RoomParticipantsConnectedNotification", "clientMsgID", msg.ClientMsgID)
+		log.ZDebug(ctx, "offline push skipped: RoomParticipantsConnectedNotification", "clientMsgID", msg.ClientMsgID)
 		return false
 	case constant.RoomParticipantsDisconnectedNotification:
-		log.ZDebug(ctx, "lintao offline push skipped: RoomParticipantsDisconnectedNotification", "clientMsgID", msg.ClientMsgID)
+		log.ZDebug(ctx, "offline push skipped: RoomParticipantsDisconnectedNotification", "clientMsgID", msg.ClientMsgID)
 		return false
 	}
 	if isSignalingNotification(msg.ContentType) && !msgprocessor.IsOfflinePushSignalingContent(msg.Content) {
-		log.ZInfo(ctx, "lintao signaling offline push skipped: non-offline-push signaling",
+		log.ZInfo(ctx, "signaling offline push skipped: non-offline-push signaling",
 			"clientMsgID", msg.ClientMsgID,
 			"recvID", msg.RecvID,
 			"sendID", msg.SendID,
@@ -428,7 +428,7 @@ func (c *ConsumerHandler) offlinePushMsg(ctx context.Context, msg *sdkws.MsgData
 		wakePush = opts.IsWakePush()
 	}
 	if isSignalingNotification(msg.ContentType) {
-		log.ZInfo(ctx, "lintao signaling offlinePushMsg calling pusher",
+		log.ZInfo(ctx, "signaling offlinePushMsg calling pusher",
 			"userIDs", offlinePushUserIDs,
 			"title", title,
 			"content", content,
@@ -439,12 +439,12 @@ func (c *ConsumerHandler) offlinePushMsg(ctx context.Context, msg *sdkws.MsgData
 			"wakePush", wakePush,
 		)
 	} else {
-		log.ZInfo(ctx, "lintao offlinePushMsg calling pusher", "userIDs", offlinePushUserIDs, "title", title, "clientMsgID", msg.ClientMsgID)
+		log.ZInfo(ctx, "offlinePushMsg calling pusher", "userIDs", offlinePushUserIDs, "title", title, "clientMsgID", msg.ClientMsgID)
 	}
 	err = c.offlinePusher.Push(ctx, offlinePushUserIDs, title, content, opts)
 	if err != nil {
 		if isSignalingNotification(msg.ContentType) {
-			log.ZWarn(ctx, "lintao signaling offlinePushMsg failed", err,
+			log.ZWarn(ctx, "signaling offlinePushMsg failed", err,
 				"userIDs", offlinePushUserIDs,
 				"clientMsgID", msg.ClientMsgID,
 				"recvID", msg.RecvID,
@@ -455,7 +455,7 @@ func (c *ConsumerHandler) offlinePushMsg(ctx context.Context, msg *sdkws.MsgData
 		return err
 	}
 	if isSignalingNotification(msg.ContentType) {
-		log.ZInfo(ctx, "lintao signaling offlinePushMsg success",
+		log.ZInfo(ctx, "signaling offlinePushMsg success",
 			"userIDs", offlinePushUserIDs,
 			"clientMsgID", msg.ClientMsgID,
 			"recvID", msg.RecvID,

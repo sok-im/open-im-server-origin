@@ -89,7 +89,7 @@ func (o *OfflinePushConsumerHandler) offlinePushMsg(ctx context.Context, msg *sd
 	if err != nil {
 		return err
 	}
-	log.ZInfo(ctx, "lintao offlinePushMsg calling pusher", "userIDs", offlinePushUserIDs, "title", title, "clientMsgID", msg.ClientMsgID)
+	log.ZInfo(ctx, "offlinePushMsg calling pusher", "userIDs", offlinePushUserIDs, "title", title, "clientMsgID", msg.ClientMsgID)
 	err = o.offlinePusher.Push(ctx, offlinePushUserIDs, title, content, opts)
 	if err != nil {
 		prommetrics.MsgOfflinePushFailedCounter.Inc()

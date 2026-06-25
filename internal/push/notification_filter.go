@@ -53,7 +53,7 @@ func filterOfflinePushByNotificationSwitch(ctx context.Context, userLocalCache *
 			if user := userMap[userID]; user != nil {
 				avSwitch = user.AvNotification
 			}
-			log.ZInfo(ctx, "lintao signaling offline push skipped: AvNotification switch off",
+			log.ZInfo(ctx, "signaling offline push skipped: AvNotification switch off",
 				"userID", userID,
 				"contentType", msg.ContentType,
 				"clientMsgID", msg.ClientMsgID,
@@ -63,7 +63,7 @@ func filterOfflinePushByNotificationSwitch(ctx context.Context, userLocalCache *
 			)
 			continue
 		}
-		log.ZDebug(ctx, "lintao offline push skipped: user notification switch off",
+		log.ZDebug(ctx, "offline push skipped: user notification switch off",
 			"userID", userID, "contentType", msg.ContentType, "clientMsgID", msg.ClientMsgID)
 	}
 	return out, nil

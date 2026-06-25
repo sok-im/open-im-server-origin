@@ -66,10 +66,10 @@ func (e *EngageLab) Push(ctx context.Context, userIDs []string, title, content s
 		// Each platform is sent separately; 21011 (no device on that platform) is non-fatal.
 		err := e.sendWakePush(ctx, userIDs, title, content, extras, opts, pushOpts)
 		if err != nil {
-			log.ZError(ctx, "lintao engagelab wake push failed", err, "userIDs", userIDs, "title", title, "content", content, "extras", extras, "pushOpts", pushOpts)
+			log.ZError(ctx, "engagelab wake push failed", err, "userIDs", userIDs, "title", title, "content", content, "extras", extras, "pushOpts", pushOpts)
 			return err
 		}
-		log.ZDebug(ctx, "lintao engagelab wake push success", "userIDs", userIDs, "title", title, "content", content, "extras", extras, "pushOpts", pushOpts)
+		log.ZDebug(ctx, "engagelab wake push success", "userIDs", userIDs, "title", title, "content", content, "extras", extras, "pushOpts", pushOpts)
 		return nil
 	}
 
@@ -94,11 +94,11 @@ func (e *EngageLab) Push(ctx context.Context, userIDs []string, title, content s
 
 	err := e.send(ctx, userIDs, title, content, body)
 	if err != nil {
-		log.ZError(ctx, "lintao engagelab push failed", err, "userIDs", userIDs, "title", title, "content", content, "body", body)
+		log.ZError(ctx, "engagelab push failed", err, "userIDs", userIDs, "title", title, "content", content, "body", body)
 		return err
 	}
 
-	log.ZDebug(ctx, "lintao engagelab push success", "userIDs", userIDs, "title", title, "content", content, "body", body)
+	log.ZDebug(ctx, "engagelab push success", "userIDs", userIDs, "title", title, "content", content, "body", body)
 	return nil
 }
 
@@ -151,7 +151,7 @@ func (e *EngageLab) sendWakePush(ctx context.Context, userIDs []string, title, c
 	var sent, noTarget int
 	var lastErr error
 	for _, body := range bodies {
-		log.ZDebug(ctx, "lintao engagelab wake push send", "userIDs", userIDs, "title", title, "content", content, "body", body)
+		log.ZDebug(ctx, "engagelab wake push send", "userIDs", userIDs, "title", title, "content", content, "body", body)
 		err := e.send(ctx, userIDs, title, content, body)
 		if err == nil {
 			sent++
@@ -159,7 +159,7 @@ func (e *EngageLab) sendWakePush(ctx context.Context, userIDs []string, title, c
 		}
 		if isNoTargetError(err) {
 			noTarget++
-			log.ZWarn(ctx, "lintao engagelab wake push skipped: no device on platform", nil, "platform", body.Platform, "userIDs", userIDs)
+			log.ZWarn(ctx, "engagelab wake push skipped: no device on platform", nil, "platform", body.Platform, "userIDs", userIDs)
 			continue
 		}
 		lastErr = err
@@ -171,7 +171,7 @@ func (e *EngageLab) sendWakePush(ctx context.Context, userIDs []string, title, c
 		return lastErr
 	}
 	if noTarget > 0 {
-		log.ZWarn(ctx, "lintao engagelab wake push: no devices for alias on any platform", nil, "userIDs", userIDs)
+		log.ZWarn(ctx, "engagelab wake push: no devices for alias on any platform", nil, "userIDs", userIDs)
 		return nil
 	}
 	return nil
