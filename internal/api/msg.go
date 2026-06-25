@@ -349,10 +349,12 @@ func (m *MessageApi) buildNotificationChatSendMsgReq(
 
 func resolveServiceNotificationOfflinePush(content apistruct.ServiceNotificationContent, push *sdkws.OfflinePushInfo) *sdkws.OfflinePushInfo {
 	if push == nil {
-		return &sdkws.OfflinePushInfo{
-			Title: content.Title,
-			Desc:  content.Content,
-		}
+		//return &sdkws.OfflinePushInfo{
+		//	Title: content.Title,
+		//	Desc:  content.Content,
+		//}
+
+		return nil
 	}
 	resolved := &sdkws.OfflinePushInfo{
 		Title:         push.Title,
