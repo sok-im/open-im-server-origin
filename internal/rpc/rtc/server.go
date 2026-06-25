@@ -20,11 +20,14 @@ import (
 
 	lksdk "github.com/livekit/server-sdk-go/v2"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/config"
+	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/cache"
+	cacheredis "github.com/openimsdk/open-im-server/v3/pkg/common/storage/cache/redis"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/controller"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/database/mgo"
 	"github.com/openimsdk/open-im-server/v3/pkg/rpcli"
 	"github.com/openimsdk/protocol/rtc"
 	"github.com/openimsdk/tools/db/mongoutil"
+	"github.com/openimsdk/tools/db/redisutil"
 	"github.com/openimsdk/tools/discovery"
 	"google.golang.org/grpc"
 )
@@ -33,6 +36,7 @@ import (
 type Config struct {
 	RpcConfig          config.Rtc
 	MongodbConfig      config.Mongo
+	RedisConfig        config.Redis
 	Share              config.Share
 	Discovery          config.Discovery
 	NotificationConfig config.Notification
@@ -40,20 +44,26 @@ type Config struct {
 
 type rtcServer struct {
 	rtc.UnimplementedRtcServiceServer
-	config         *Config
-	db             controller.RtcDatabase
-	globalBlackDB  controller.UserGlobalBlackDatabase
-	roomClient     *lksdk.RoomServiceClient
-	msgClient      *rpcli.MsgClient
-	userClient     *rpcli.UserClient
-	groupClient    *rpcli.GroupClient
-	relationClient *rpcli.RelationClient
-	tokenExpiry    time.Duration
+	config           *Config
+	db               controller.RtcDatabase
+	globalBlackDB    controller.UserGlobalBlackDatabase
+	roomClient       *lksdk.RoomServiceClient
+	msgClient        *rpcli.MsgClient
+	userClient       *rpcli.UserClient
+	groupClient      *rpcli.GroupClient
+	relationClient   *rpcli.RelationClient
+	tokenExpiry      time.Duration
+	callStatusCache  cache.CallStatusCache
 }
 
 // Start initialises the RTC gRPC service and registers it with the gRPC server.
 func Start(ctx context.Context, cfg *Config, client discovery.SvcDiscoveryRegistry, server *grpc.Server) error {
 	mgocli, err := mongoutil.NewMongoDB(ctx, cfg.MongodbConfig.Build())
+	if err != nil {
+		return err
+	}
+
+	rdb, err := redisutil.NewRedisClient(ctx, cfg.RedisConfig.Build())
 	if err != nil {
 		return err
 	}
@@ -97,15 +107,16 @@ func Start(ctx context.Context, cfg *Config, client discovery.SvcDiscoveryRegist
 	}
 
 	s := &rtcServer{
-		config:         cfg,
-		db:             controller.NewRtcDatabase(signalDB),
-		globalBlackDB:  controller.NewUserGlobalBlackDatabase(globalBlackMgo),
-		roomClient:     roomClient,
-		msgClient:      rpcli.NewMsgClient(msgConn),
-		userClient:     rpcli.NewUserClient(userConn),
-		groupClient:    rpcli.NewGroupClient(groupConn),
-		relationClient: rpcli.NewRelationClient(friendConn),
-		tokenExpiry:    tokenExpiry,
+		config:          cfg,
+		db:              controller.NewRtcDatabase(signalDB),
+		globalBlackDB:   controller.NewUserGlobalBlackDatabase(globalBlackMgo),
+		roomClient:      roomClient,
+		msgClient:       rpcli.NewMsgClient(msgConn),
+		userClient:      rpcli.NewUserClient(userConn),
+		groupClient:     rpcli.NewGroupClient(groupConn),
+		relationClient:  rpcli.NewRelationClient(friendConn),
+		tokenExpiry:     tokenExpiry,
+		callStatusCache: cacheredis.NewCallStatusCache(rdb),
 	}
 
 	rtc.RegisterRtcServiceServer(server, s)

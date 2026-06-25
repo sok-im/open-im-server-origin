@@ -151,6 +151,35 @@ func (s *rtcServer) handleInvite(ctx context.Context, req *rtc.SignalInviteReq, 
 		break
 	}
 
+	// 单聊忙线检查：若被叫方当前处于通话中，立即发送"忙线"通话记录并终止本次呼叫。
+	// 仅对单聊生效（inv.GroupID == ""），群聊通话不做此校验。
+	if inv.GroupID == "" {
+		for _, inviteeID := range inv.InviteeUserIDList {
+			if _, notAllow := notAllowSet[inviteeID]; notAllow {
+				continue
+			}
+			callSt, err := s.callStatusCache.GetCallStatus(ctx, inviteeID)
+			if err != nil {
+				// 查询失败（含 key 不存在）时不阻断呼叫，仅记录日志。
+				log.ZDebug(ctx, "handleInvite: GetCallStatus for invitee", err, "inviteeID", inviteeID)
+				continue
+			}
+			if callSt.Status == model.CallStatusInCall {
+				log.ZInfo(ctx, "handleInvite: invitee is in call, sending busy record", "inviteeID", inviteeID, "roomID", inv.RoomID)
+				// 构造最小化的邀请模型用于发送通话记录消息（不写 DB、不创建 LiveKit 房间）。
+				busyInv := &model.SignalInvitation{
+					RoomID:            inv.RoomID,
+					InviterUserID:     inv.InviterUserID,
+					InviteeUserIDList: inv.InviteeUserIDList,
+					MediaType:         inv.MediaType,
+					GroupID:           inv.GroupID,
+				}
+				s.sendCallRecordChatMsg(ctx, busyInv, callStatusBusy, 0)
+				return nil, servererrs.ErrAllUserBusy.WrapMsg("invitee is already in a call", "inviteeID", inviteeID)
+			}
+		}
+	}
+
 	if _, err := s.roomClient.CreateRoom(ctx, &livekit.CreateRoomRequest{Name: inv.RoomID}); err != nil {
 		log.ZError(ctx, "handleInvite", err, "LiveKit CreateRoom failed", "roomID", inv.RoomID, "req", req)
 		return nil, errs.WrapMsg(err, "LiveKit CreateRoom failed", "roomID", inv.RoomID)
@@ -200,6 +229,9 @@ func (s *rtcServer) handleInvite(ctx context.Context, req *rtc.SignalInviteReq, 
 		}
 	}
 
+	// Mark inviter and all reachable invitees as "connecting".
+	s.setCallStatusConnecting(ctx, inv, notAllowSet)
+
 	log.ZDebug(ctx, "handleInvite", "token", token, "roomID", inv.RoomID, "liveURL", s.config.RpcConfig.LiveKit.ExternalAddress)
 	return &rtc.SignalInviteResp{
 		Token:              token,
@@ -246,6 +278,42 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 		err := callInviteAllNotAllowedErr(blacklistedSet, globalBlockedSet, missingUserSet, inv.InviteeUserIDList)
 		log.ZError(ctx, "handleInviteInGroup", err, "all invitees not allowed", "inviteeUserIDList", inv.InviteeUserIDList, "req", req)
 		return nil, err
+	}
+
+	// 群聊忙线过滤：将当前处于通话中（CallStatusInCall）的被叫方加入 notAllowSet，
+	// 使其在后续通知循环与 setCallStatusConnecting 中被自动跳过。
+	// 若过滤后所有被叫均不可达，返回 ErrAllUserBusy。
+	var busyUserIDs []string
+	for _, inviteeID := range inv.InviteeUserIDList {
+		if _, notAllow := notAllowSet[inviteeID]; notAllow {
+			continue
+		}
+		callSt, err := s.callStatusCache.GetCallStatus(ctx, inviteeID)
+		if err != nil {
+			// key 不存在或查询失败均视为"不忙"，继续正常邀请流程。
+			log.ZDebug(ctx, "handleInviteInGroup: GetCallStatus for invitee", err, "inviteeID", inviteeID)
+			continue
+		}
+		if callSt.Status == model.CallStatusInCall {
+			busyUserIDs = append(busyUserIDs, inviteeID)
+			notAllowSet[inviteeID] = struct{}{}
+		}
+	}
+	if len(busyUserIDs) > 0 {
+		notAllowUserIDs = append(notAllowUserIDs, busyUserIDs...)
+		inv.NotAllowUserIDList = notAllowUserIDs
+		log.ZInfo(ctx, "handleInviteInGroup: filtered busy invitees", "busyUserIDs", busyUserIDs, "roomID", inv.RoomID)
+		// 如果所有被叫都忙线，终止呼叫。
+		reachable := 0
+		for _, uid := range inv.InviteeUserIDList {
+			if _, skip := notAllowSet[uid]; !skip {
+				reachable++
+			}
+		}
+		if reachable == 0 {
+			log.ZError(ctx, "handleInviteInGroup", servererrs.ErrAllUserBusy, "all invitees are in a call", "inviteeUserIDList", inv.InviteeUserIDList)
+			return nil, servererrs.ErrAllUserBusy.WrapMsg("all invitees are already in a call", "inviteeUserIDList", inv.InviteeUserIDList)
+		}
 	}
 
 	// 从主叫用户资料获取铃声 URL，注入到邀请s信息中，被叫方收到后播放主叫方铃声
@@ -313,6 +381,9 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 			return nil, errs.WrapMsg(err, "failed to notify invitee", "inviteeID", inviteeID)
 		}
 	}
+
+	// Mark inviter and all reachable invitees as "connecting".
+	s.setCallStatusConnecting(ctx, inv, notAllowSet)
 
 	// Notify every group member who was NOT explicitly invited so they can
 	// render the "call in progress" banner and optionally join.
@@ -493,6 +564,9 @@ func (s *rtcServer) handleAccept(ctx context.Context, req *rtc.SignalAcceptReq, 
 		log.ZWarn(ctx, "handleAccept: SetAcceptTime failed", err, "roomID", dbInv.RoomID)
 	}
 
+	// Transition inviter and acceptor to "in-call".
+	s.setCallStatusInCall(ctx, dbInv, req.UserID)
+
 	// For group calls, notify all members that the participant count has increased.
 	if dbInv.GroupID != "" {
 		lp, listErr := s.roomClient.ListParticipants(ctx, &livekit.ListParticipantsRequest{Room: dbInv.RoomID})
@@ -593,7 +667,9 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 
 		if joinedCount > 0 {
 			// At least one invitee has already joined; the call continues.
+			// Remove only the rejecter's call-status entry; others stay connected.
 			log.ZInfo(ctx, "handleReject: group call continues", "roomID", dbInv.RoomID, "joinedCount", joinedCount, "req", req, "dbInv", dbInv)
+			s.deleteCallStatusForUser(ctx, req.UserID, dbInv.RoomID)
 			return &rtc.SignalRejectResp{}, nil
 		}
 
@@ -607,7 +683,9 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 			return &rtc.SignalRejectResp{}, nil
 		}
 		if pending := pendingReachableInvitees(remainingInv.InviteeUserIDList, remainingInv.BusyLineUserIDList); len(pending) > 0 {
+			// Some invitees are still being rung; remove only the rejecter.
 			log.ZInfo(ctx, "handleReject: waiting for other invitees to respond", "roomID", dbInv.RoomID, "pendingInvitees", pending, "req", req)
+			s.deleteCallStatusForUser(ctx, req.UserID, dbInv.RoomID)
 			return &rtc.SignalRejectResp{}, nil
 		}
 
@@ -627,6 +705,9 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 
 		log.ZInfo(ctx, "handleReject", "req", req, "dbInv", dbInv)
 
+		// All invitees rejected — delete call-status for all participants.
+		s.deleteCallStatusForInvitation(ctx, dbInv)
+
 		go s.broadcastGroupCallStatusToNonInvited(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
 
 		log.ZDebug(ctx, "handleReject: sendGroupCallEndedNotification", "dbInv", dbInv, "claimed", claimed)
@@ -642,6 +723,9 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 		if err := s.db.DeleteInvitation(ctx, dbInv.RoomID); err != nil {
 			log.ZWarn(ctx, "DeleteInvitation failed", err, "roomID", dbInv.RoomID)
 		}
+
+		// Single chat rejected — remove both parties' status.
+		s.deleteCallStatusForInvitation(ctx, dbInv)
 
 		s.sendCallRecordChatMsg(ctx, dbInv, callStatusRejected, 0)
 
@@ -719,6 +803,9 @@ func (s *rtcServer) handleCancel(ctx context.Context, req *rtc.SignalCancelReq, 
 	} else if err := s.db.DeleteInvitation(ctx, dbInv.RoomID); err != nil {
 		log.ZWarn(ctx, "DeleteInvitation failed", err, "roomID", dbInv.RoomID)
 	}
+
+	// Cancel always terminates the call — remove status for all participants.
+	s.deleteCallStatusForInvitation(ctx, dbInv)
 
 	// For group calls, notify non-invited members that the call was cancelled.
 	if dbInv.GroupID != "" {
@@ -824,6 +911,8 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 				}
 			}
 			log.ZInfo(ctx, "handleHungUp: group call continues", "roomID", dbInv.RoomID, "remaining", remaining)
+			// Remove only this participant's call-status; others remain in-call.
+			s.deleteCallStatusForUser(ctx, req.UserID, dbInv.RoomID)
 			// Notify all members that the participant count and list have changed.
 			go s.sendGroupCallParticipantCountUpdatedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, participantUserIDs)
 			return &rtc.SignalHungUpResp{}, nil
@@ -843,6 +932,9 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 			log.ZWarn(ctx, "handleHungUp: DeleteInvitation failed", err, "roomID", dbInv.RoomID)
 		}
 	}
+
+	// Call is fully over — remove status for all participants.
+	s.deleteCallStatusForInvitation(ctx, dbInv)
 
 	// Notify non-invited group members that the call has ended so they dismiss the banner.
 	if dbInv.GroupID != "" {
@@ -1840,6 +1932,7 @@ const (
 	callStatusCancelled    = "cancelled"
 	callStatusRejected     = "rejected"
 	callStatusNotConnected = "not_connected"
+	callStatusBusy         = "busy"
 )
 
 // callRecordData is the JSON payload embedded in a Custom (110) chat message
@@ -1888,6 +1981,8 @@ func callRecordDescription(mediaType, status string, duration int64) string {
 		return prefix + " 已取消"
 	case callStatusRejected:
 		return prefix + " 已拒绝"
+	case callStatusBusy:
+		return prefix + " 忙线"
 	default:
 		return prefix + " 未接通"
 	}
@@ -2023,6 +2118,9 @@ func (s *rtcServer) handleTimeout(ctx context.Context, req *rtc.SignalTimeoutReq
 			log.ZWarn(ctx, "handleTimeout: TryDeleteInvitation failed", claimErr, "roomID", dbInv.RoomID)
 		}
 
+		// Timeout ended the group call — remove all participants' statuses.
+		s.deleteCallStatusForInvitation(ctx, dbInv)
+
 		go s.broadcastGroupCallStatusToNonInvited(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
 
 		log.ZDebug(ctx, "handleTimeout: sendGroupCallEndedNotification", "dbInv", dbInv, "claimed", claimed)
@@ -2037,6 +2135,9 @@ func (s *rtcServer) handleTimeout(ctx context.Context, req *rtc.SignalTimeoutReq
 		if err := s.db.DeleteInvitation(ctx, dbInv.RoomID); err != nil {
 			log.ZWarn(ctx, "handleTimeout: DeleteInvitation failed", err, "roomID", dbInv.RoomID)
 		}
+
+		// Single chat timed out — remove both parties' statuses.
+		s.deleteCallStatusForInvitation(ctx, dbInv)
 
 		s.sendCallRecordChatMsg(ctx, dbInv, callStatusNotConnected, 0)
 
@@ -2094,4 +2195,113 @@ func pendingReachableInvitees(inviteeUserIDList, busyLineUserIDList []string) []
 		pending = append(pending, uid)
 	}
 	return pending
+}
+
+// ─── Call-status helpers ──────────────────────────────────────────────────────
+//
+// These helpers translate invitation data into UserCallStatus entries and write
+// them to Redis.  All errors are non-fatal: a failure to update the call-status
+// cache must never break the signalling flow itself, so callers log and continue.
+
+// setCallStatusConnecting marks the inviter and all (allowed) invitees as
+// "connecting" in Redis.  It is called immediately after an invitation is
+// persisted and the invite notifications have been dispatched.
+// inv is the proto InvitationInfo, which is available in handleInvite /
+// handleInviteInGroup before the DB model is materialised.
+func (s *rtcServer) setCallStatusConnecting(ctx context.Context, inv *rtc.InvitationInfo, notAllowSet map[string]struct{}) {
+	sessionType := int32(constant.SingleChatType)
+	if inv.GroupID != "" {
+		sessionType = int32(constant.ReadGroupChatType)
+	}
+	now := time.Now().UnixMilli()
+
+	// Collect the invitees who actually received a notification.
+	reachable := make([]string, 0, len(inv.InviteeUserIDList))
+	for _, uid := range inv.InviteeUserIDList {
+		if _, skip := notAllowSet[uid]; !skip {
+			reachable = append(reachable, uid)
+		}
+	}
+
+	// Inviter's status: peers = reachable invitees.
+	inviterStatus := &model.UserCallStatus{
+		Status:      model.CallStatusConnecting,
+		RoomID:      inv.RoomID,
+		MediaType:   inv.MediaType,
+		SessionType: sessionType,
+		GroupID:     inv.GroupID,
+		PeerIDs:     reachable,
+		UpdatedAt:   now,
+	}
+	if err := s.callStatusCache.SetCallStatus(ctx, inv.InviterUserID, inviterStatus); err != nil {
+		log.ZWarn(ctx, "setCallStatusConnecting: set inviter status failed", err, "inviterID", inv.InviterUserID, "roomID", inv.RoomID)
+	}
+
+	// Each reachable invitee's status: peers = [inviter].
+	for _, uid := range reachable {
+		inviteeStatus := &model.UserCallStatus{
+			Status:      model.CallStatusConnecting,
+			RoomID:      inv.RoomID,
+			MediaType:   inv.MediaType,
+			SessionType: sessionType,
+			GroupID:     inv.GroupID,
+			PeerIDs:     []string{inv.InviterUserID},
+			UpdatedAt:   now,
+		}
+		if err := s.callStatusCache.SetCallStatus(ctx, uid, inviteeStatus); err != nil {
+			log.ZWarn(ctx, "setCallStatusConnecting: set invitee status failed", err, "inviteeID", uid, "roomID", inv.RoomID)
+		}
+	}
+}
+
+// setCallStatusInCall transitions the inviter and the accepting invitee to
+// "in-call".  For group calls the other invitees remain "connecting" until
+// they either accept or the call ends.
+func (s *rtcServer) setCallStatusInCall(ctx context.Context, inv *model.SignalInvitation, acceptorID string) {
+	sessionType := int32(constant.SingleChatType)
+	if inv.GroupID != "" {
+		sessionType = int32(constant.ReadGroupChatType)
+	}
+	now := time.Now().UnixMilli()
+
+	for _, uid := range []string{inv.InviterUserID, acceptorID} {
+		peers := make([]string, 0, 2)
+		if uid == inv.InviterUserID {
+			peers = append(peers, acceptorID)
+		} else {
+			peers = append(peers, inv.InviterUserID)
+		}
+		st := &model.UserCallStatus{
+			Status:      model.CallStatusInCall,
+			RoomID:      inv.RoomID,
+			MediaType:   inv.MediaType,
+			SessionType: sessionType,
+			GroupID:     inv.GroupID,
+			PeerIDs:     peers,
+			UpdatedAt:   now,
+		}
+		if err := s.callStatusCache.SetCallStatus(ctx, uid, st); err != nil {
+			log.ZWarn(ctx, "setCallStatusInCall: set status failed", err, "userID", uid, "roomID", inv.RoomID)
+		}
+	}
+}
+
+// deleteCallStatusForInvitation removes call-status entries for every
+// participant in a completed (or abandoned) invitation.
+// It is used on cancel / reject (all rejected) / hang-up (last participant) / timeout.
+func (s *rtcServer) deleteCallStatusForInvitation(ctx context.Context, inv *model.SignalInvitation) {
+	all := make([]string, 0, len(inv.InviteeUserIDList)+1)
+	all = append(all, inv.InviterUserID)
+	all = append(all, inv.InviteeUserIDList...)
+	if err := s.callStatusCache.DeleteCallStatus(ctx, all...); err != nil {
+		log.ZWarn(ctx, "deleteCallStatusForInvitation: delete failed", err, "roomID", inv.RoomID, "userIDs", all)
+	}
+}
+
+// deleteCallStatusForUser removes the call-status entry for a single user who
+// left a group call while other participants remain.
+func (s *rtcServer) deleteCallStatusForUser(ctx context.Context, userID, roomID string) {
+	if err := s.callStatusCache.DeleteCallStatus(ctx, userID); err != nil {
+		log.ZWarn(ctx, "deleteCallStatusForUser: delete failed", err, "userID", userID, "roomID", roomID)
+	}
 }
