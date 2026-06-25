@@ -446,17 +446,17 @@ func (s *rtcServer) handleAccept(ctx context.Context, req *rtc.SignalAcceptReq, 
 	// 从 DB 获取权威邀请数据，验证邀请存在且 userID 在被邀请人列表中
 	dbInv, err := s.db.GetInvitationByRoomID(ctx, req.Invitation.RoomID)
 	if err != nil {
-		log.ZWarn(ctx, "handleAccept: GetInvitationByRoomID failed", err, "req", req)
+		log.ZWarn(ctx, "lintao handleAccept: GetInvitationByRoomID failed", err, "req", req)
 		return nil, errs.WrapMsg(err, "invitation not found or expired", "roomID", req.Invitation.RoomID)
 	}
 	if !datautil.Contain(req.UserID, dbInv.InviteeUserIDList...) {
-		log.ZWarn(ctx, "handleAccept: user not in invitee list", errs.ErrNoPermission.WrapMsg("user not in invitee list"), "req", req)
+		log.ZWarn(ctx, "lintao handleAccept: user not in invitee list", errs.ErrNoPermission.WrapMsg("user not in invitee list"), "req", req)
 		return nil, errs.ErrNoPermission.WrapMsg("user not in invitee list", "userID", req.UserID)
 	}
 
 	token, err := s.genToken(dbInv.RoomID, req.UserID)
 	if err != nil {
-		log.ZWarn(ctx, "handleAccept: genToken failed", err, "req", req)
+		log.ZWarn(ctx, "lintao handleAccept: genToken failed", err, "req", req)
 		return nil, err
 	}
 
@@ -467,16 +467,16 @@ func (s *rtcServer) handleAccept(ctx context.Context, req *rtc.SignalAcceptReq, 
 
 	content, err := marshalSignalReq(signalReq)
 	if err != nil {
-		log.ZWarn(ctx, "handleAccept: marshalSignalReq failed", err, "req", req)
+		log.ZWarn(ctx, "lintao handleAccept: marshalSignalReq failed", err, "req", req)
 		return nil, err
 	}
 
 	if err := s.sendSignalingNotification(ctx, req.UserID, dbInv.InviterUserID, sessionType, dbInv.GroupID, req.OfflinePushInfo, content); err != nil {
-		log.ZWarn(ctx, "sendSignalingNotification accept to inviter failed", err, "inviterID", dbInv.InviterUserID)
+		log.ZWarn(ctx, "lintao handleAccept: sendSignalingNotification accept to inviter failed", err, "inviterID", dbInv.InviterUserID)
 	}
 
 	if err := s.db.SetAcceptTime(ctx, dbInv.RoomID, time.Now().UnixMilli()); err != nil {
-		log.ZWarn(ctx, "handleAccept: SetAcceptTime failed", err, "roomID", dbInv.RoomID)
+		log.ZWarn(ctx, "lintao handleAccept: SetAcceptTime failed", err, "roomID", dbInv.RoomID)
 	}
 
 	// For group calls, notify all members that the participant count has increased.
@@ -489,7 +489,7 @@ func (s *rtcServer) handleAccept(ctx context.Context, req *rtc.SignalAcceptReq, 
 				participantUserIDs = append(participantUserIDs, p.GetIdentity())
 			}
 		} else {
-			log.ZWarn(ctx, "handleAccept: ListParticipants failed (falling back to inviter only)", listErr, "roomID", dbInv.RoomID)
+			log.ZWarn(ctx, "lintao handleAccept: ListParticipants failed (falling back to inviter only)", listErr, "roomID", dbInv.RoomID)
 			// Fallback: at minimum the inviter is in the call.
 			participantUserIDs = append(participantUserIDs, dbInv.InviterUserID)
 		}
