@@ -441,6 +441,8 @@ func (s *rtcServer) handleAccept(ctx context.Context, req *rtc.SignalAcceptReq, 
 		return nil, errs.ErrArgs.WrapMsg("invitation is nil")
 	}
 
+	log.ZDebug(ctx, "lintao handleAccept: start", "req", req)
+
 	// 从 DB 获取权威邀请数据，验证邀请存在且 userID 在被邀请人列表中
 	dbInv, err := s.db.GetInvitationByRoomID(ctx, req.Invitation.RoomID)
 	if err != nil {
@@ -454,6 +456,7 @@ func (s *rtcServer) handleAccept(ctx context.Context, req *rtc.SignalAcceptReq, 
 
 	token, err := s.genToken(dbInv.RoomID, req.UserID)
 	if err != nil {
+		log.ZWarn(ctx, "handleAccept: genToken failed", err, "req", req)
 		return nil, err
 	}
 
@@ -464,6 +467,7 @@ func (s *rtcServer) handleAccept(ctx context.Context, req *rtc.SignalAcceptReq, 
 
 	content, err := marshalSignalReq(signalReq)
 	if err != nil {
+		log.ZWarn(ctx, "handleAccept: marshalSignalReq failed", err, "req", req)
 		return nil, err
 	}
 
