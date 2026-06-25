@@ -119,7 +119,7 @@ func (s *rtcServer) handleInvite(ctx context.Context, req *rtc.SignalInviteReq, 
 		return nil, err
 	}
 
-	notAllowUserIDs, notAllowSet, blacklistedSet, globalBlockedSet, err := s.filterNotAllowedInvitees(ctx, req.UserID, inv.InviteeUserIDList, false)
+	notAllowUserIDs, notAllowSet, blacklistedSet, globalBlockedSet, missingUserSet, err := s.filterNotAllowedInvitees(ctx, req.UserID, inv.InviteeUserIDList, false)
 	if err != nil {
 		log.ZError(ctx, "handleInvite", err, "filterNotAllowedInvitees failed", "req", req)
 		return nil, err
@@ -127,7 +127,7 @@ func (s *rtcServer) handleInvite(ctx context.Context, req *rtc.SignalInviteReq, 
 	inv.NotAllowUserIDList = notAllowUserIDs
 
 	if len(notAllowUserIDs) == len(inv.InviteeUserIDList) {
-		return nil, callInviteAllNotAllowedErr(blacklistedSet, globalBlockedSet, inv.InviteeUserIDList)
+		return nil, callInviteAllNotAllowedErr(blacklistedSet, globalBlockedSet, missingUserSet, inv.InviteeUserIDList)
 	}
 
 	// 从主叫用户资料获取铃声 URL，注入到邀请信息中，被叫方收到后播放主叫方铃声
@@ -235,7 +235,7 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 		return nil, err
 	}
 
-	notAllowUserIDs, notAllowSet, blacklistedSet, globalBlockedSet, err := s.filterNotAllowedInvitees(ctx, req.UserID, inv.InviteeUserIDList, true)
+	notAllowUserIDs, notAllowSet, blacklistedSet, globalBlockedSet, missingUserSet, err := s.filterNotAllowedInvitees(ctx, req.UserID, inv.InviteeUserIDList, true)
 	if err != nil {
 		log.ZError(ctx, "handleInviteInGroup", err, "filterNotAllowedInvitees failed", "req", req)
 		return nil, err
@@ -243,7 +243,7 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 	inv.NotAllowUserIDList = notAllowUserIDs
 
 	if len(notAllowUserIDs) == len(inv.InviteeUserIDList) {
-		err := callInviteAllNotAllowedErr(blacklistedSet, globalBlockedSet, inv.InviteeUserIDList)
+		err := callInviteAllNotAllowedErr(blacklistedSet, globalBlockedSet, missingUserSet, inv.InviteeUserIDList)
 		log.ZError(ctx, "handleInviteInGroup", err, "all invitees not allowed", "inviteeUserIDList", inv.InviteeUserIDList, "req", req)
 		return nil, err
 	}
@@ -337,16 +337,17 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 
 // filterNotAllowedInvitees 过滤不可邀请的被叫用户。
 // skipCallAcceptSetting 为 true 时跳过 call_accept_setting 校验（群聊通话不受该设置影响）。
-func (s *rtcServer) filterNotAllowedInvitees(ctx context.Context, inviterID string, inviteeIDs []string, skipCallAcceptSetting bool) ([]string, map[string]struct{}, map[string]struct{}, map[string]struct{}, error) {
+func (s *rtcServer) filterNotAllowedInvitees(ctx context.Context, inviterID string, inviteeIDs []string, skipCallAcceptSetting bool) ([]string, map[string]struct{}, map[string]struct{}, map[string]struct{}, map[string]struct{}, error) {
 	notAllowUserIDs := make([]string, 0)
 	notAllowSet := make(map[string]struct{})
 	blacklistedSet := make(map[string]struct{})
 	globalBlockedSet := make(map[string]struct{})
+	missingUserSet := make(map[string]struct{})
 
 	globalBlockedUsers, err := s.globalBlackDB.FindBlocked(ctx, inviteeIDs)
 	if err != nil {
 		log.ZError(ctx, "filterNotAllowedInvitees: FindBlocked failed", err, "inviteeIDs", inviteeIDs)
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 	for _, b := range globalBlockedUsers {
 		globalBlockedSet[b.UserID] = struct{}{}
@@ -358,10 +359,21 @@ func (s *rtcServer) filterNotAllowedInvitees(ctx context.Context, inviterID stri
 			notAllowSet[inviteeID] = struct{}{}
 			continue
 		}
+		userInfo, err := s.userClient.GetUserInfo(ctx, inviteeID)
+		if err != nil {
+			if errs.ErrRecordNotFound.Is(err) {
+				notAllowUserIDs = append(notAllowUserIDs, inviteeID)
+				notAllowSet[inviteeID] = struct{}{}
+				missingUserSet[inviteeID] = struct{}{}
+				continue
+			}
+			log.ZError(ctx, "filterNotAllowedInvitees: GetUserInfo failed", err, "inviteeID", inviteeID)
+			return nil, nil, nil, nil, nil, err
+		}
 		blocked, err := s.relationClient.IsBlack(ctx, inviterID, inviteeID)
 		if err != nil {
 			log.ZError(ctx, "filterNotAllowedInvitees: IsBlack failed", err, "inviterID", inviterID, "inviteeID", inviteeID)
-			return nil, nil, nil, nil, err
+			return nil, nil, nil, nil, nil, err
 		}
 		if blocked {
 			notAllowUserIDs = append(notAllowUserIDs, inviteeID)
@@ -370,10 +382,10 @@ func (s *rtcServer) filterNotAllowedInvitees(ctx context.Context, inviterID stri
 			continue
 		}
 		if !skipCallAcceptSetting {
-			allowed, err := s.isCallAllowed(ctx, inviterID, inviteeID)
+			allowed, err := s.isCallAllowedWithUserInfo(ctx, inviterID, userInfo)
 			if err != nil {
 				log.ZError(ctx, "filterNotAllowedInvitees: isCallAllowed failed", err, "inviteeID", inviteeID)
-				return nil, nil, nil, nil, err
+				return nil, nil, nil, nil, nil, err
 			}
 			if !allowed {
 				notAllowUserIDs = append(notAllowUserIDs, inviteeID)
@@ -381,7 +393,7 @@ func (s *rtcServer) filterNotAllowedInvitees(ctx context.Context, inviterID stri
 			}
 		}
 	}
-	return notAllowUserIDs, notAllowSet, blacklistedSet, globalBlockedSet, nil
+	return notAllowUserIDs, notAllowSet, blacklistedSet, globalBlockedSet, missingUserSet, nil
 }
 
 // verifyInviterGlobalStatus 校验主叫方全局账号状态，冻结/全局黑名单用户不可发起通话。
@@ -400,7 +412,10 @@ func (s *rtcServer) verifyInviterGlobalStatus(ctx context.Context, inviterID str
 	return nil
 }
 
-func callInviteAllNotAllowedErr(blacklistedSet, globalBlockedSet map[string]struct{}, inviteeIDs []string) error {
+func callInviteAllNotAllowedErr(blacklistedSet, globalBlockedSet, missingUserSet map[string]struct{}, inviteeIDs []string) error {
+	if len(missingUserSet) == len(inviteeIDs) {
+		return servererrs.ErrUserIDNotFound.WrapMsg("invitee user not found", "inviteeUserIDList", inviteeIDs)
+	}
 	if len(blacklistedSet) > 0 {
 		return servererrs.ErrBlockedByPeer.Wrap()
 	}
@@ -410,23 +425,22 @@ func callInviteAllNotAllowedErr(blacklistedSet, globalBlockedSet map[string]stru
 	return errs.ErrNoPermission.WrapMsg("all invitees do not accept calls from you", "inviteeUserIDList", inviteeIDs)
 }
 
-// isCallAllowed 判断 inviterID 是否被允许向 inviteeID 发起单聊音视频通话。
+// isCallAllowedWithUserInfo 判断 inviterID 是否被允许向 inviteeID 发起单聊音视频通话。
 // 群聊通话不受 call_accept_setting 影响，不调用本方法。
-// 好友黑名单与全局黑名单校验在 filterNotAllowedInvitees 中优先执行。
+// 好友黑名单、全局黑名单与被叫用户存在性校验在 filterNotAllowedInvitees 中优先执行。
 // 规则：
 //   - CallAcceptSettingPublic(0)  → 所有人均可
 //   - CallAcceptSettingFriends(1) → 仅当 inviterID 在 inviteeID 好友列表中
 //   - CallAcceptSettingNobody(2)  → 任何人均不可
-func (s *rtcServer) isCallAllowed(ctx context.Context, inviterID, inviteeID string) (bool, error) {
-	userInfo, err := s.userClient.GetUserInfo(ctx, inviteeID)
-	if err != nil {
-		return false, err
+func (s *rtcServer) isCallAllowedWithUserInfo(ctx context.Context, inviterID string, userInfo *sdkws.UserInfo) (bool, error) {
+	if userInfo == nil {
+		return false, nil
 	}
 	switch userInfo.CallAcceptSetting {
 	case model.CallAcceptSettingNobody:
 		return false, nil
 	case model.CallAcceptSettingFriends:
-		isFriend, err := s.relationClient.IsFriend(ctx, inviteeID, inviterID)
+		isFriend, err := s.relationClient.IsFriend(ctx, userInfo.UserID, inviterID)
 		if err != nil {
 			return false, err
 		}
