@@ -51,12 +51,22 @@ func (s *rtcServer) resolveInviteOfflinePushInfo(ctx context.Context, inv *rtc.I
 		return nil
 	}
 	if clientPush != nil && !cfg.OfflinePush.Enable {
+		push := cloneOfflinePushInfo(clientPush)
+		sessionType := inv.SessionType
+		if sessionType == 0 {
+			if inv.GroupID != "" {
+				sessionType = int32(constant.ReadGroupChatType)
+			} else {
+				sessionType = int32(constant.SingleChatType)
+			}
+		}
+		push.Ex = syncCallWakePushEx(inv, sessionType, push.Ex)
 		log.ZInfo(ctx, "lintao resolveInviteOfflinePushInfo: using client offlinePushInfo only (config disabled)",
 			"roomID", inv.RoomID,
 			"clientTitle", clientPush.Title,
 			"clientExLen", len(clientPush.Ex),
 		)
-		return clientPush
+		return push
 	}
 
 	push := cloneOfflinePushInfo(clientPush)
@@ -102,13 +112,10 @@ func (s *rtcServer) resolveInviteOfflinePushInfo(ctx context.Context, inv *rtc.I
 			push.Desc = "你收到一条" + mediaLabel + "通话邀请"
 		}
 	}
-	if push.Ex == "" {
-		if cfg.OfflinePush.Ext != "" {
-			push.Ex = cfg.OfflinePush.Ext
-		} else {
-			push.Ex = buildCallWakePushEx(inv, sessionType)
-		}
+	if push.Ex == "" && cfg.OfflinePush.Ext != "" {
+		push.Ex = cfg.OfflinePush.Ext
 	}
+	push.Ex = syncCallWakePushEx(inv, sessionType, push.Ex)
 	if push.IOSPushSound == "" {
 		push.IOSPushSound = callIOSPushSound
 	}
@@ -176,6 +183,23 @@ func buildCallWakePushEx(inv *rtc.InvitationInfo, sessionType int32) string {
 	if inv.GroupID != "" {
 		ex.GroupID = inv.GroupID
 	}
+	return jsonutil.StructToJsonString(ex)
+}
+
+// syncCallWakePushEx ensures wake-push ex carries the server-authoritative roomID.
+// Client-provided ex fields are preserved when parseable; invalid ex falls back to server build.
+func syncCallWakePushEx(inv *rtc.InvitationInfo, sessionType int32, exJSON string) string {
+	if inv == nil || inv.RoomID == "" {
+		return exJSON
+	}
+	if exJSON == "" {
+		return buildCallWakePushEx(inv, sessionType)
+	}
+	var ex callWakePushEx
+	if err := jsonutil.JsonStringToStruct(exJSON, &ex); err != nil {
+		return buildCallWakePushEx(inv, sessionType)
+	}
+	ex.RoomID = inv.RoomID
 	return jsonutil.StructToJsonString(ex)
 }
 
