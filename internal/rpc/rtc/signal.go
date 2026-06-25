@@ -436,6 +436,7 @@ func (s *rtcServer) handleAccept(ctx context.Context, req *rtc.SignalAcceptReq, 
 	// 从 DB 获取权威邀请数据，验证邀请存在且 userID 在被邀请人列表中
 	dbInv, err := s.db.GetInvitationByRoomID(ctx, req.Invitation.RoomID)
 	if err != nil {
+		log.ZWarn(ctx, "handleAccept: GetInvitationByRoomID failed", err, "req", req)
 		return nil, errs.WrapMsg(err, "invitation not found or expired", "roomID", req.Invitation.RoomID)
 	}
 	if !datautil.Contain(req.UserID, dbInv.InviteeUserIDList...) {
@@ -1922,6 +1923,7 @@ func (s *rtcServer) handleTimeout(ctx context.Context, req *rtc.SignalTimeoutReq
 
 	dbInv, err := s.db.GetInvitationByRoomID(ctx, req.Invitation.RoomID)
 	if err != nil {
+		log.ZWarn(ctx, "handleTimeout: GetInvitationByRoomID failed", err, "roomID", req.Invitation.RoomID)
 		return nil, errs.WrapMsg(err, "invitation not found or expired", "roomID", req.Invitation.RoomID)
 	}
 	if req.UserID != dbInv.InviterUserID {
