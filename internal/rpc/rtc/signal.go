@@ -505,6 +505,8 @@ func (s *rtcServer) handleAccept(ctx context.Context, req *rtc.SignalAcceptReq, 
 	//   - 被叫拒绝：handleReject → TryDeleteInvitation
 	//   - 超时未接：handleTimeout → TryDeleteInvitation
 
+	log.ZDebug(ctx, "lintao handleAccept: end", "req", req)
+
 	return &rtc.SignalAcceptResp{
 		Token:   token,
 		RoomID:  dbInv.RoomID,
