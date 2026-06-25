@@ -21,6 +21,7 @@ const (
 	signalCallActionCancel  = "cancel"
 	signalCallActionReject  = "reject"
 	signalCallActionTimeout = "timeout"
+	signalCallActionHungUp  = "hungup"
 )
 
 type callWakePushEx struct {
