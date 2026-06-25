@@ -609,7 +609,7 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 			log.ZWarn(ctx, "handleReject: TryDeleteInvitation failed", claimErr, "roomID", dbInv.RoomID, "req", req, "dbInv", dbInv)
 		}
 
-		s.sendCallRecordChatMsg(ctx, dbInv, callStatusRejected, 0)
+		//s.sendCallRecordChatMsg(ctx, dbInv, callStatusRejected, 0)
 
 		log.ZInfo(ctx, "handleReject", "req", req, "dbInv", dbInv)
 
@@ -715,9 +715,9 @@ func (s *rtcServer) handleCancel(ctx context.Context, req *rtc.SignalCancelReq, 
 		if groupCallEndedClaimed {
 			s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, groupCallDurationFromInvitation(dbInv))
 		}
+	} else {
+		s.sendCallRecordChatMsg(ctx, dbInv, callStatusCancelled, 0)
 	}
-
-	s.sendCallRecordChatMsg(ctx, dbInv, callStatusCancelled, 0)
 
 	log.ZInfo(ctx, "handleCancel", "dbInv", dbInv)
 
@@ -1997,11 +1997,6 @@ func (s *rtcServer) handleTimeout(ctx context.Context, req *rtc.SignalTimeoutReq
 			return &rtc.SignalTimeoutResp{}, nil
 		}
 
-		if pending := pendingReachableInvitees(dbInv.InviteeUserIDList, dbInv.BusyLineUserIDList); len(pending) > 0 {
-			log.ZInfo(ctx, "handleTimeout: waiting for other invitees to respond", "roomID", dbInv.RoomID, "pendingInvitees", pending)
-			return &rtc.SignalTimeoutResp{}, nil
-		}
-
 		if _, err := s.roomClient.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: dbInv.RoomID}); err != nil {
 			log.ZWarn(ctx, "handleTimeout: LiveKit DeleteRoom failed", err, "roomID", dbInv.RoomID)
 		}
@@ -2025,9 +2020,10 @@ func (s *rtcServer) handleTimeout(ctx context.Context, req *rtc.SignalTimeoutReq
 		if err := s.db.DeleteInvitation(ctx, dbInv.RoomID); err != nil {
 			log.ZWarn(ctx, "handleTimeout: DeleteInvitation failed", err, "roomID", dbInv.RoomID)
 		}
-	}
 
-	s.sendCallRecordChatMsg(ctx, dbInv, callStatusNotConnected, 0)
+		s.sendCallRecordChatMsg(ctx, dbInv, callStatusNotConnected, 0)
+
+	}
 
 	log.ZInfo(ctx, "handleTimeout", "dbInv", dbInv)
 
