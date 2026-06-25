@@ -172,21 +172,12 @@ func callMediaLabel(mediaType string) string {
 }
 
 func buildCallWakePushEx(inv *rtc.InvitationInfo, sessionType int32) string {
-	ex := callWakePushEx{
-		SchemaVersion: callWakePushSchemaVersion,
-		PushType:      callWakePushType,
-		RoomID:        inv.RoomID,
-		SessionType:   sessionType,
-		MediaType:     inv.MediaType,
-		SourceID:      inv.InviterUserID,
-	}
-	if inv.GroupID != "" {
-		ex.GroupID = inv.GroupID
-	}
+	ex := callWakePushEx{}
+	applyServerCallWakePushEx(&ex, inv, sessionType)
 	return jsonutil.StructToJsonString(ex)
 }
 
-// syncCallWakePushEx ensures wake-push ex carries the server-authoritative roomID.
+// syncCallWakePushEx merges server-authoritative invite fields into wake-push ex.
 // Client-provided ex fields are preserved when parseable; invalid ex falls back to server build.
 func syncCallWakePushEx(inv *rtc.InvitationInfo, sessionType int32, exJSON string) string {
 	if inv == nil || inv.RoomID == "" {
@@ -199,8 +190,33 @@ func syncCallWakePushEx(inv *rtc.InvitationInfo, sessionType int32, exJSON strin
 	if err := jsonutil.JsonStringToStruct(exJSON, &ex); err != nil {
 		return buildCallWakePushEx(inv, sessionType)
 	}
-	ex.RoomID = inv.RoomID
+	applyServerCallWakePushEx(&ex, inv, sessionType)
 	return jsonutil.StructToJsonString(ex)
+}
+
+func applyServerCallWakePushEx(ex *callWakePushEx, inv *rtc.InvitationInfo, sessionType int32) {
+	if ex == nil || inv == nil {
+		return
+	}
+	ex.RoomID = inv.RoomID
+
+	ex.GroupID = inv.GroupID
+
+	if ex.SessionType == 0 {
+		ex.SessionType = sessionType
+	}
+	if ex.PushType == "" {
+		ex.PushType = callWakePushType
+	}
+	if ex.SchemaVersion == 0 {
+		ex.SchemaVersion = callWakePushSchemaVersion
+	}
+	if ex.MediaType == "" {
+		ex.MediaType = inv.MediaType
+	}
+	if ex.SourceID == "" {
+		ex.SourceID = inv.InviterUserID
+	}
 }
 
 func cloneOfflinePushInfo(src *sdkws.OfflinePushInfo) *sdkws.OfflinePushInfo {

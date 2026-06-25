@@ -6,6 +6,7 @@ import (
 	"github.com/openimsdk/open-im-server/v3/pkg/common/config"
 	"github.com/openimsdk/protocol/constant"
 	"github.com/openimsdk/protocol/rtc"
+	"github.com/openimsdk/protocol/sdkws"
 	"github.com/openimsdk/tools/utils/jsonutil"
 )
 
@@ -70,6 +71,61 @@ func TestResolveInviteOfflinePushInfoUsesConfigDefaults(t *testing.T) {
 	}
 	if push.Ex == "" {
 		t.Fatal("expected wake push ex")
+	}
+}
+
+func TestSyncCallWakePushExAddsGroupID(t *testing.T) {
+	clientEx := `{"pushType":"call","roomID":"client-room","sessionType":3}`
+	got := syncCallWakePushEx(&rtc.InvitationInfo{
+		RoomID:        "room-server",
+		MediaType:     "video",
+		InviterUserID: "caller",
+		GroupID:       "g1",
+	}, int32(constant.ReadGroupChatType), clientEx)
+
+	var ex callWakePushEx
+	if err := jsonutil.JsonStringToStruct(got, &ex); err != nil {
+		t.Fatalf("unmarshal ex: %v", err)
+	}
+	if ex.RoomID != "room-server" {
+		t.Fatalf("roomID=%q", ex.RoomID)
+	}
+	if ex.GroupID != "g1" {
+		t.Fatalf("groupID=%q", ex.GroupID)
+	}
+}
+
+func TestResolveInviteOfflinePushInfoAddsGroupID(t *testing.T) {
+	s := &rtcServer{
+		config: &Config{
+			NotificationConfig: config.Notification{
+				SignalingInvite: config.NotificationConfig{
+					OfflinePush: config.OfflinePushConfig{Enable: true},
+				},
+			},
+		},
+	}
+	inv := &rtc.InvitationInfo{
+		RoomID:        "room-server",
+		InviterUserID: "caller",
+		MediaType:     "video",
+		GroupID:       "g1",
+		SessionType:   int32(constant.ReadGroupChatType),
+	}
+	push := s.resolveInviteOfflinePushInfo(t.Context(), inv, &sdkws.OfflinePushInfo{
+		Title: "群通话邀请",
+		Desc:  "邀请你加入群视频通话",
+		Ex:    `{"pushType":"call","roomID":"client-room","sessionType":3}`,
+	})
+	if push == nil {
+		t.Fatal("expected offline push info")
+	}
+	var ex callWakePushEx
+	if err := jsonutil.JsonStringToStruct(push.Ex, &ex); err != nil {
+		t.Fatalf("unmarshal ex: %v", err)
+	}
+	if ex.GroupID != "g1" {
+		t.Fatalf("groupID=%q", ex.GroupID)
 	}
 }
 

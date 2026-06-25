@@ -98,6 +98,8 @@ func (s *rtcServer) SignalMessageAssemble(ctx context.Context, req *rtc.SignalMe
 
 // handleInvite processes a 1-to-1 call invitation.
 func (s *rtcServer) handleInvite(ctx context.Context, req *rtc.SignalInviteReq, signalReq *rtc.SignalReq) (*rtc.SignalInviteResp, error) {
+	log.ZDebug(ctx, "lintao handleInvite: start", "req", req)
+
 	inv := req.Invitation
 	if inv == nil {
 		log.ZError(ctx, "handleInvite", errs.ErrArgs, "r", "invitation is nil", "req", req)
@@ -211,6 +213,7 @@ func (s *rtcServer) handleInvite(ctx context.Context, req *rtc.SignalInviteReq, 
 
 // handleInviteInGroup processes a group call invitation.
 func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInviteInGroupReq, signalReq *rtc.SignalReq) (*rtc.SignalInviteInGroupResp, error) {
+
 	inv := req.Invitation
 	if inv == nil {
 		log.ZError(ctx, "handleInviteInGroup", errs.ErrArgs, "r", "invitation is nil", "req", req)
@@ -224,6 +227,8 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 	inv.RoomID = newRoomID()
 	inv.InviterUserID = req.UserID
 	inv.InitiateTime = time.Now().UnixMilli()
+
+	log.ZDebug(ctx, "lintao handleInviteInGroup: start", "req", req)
 
 	if err := s.verifyInviterGlobalStatus(ctx, req.UserID); err != nil {
 		log.ZError(ctx, "handleInviteInGroup", err, "verifyInviterGlobalStatus failed", "req", req)
@@ -300,6 +305,9 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 			log.ZInfo(ctx, "handleInviteInGroup: skipping invitee (call setting blocked)", "inviteeID", inviteeID)
 			continue
 		}
+
+		log.ZInfo(ctx, "lintao handleInviteInGroup: sending signaling notification to invitee", "req", req, "inviteOfflinePush", inviteOfflinePush)
+
 		if err := s.sendSignalingNotification(ctx, req.UserID, inviteeID, int32(constant.ReadGroupChatType), inv.GroupID, inviteOfflinePush, content); err != nil {
 			log.ZWarn(ctx, "handleInviteInGroup to group invitee failed", err, "inviteeID", inviteeID)
 			return nil, errs.WrapMsg(err, "failed to notify invitee", "inviteeID", inviteeID)
@@ -440,6 +448,7 @@ func (s *rtcServer) handleAccept(ctx context.Context, req *rtc.SignalAcceptReq, 
 		return nil, errs.WrapMsg(err, "invitation not found or expired", "roomID", req.Invitation.RoomID)
 	}
 	if !datautil.Contain(req.UserID, dbInv.InviteeUserIDList...) {
+		log.ZWarn(ctx, "handleAccept: user not in invitee list", errs.ErrNoPermission.WrapMsg("user not in invitee list"), "req", req)
 		return nil, errs.ErrNoPermission.WrapMsg("user not in invitee list", "userID", req.UserID)
 	}
 
