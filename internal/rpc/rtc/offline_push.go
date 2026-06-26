@@ -68,6 +68,13 @@ func (s *rtcServer) resolveSignalingOfflinePushInfo(ctx context.Context, inv *rt
 	if clientPush != nil && !cfg.OfflinePush.Enable {
 		push := cloneOfflinePushInfo(clientPush)
 		sessionType := invitationSessionType(inv)
+		if action != signalCallActionInvite {
+			mediaLabel := callMediaLabel(inv.MediaType)
+			actorName := s.resolveUserDisplayName(ctx, inv.GroupID, actorUserID)
+			push.Title = callActionDefaultTitle(action, mediaLabel)
+			push.Desc = callActionDefaultDesc(action, mediaLabel, actorName)
+			push.IOSPushSound = ""
+		}
 		push.Ex = syncCallWakePushEx(inv, sessionType, push.Ex)
 		log.ZInfo(ctx, "resolveSignalingOfflinePushInfo: using client offlinePushInfo only (config disabled)",
 			"action", action,
@@ -96,26 +103,33 @@ func (s *rtcServer) resolveSignalingOfflinePushInfo(ctx context.Context, inv *rt
 	sessionType := invitationSessionType(inv)
 	mediaLabel := callMediaLabel(inv.MediaType)
 
-	if push.Title == "" {
-		push.Title = cfg.OfflinePush.Title
-	}
-	if push.Title == "" {
-		push.Title = "SOK"
-	}
-	if push.Desc == "" {
-		push.Desc = cfg.OfflinePush.Desc
-	}
-	if push.Desc == "" {
+	if action != signalCallActionInvite {
 		actorName := s.resolveUserDisplayName(ctx, inv.GroupID, actorUserID)
+		push.Title = callActionDefaultTitle(action, mediaLabel)
 		push.Desc = callActionDefaultDesc(action, mediaLabel, actorName)
+		push.IOSPushSound = ""
+	} else {
+		if push.Title == "" {
+			push.Title = cfg.OfflinePush.Title
+		}
+		if push.Title == "" {
+			push.Title = "SOK"
+		}
+		if push.Desc == "" {
+			push.Desc = cfg.OfflinePush.Desc
+		}
+		if push.Desc == "" {
+			actorName := s.resolveUserDisplayName(ctx, inv.GroupID, actorUserID)
+			push.Desc = callActionDefaultDesc(action, mediaLabel, actorName)
+		}
+		if push.IOSPushSound == "" {
+			push.IOSPushSound = callIOSPushSound
+		}
 	}
 	if push.Ex == "" && cfg.OfflinePush.Ext != "" {
 		push.Ex = cfg.OfflinePush.Ext
 	}
 	push.Ex = syncCallWakePushEx(inv, sessionType, push.Ex)
-	if action == signalCallActionInvite && push.IOSPushSound == "" {
-		push.IOSPushSound = callIOSPushSound
-	}
 	log.ZInfo(ctx, "resolveSignalingOfflinePushInfo done",
 		"action", action,
 		"roomID", inv.RoomID,
@@ -144,6 +158,19 @@ func invitationSessionType(inv *rtc.InvitationInfo) int32 {
 		}
 	}
 	return sessionType
+}
+
+func callActionDefaultTitle(action, mediaLabel string) string {
+	switch action {
+	case signalCallActionCancel:
+		return "通话已取消"
+	case signalCallActionReject:
+		return "通话被拒绝"
+	case signalCallActionTimeout:
+		return "未接来电"
+	default:
+		return "通话邀请"
+	}
 }
 
 func callActionDefaultDesc(action, mediaLabel, actorName string) string {
@@ -193,7 +220,7 @@ func (s *rtcServer) resolveUserDisplayName(ctx context.Context, groupID, userID 
 	if userID == "" {
 		return ""
 	}
-	if groupID != "" {
+	if groupID != "" && s.groupClient != nil {
 		if member, err := s.groupClient.GetGroupMemberCache(ctx, groupID, userID); err == nil {
 			if name := strings.TrimSpace(member.Nickname); name != "" {
 				return name
@@ -202,13 +229,15 @@ func (s *rtcServer) resolveUserDisplayName(ctx context.Context, groupID, userID 
 			log.ZDebug(ctx, "resolveUserDisplayName: GetGroupMemberCache failed", "groupID", groupID, "userID", userID, "err", err)
 		}
 	}
-	if user, err := s.userClient.GetUserInfo(ctx, userID); err == nil {
-		if name := strings.TrimSpace(user.Nickname); name != "" {
-			return name
+	if s.userClient != nil {
+		if user, err := s.userClient.GetUserInfo(ctx, userID); err == nil {
+			if name := strings.TrimSpace(user.Nickname); name != "" {
+				return name
+			}
+			return user.UserID
 		}
-		return user.UserID
+		log.ZDebug(ctx, "resolveUserDisplayName: GetUserInfo failed, fallback userID", "userID", userID)
 	}
-	log.ZDebug(ctx, "resolveUserDisplayName: GetUserInfo failed, fallback userID", "userID", userID)
 	return userID
 }
 

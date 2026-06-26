@@ -879,11 +879,11 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 		log.ZWarn(ctx, "handleHungUp", err, "marshal signal req failed", "req", req, "dbInv", dbInv, "signalReq", signalReq)
 		return nil, err
 	}
-	// Unanswered 1v1 hang-up: wake offline callees (same as cancel) so they sync missed-call state.
+	// Unanswered 1v1 hang-up: wake offline callees with a missed-call push so they sync state.
 	invInfo := modelToInvitationInfo(dbInv)
 	var hungUpOfflinePush *sdkws.OfflinePushInfo
 	if dbInv.GroupID == "" && dbInv.AcceptTime <= 0 {
-		hungUpOfflinePush = s.resolveSignalingOfflinePushInfo(ctx, invInfo, offlinePushInfoFromInvitationModel(dbInv), signalCallActionCancel, req.UserID)
+		hungUpOfflinePush = s.resolveSignalingOfflinePushInfo(ctx, invInfo, offlinePushInfoFromInvitationModel(dbInv), signalCallActionTimeout, req.UserID)
 	}
 	for _, peerID := range hungUpPeerIDsFromDB(dbInv, req.UserID) {
 		if err := s.sendSignalingNotification(ctx, req.UserID, peerID, sessionType, dbInv.GroupID, hungUpOfflinePush, content); err != nil {

@@ -137,3 +137,49 @@ func TestCallMediaLabel(t *testing.T) {
 		t.Fatalf("audio label=%q", got)
 	}
 }
+
+func TestResolveSignalingOfflinePushInfoOverridesInviteCopyForMissedCall(t *testing.T) {
+	s := &rtcServer{
+		config: &Config{
+			NotificationConfig: config.Notification{
+				SignalingInvite: config.NotificationConfig{
+					OfflinePush: config.OfflinePushConfig{Enable: true},
+				},
+			},
+		},
+	}
+	inv := &rtc.InvitationInfo{
+		RoomID:        "room-abc",
+		InviterUserID: "caller",
+		MediaType:     "audio",
+		SessionType:   int32(constant.SingleChatType),
+	}
+	invitePush := &sdkws.OfflinePushInfo{
+		Title:        "通话邀请",
+		Desc:         "邀请你进行语音通话",
+		IOSPushSound: callIOSPushSound,
+		Ex:           `{"pushType":"call","roomID":"room-abc","sessionType":1}`,
+	}
+
+	timeoutPush := s.resolveSignalingOfflinePushInfo(t.Context(), inv, invitePush, signalCallActionTimeout, "caller")
+	if timeoutPush == nil {
+		t.Fatal("expected offline push info")
+	}
+	if timeoutPush.Title != "未接来电" {
+		t.Fatalf("title=%q, want 未接来电", timeoutPush.Title)
+	}
+	if timeoutPush.Desc != "未接caller的语音通话" {
+		t.Fatalf("desc=%q, want 未接caller的语音通话", timeoutPush.Desc)
+	}
+	if timeoutPush.IOSPushSound != "" {
+		t.Fatalf("ios sound=%q, want empty for missed call", timeoutPush.IOSPushSound)
+	}
+
+	cancelPush := s.resolveSignalingOfflinePushInfo(t.Context(), inv, invitePush, signalCallActionCancel, "caller")
+	if cancelPush.Title != "通话已取消" {
+		t.Fatalf("cancel title=%q", cancelPush.Title)
+	}
+	if cancelPush.Desc != "caller已取消语音通话" {
+		t.Fatalf("cancel desc=%q", cancelPush.Desc)
+	}
+}
