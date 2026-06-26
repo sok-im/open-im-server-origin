@@ -38,12 +38,13 @@ type callWakePushEx struct {
 
 // resolveInviteOfflinePushInfo builds OfflinePushInfo for call invites.
 // Server-side title/desc are authoritative; client-provided copy is replaced.
-func (s *rtcServer) resolveInviteOfflinePushInfo(ctx context.Context, inv *rtc.InvitationInfo, clientPush *sdkws.OfflinePushInfo) *sdkws.OfflinePushInfo {
-	return s.resolveSignalingOfflinePushInfo(ctx, inv, clientPush, signalCallActionInvite, inv.GetInviterUserID())
+// calleeUserID is the push recipient; when set, caller display name uses callee-side remark.
+func (s *rtcServer) resolveInviteOfflinePushInfo(ctx context.Context, inv *rtc.InvitationInfo, clientPush *sdkws.OfflinePushInfo, calleeUserID string) *sdkws.OfflinePushInfo {
+	return s.resolveSignalingOfflinePushInfo(ctx, inv, clientPush, signalCallActionInvite, inv.GetInviterUserID(), calleeUserID)
 }
 
 // resolveSignalingOfflinePushInfo builds offline push info for invite / cancel / reject / timeout signaling.
-func (s *rtcServer) resolveSignalingOfflinePushInfo(ctx context.Context, inv *rtc.InvitationInfo, clientPush *sdkws.OfflinePushInfo, action, actorUserID string) *sdkws.OfflinePushInfo {
+func (s *rtcServer) resolveSignalingOfflinePushInfo(ctx context.Context, inv *rtc.InvitationInfo, clientPush *sdkws.OfflinePushInfo, action, actorUserID, calleeUserID string) *sdkws.OfflinePushInfo {
 	if inv == nil {
 		log.ZWarn(ctx, "resolveSignalingOfflinePushInfo: invitation is nil", nil, "action", action, "clientPushProvided", clientPush != nil)
 		return clientPush
@@ -72,15 +73,15 @@ func (s *rtcServer) resolveSignalingOfflinePushInfo(ctx context.Context, inv *rt
 		sessionType := invitationSessionType(inv)
 		if action != signalCallActionInvite {
 			if sessionType == int32(constant.SingleChatType) {
-				s.applySingleChatMissedCallOfflinePushCopy(ctx, push, inv, actorUserID)
+				s.applySingleChatMissedCallOfflinePushCopy(ctx, push, inv, actorUserID, calleeUserID)
 			} else {
 				s.applyGroupChatMissedCallOfflinePushCopy(push)
 			}
 			push.IOSPushSound = ""
 		} else if sessionType == int32(constant.SingleChatType) {
-			s.applySingleChatInviteOfflinePushCopy(ctx, push, inv)
+			s.applySingleChatInviteOfflinePushCopy(ctx, push, inv, calleeUserID)
 		} else {
-			s.applyGroupChatInviteOfflinePushCopy(ctx, push, inv)
+			s.applyGroupChatInviteOfflinePushCopy(ctx, push, inv, calleeUserID)
 		}
 		push.Ex = syncCallWakePushEx(inv, sessionType, push.Ex)
 		log.ZInfo(ctx, "resolveSignalingOfflinePushInfo: using client offlinePushInfo only (config disabled)",
@@ -111,16 +112,16 @@ func (s *rtcServer) resolveSignalingOfflinePushInfo(ctx context.Context, inv *rt
 
 	if action != signalCallActionInvite {
 		if sessionType == int32(constant.SingleChatType) {
-			s.applySingleChatMissedCallOfflinePushCopy(ctx, push, inv, actorUserID)
+			s.applySingleChatMissedCallOfflinePushCopy(ctx, push, inv, actorUserID, calleeUserID)
 		} else {
 			s.applyGroupChatMissedCallOfflinePushCopy(push)
 		}
 		push.IOSPushSound = ""
 	} else {
 		if sessionType == int32(constant.SingleChatType) {
-			s.applySingleChatInviteOfflinePushCopy(ctx, push, inv)
+			s.applySingleChatInviteOfflinePushCopy(ctx, push, inv, calleeUserID)
 		} else {
-			s.applyGroupChatInviteOfflinePushCopy(ctx, push, inv)
+			s.applyGroupChatInviteOfflinePushCopy(ctx, push, inv, calleeUserID)
 		}
 		if push.IOSPushSound == "" {
 			push.IOSPushSound = callIOSPushSound
@@ -240,16 +241,48 @@ func (s *rtcServer) resolveGroupDisplayName(ctx context.Context, groupID string)
 }
 
 func (s *rtcServer) resolveSingleChatUserDisplayName(ctx context.Context, userID string) string {
-	if userID == "" {
+	return s.resolveSingleChatCallDisplayName(ctx, "", userID)
+}
+
+func (s *rtcServer) resolveSingleChatCallDisplayName(ctx context.Context, calleeUserID, callerUserID string) string {
+	if callerUserID == "" {
 		return ""
 	}
+	var user *sdkws.UserInfo
 	if s.userClient != nil {
-		if user, err := s.userClient.GetUserInfo(ctx, userID); err == nil {
-			return callPushActorNameFromUser(user)
+		if u, err := s.userClient.GetUserInfo(ctx, callerUserID); err == nil {
+			user = u
+		} else {
+			log.ZDebug(ctx, "resolveSingleChatCallDisplayName: GetUserInfo failed", "callerUserID", callerUserID, "err", err)
 		}
-		log.ZDebug(ctx, "resolveSingleChatUserDisplayName: GetUserInfo failed, fallback userID", "userID", userID)
 	}
-	return userID
+	remark := s.resolveFriendRemark(ctx, calleeUserID, callerUserID)
+	return callPushDisplayName(remark, user, callerUserID)
+}
+
+func (s *rtcServer) resolveFriendRemark(ctx context.Context, ownerUserID, friendUserID string) string {
+	if ownerUserID == "" || friendUserID == "" || s.relationClient == nil {
+		return ""
+	}
+	friends, err := s.relationClient.GetFriendsInfo(ctx, ownerUserID, []string{friendUserID})
+	if err != nil {
+		log.ZDebug(ctx, "resolveFriendRemark: GetFriendsInfo failed", "ownerUserID", ownerUserID, "friendUserID", friendUserID, "err", err)
+		return ""
+	}
+	if len(friends) == 0 || friends[0] == nil {
+		return ""
+	}
+	return friends[0].Remark
+}
+
+func callPushDisplayName(remark string, user *sdkws.UserInfo, userIDFallback string) string {
+	if name := convert.DisplayNickname(remark, user); name != "" {
+		return name
+	}
+	if userIDFallback != "" {
+		return userIDFallback
+	}
+	return ""
 }
 
 func callPushActorNameFromUser(user *sdkws.UserInfo) string {
@@ -262,13 +295,13 @@ func callPushActorNameFromUser(user *sdkws.UserInfo) string {
 	return user.UserID
 }
 
-func (s *rtcServer) applySingleChatInviteOfflinePushCopy(ctx context.Context, push *sdkws.OfflinePushInfo, inv *rtc.InvitationInfo) {
+func (s *rtcServer) applySingleChatInviteOfflinePushCopy(ctx context.Context, push *sdkws.OfflinePushInfo, inv *rtc.InvitationInfo, calleeUserID string) {
 	if push == nil || inv == nil {
 		return
 	}
 	mediaLabel := callMediaLabel(inv.MediaType)
 	push.Title = singleChatInviteOfflinePushTitle(mediaLabel)
-	inviterName := s.resolveSingleChatUserDisplayName(ctx, inv.InviterUserID)
+	inviterName := s.resolveSingleChatCallDisplayName(ctx, calleeUserID, inv.InviterUserID)
 	push.Desc = singleChatInviteOfflinePushDesc(inviterName, mediaLabel)
 }
 
@@ -283,12 +316,12 @@ func singleChatInviteOfflinePushDesc(inviterName, mediaLabel string) string {
 	return "邀请你" + mediaLabel + "通话"
 }
 
-func (s *rtcServer) applyGroupChatInviteOfflinePushCopy(ctx context.Context, push *sdkws.OfflinePushInfo, inv *rtc.InvitationInfo) {
+func (s *rtcServer) applyGroupChatInviteOfflinePushCopy(ctx context.Context, push *sdkws.OfflinePushInfo, inv *rtc.InvitationInfo, calleeUserID string) {
 	if push == nil || inv == nil {
 		return
 	}
 	push.Title = "群组"
-	inviterName := s.resolveSingleChatUserDisplayName(ctx, inv.InviterUserID)
+	inviterName := s.resolveSingleChatCallDisplayName(ctx, calleeUserID, inv.InviterUserID)
 	push.Desc = inviterName + "邀请你多人通话"
 }
 
@@ -300,7 +333,7 @@ func (s *rtcServer) applyGroupChatMissedCallOfflinePushCopy(push *sdkws.OfflineP
 	push.Desc = callOfflinePushMissedDesc
 }
 
-func (s *rtcServer) applySingleChatMissedCallOfflinePushCopy(ctx context.Context, push *sdkws.OfflinePushInfo, inv *rtc.InvitationInfo, actorUserID string) {
+func (s *rtcServer) applySingleChatMissedCallOfflinePushCopy(ctx context.Context, push *sdkws.OfflinePushInfo, inv *rtc.InvitationInfo, actorUserID, calleeUserID string) {
 	if push == nil || inv == nil {
 		return
 	}
@@ -308,7 +341,7 @@ func (s *rtcServer) applySingleChatMissedCallOfflinePushCopy(ctx context.Context
 	if titleUserID == "" {
 		titleUserID = actorUserID
 	}
-	push.Title = s.resolveSingleChatUserDisplayName(ctx, titleUserID)
+	push.Title = s.resolveSingleChatCallDisplayName(ctx, calleeUserID, titleUserID)
 	push.Desc = callOfflinePushMissedDesc
 }
 

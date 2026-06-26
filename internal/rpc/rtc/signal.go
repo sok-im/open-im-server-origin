@@ -198,7 +198,14 @@ func (s *rtcServer) handleInvite(ctx context.Context, req *rtc.SignalInviteReq, 
 		return nil, err
 	}
 
-	inviteOfflinePush := s.resolveInviteOfflinePushInfo(ctx, inv, req.OfflinePushInfo)
+	var storeCalleeID string
+	for _, inviteeID := range inv.InviteeUserIDList {
+		if _, notAllow := notAllowSet[inviteeID]; !notAllow {
+			storeCalleeID = inviteeID
+			break
+		}
+	}
+	inviteOfflinePush := s.resolveInviteOfflinePushInfo(ctx, inv, req.OfflinePushInfo, storeCalleeID)
 	if inviteOfflinePush == nil {
 		log.ZWarn(ctx, "handleInvite: invite offline push info is nil, callee may not receive offline call push",
 			nil, "roomID", inv.RoomID, "inviterUserID", req.UserID, "inviteeUserIDList", inv.InviteeUserIDList)
@@ -227,7 +234,8 @@ func (s *rtcServer) handleInvite(ctx context.Context, req *rtc.SignalInviteReq, 
 			continue
 		}
 		log.ZInfo(ctx, "sendSignalingNotification to invitee", "sendID", req.UserID, "recvID", inviteeID)
-		if err := s.sendSignalingNotification(ctx, req.UserID, inviteeID, int32(constant.SingleChatType), "", inviteOfflinePush, content); err != nil {
+		inviteeOfflinePush := s.resolveInviteOfflinePushInfo(ctx, inv, req.OfflinePushInfo, inviteeID)
+		if err := s.sendSignalingNotification(ctx, req.UserID, inviteeID, int32(constant.SingleChatType), "", inviteeOfflinePush, content); err != nil {
 			log.ZError(ctx, "sendSignalingNotification to invitee failed", err, "inviteeID", inviteeID)
 			return nil, errs.WrapMsg(err, "failed to notify invitee", "inviteeID", inviteeID)
 		}
@@ -351,7 +359,14 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 		return nil, err
 	}
 
-	inviteOfflinePush := s.resolveInviteOfflinePushInfo(ctx, inv, req.OfflinePushInfo)
+	var storeCalleeID string
+	for _, inviteeID := range inv.InviteeUserIDList {
+		if _, notAllow := notAllowSet[inviteeID]; !notAllow {
+			storeCalleeID = inviteeID
+			break
+		}
+	}
+	inviteOfflinePush := s.resolveInviteOfflinePushInfo(ctx, inv, req.OfflinePushInfo, storeCalleeID)
 	if inviteOfflinePush == nil {
 		log.ZWarn(ctx, "handleInviteInGroup: invite offline push info is nil, callee may not receive offline call push",
 			nil, "roomID", inv.RoomID, "groupID", inv.GroupID, "inviterUserID", req.UserID, "inviteeUserIDList", inv.InviteeUserIDList)
@@ -380,7 +395,8 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 
 		log.ZInfo(ctx, "handleInviteInGroup: sending signaling notification to invitee", "req", req, "inviteOfflinePush", inviteOfflinePush)
 
-		if err := s.sendSignalingNotification(ctx, req.UserID, inviteeID, int32(constant.ReadGroupChatType), inv.GroupID, inviteOfflinePush, content); err != nil {
+		inviteeOfflinePush := s.resolveInviteOfflinePushInfo(ctx, inv, req.OfflinePushInfo, inviteeID)
+		if err := s.sendSignalingNotification(ctx, req.UserID, inviteeID, int32(constant.ReadGroupChatType), inv.GroupID, inviteeOfflinePush, content); err != nil {
 			log.ZWarn(ctx, "handleInviteInGroup to group invitee failed", err, "inviteeID", inviteeID)
 			return nil, errs.WrapMsg(err, "failed to notify invitee", "inviteeID", inviteeID)
 		}
@@ -637,7 +653,7 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 	if clientPush == nil {
 		clientPush = offlinePushInfoFromInvitationModel(dbInv)
 	}
-	rejectOfflinePush := s.resolveSignalingOfflinePushInfo(ctx, invInfo, clientPush, signalCallActionReject, req.UserID)
+	rejectOfflinePush := s.resolveSignalingOfflinePushInfo(ctx, invInfo, clientPush, signalCallActionReject, req.UserID, dbInv.InviterUserID)
 	if err := s.sendSignalingNotification(ctx, req.UserID, dbInv.InviterUserID, sessionType, dbInv.GroupID, rejectOfflinePush, content); err != nil {
 		log.ZWarn(ctx, "sendSignalingNotification reject to inviter failed", err, "inviterID", dbInv.InviterUserID, "req", req, "dbInv", dbInv)
 	}
@@ -786,8 +802,8 @@ func (s *rtcServer) handleCancel(ctx context.Context, req *rtc.SignalCancelReq, 
 		return nil, err
 	}
 	invInfo := modelToInvitationInfo(dbInv)
-	cancelOfflinePush := s.resolveSignalingOfflinePushInfo(ctx, invInfo, offlinePushInfoFromInvitationModel(dbInv), signalCallActionCancel, req.UserID)
 	for _, inviteeID := range dbInv.InviteeUserIDList {
+		cancelOfflinePush := s.resolveSignalingOfflinePushInfo(ctx, invInfo, offlinePushInfoFromInvitationModel(dbInv), signalCallActionCancel, req.UserID, inviteeID)
 		if err := s.sendSignalingNotification(ctx, req.UserID, inviteeID, sessionType, dbInv.GroupID, cancelOfflinePush, content); err != nil {
 			log.ZWarn(ctx, "sendSignalingNotification cancel to invitee failed", err, "inviteeID", inviteeID)
 		}
@@ -895,8 +911,8 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 		"mediaType", dbInv.MediaType,
 	)
 	var hungUpOfflinePush *sdkws.OfflinePushInfo
-	if is1v1Unanswered {
-		hungUpOfflinePush = s.resolveSignalingOfflinePushInfo(ctx, invInfo, offlinePushInfoFromInvitationModel(dbInv), signalCallActionTimeout, req.UserID)
+	if is1v1Unanswered && len(peerIDs) > 0 {
+		hungUpOfflinePush = s.resolveSignalingOfflinePushInfo(ctx, invInfo, offlinePushInfoFromInvitationModel(dbInv), signalCallActionTimeout, req.UserID, peerIDs[0])
 	}
 	missedCallPushTitle := ""
 	missedCallPushDesc := ""
@@ -908,13 +924,17 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 		"roomID", dbInv.RoomID,
 		"peerCount", len(peerIDs),
 		"peerIDs", peerIDs,
-		"missedCallPushEnabled", hungUpOfflinePush != nil,
+		"missedCallPushEnabled", is1v1Unanswered,
 		"missedCallPushTitle", missedCallPushTitle,
 		"missedCallPushDesc", missedCallPushDesc,
 		"signalingPayloadType", msgprocessor.SignalingPayloadTypeName(content),
 	)
 	for _, peerID := range peerIDs {
-		if err := s.sendSignalingNotification(ctx, req.UserID, peerID, sessionType, dbInv.GroupID, hungUpOfflinePush, content); err != nil {
+		peerOfflinePush := (*sdkws.OfflinePushInfo)(nil)
+		if is1v1Unanswered {
+			peerOfflinePush = s.resolveSignalingOfflinePushInfo(ctx, invInfo, offlinePushInfoFromInvitationModel(dbInv), signalCallActionTimeout, req.UserID, peerID)
+		}
+		if err := s.sendSignalingNotification(ctx, req.UserID, peerID, sessionType, dbInv.GroupID, peerOfflinePush, content); err != nil {
 			log.ZWarn(ctx, "sendSignalingNotification hungUp to peer failed", err, "peerID", peerID)
 		}
 	}
@@ -2280,9 +2300,13 @@ func (s *rtcServer) handleTimeout(ctx context.Context, req *rtc.SignalTimeoutReq
 	if clientPush == nil {
 		clientPush = offlinePushInfoFromInvitationModel(dbInv)
 	}
-	timeoutOfflinePush := s.resolveSignalingOfflinePushInfo(ctx, invInfo, clientPush, signalCallActionTimeout, req.UserID)
+	timeoutOfflinePush := s.resolveSignalingOfflinePushInfo(ctx, invInfo, clientPush, signalCallActionTimeout, req.UserID, "")
 	for _, inviteeID := range dbInv.InviteeUserIDList {
-		if err := s.sendSignalingNotification(ctx, req.UserID, inviteeID, sessionType, dbInv.GroupID, timeoutOfflinePush, content); err != nil {
+		inviteeOfflinePush := timeoutOfflinePush
+		if sessionType == int32(constant.SingleChatType) {
+			inviteeOfflinePush = s.resolveSignalingOfflinePushInfo(ctx, invInfo, clientPush, signalCallActionTimeout, req.UserID, inviteeID)
+		}
+		if err := s.sendSignalingNotification(ctx, req.UserID, inviteeID, sessionType, dbInv.GroupID, inviteeOfflinePush, content); err != nil {
 			log.ZWarn(ctx, "handleTimeout: sendSignalingNotification to invitee failed", err, "inviteeID", inviteeID)
 		}
 	}

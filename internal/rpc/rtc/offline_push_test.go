@@ -52,7 +52,7 @@ func TestResolveInviteOfflinePushInfoSingleChatDefaults(t *testing.T) {
 		MediaType:     "audio",
 		SessionType:   int32(constant.SingleChatType),
 	}
-	push := s.resolveInviteOfflinePushInfo(t.Context(), inv, nil)
+	push := s.resolveInviteOfflinePushInfo(t.Context(), inv, nil, "callee")
 	if push == nil {
 		t.Fatal("expected offline push info")
 	}
@@ -91,7 +91,7 @@ func TestResolveInviteOfflinePushInfoOverridesClientCopy(t *testing.T) {
 		Desc:         "邀请你进行视频通话",
 		IOSPushSound: "default",
 		Ex:           `{"pushType":"call","roomID":"room-6b96d6c5-4f7c-43bb-b997-03e3bcef94e0","sessionType":1,"mediaType":"video","sourceID":"8511557336"}`,
-	})
+	}, "3602044002")
 	if push == nil {
 		t.Fatal("expected offline push info")
 	}
@@ -123,7 +123,7 @@ func TestResolveInviteOfflinePushInfoGroupChatDefaults(t *testing.T) {
 		GroupID:       "g1",
 		SessionType:   int32(constant.ReadGroupChatType),
 	}
-	push := s.resolveInviteOfflinePushInfo(t.Context(), inv, nil)
+	push := s.resolveInviteOfflinePushInfo(t.Context(), inv, nil, "callee")
 	if push == nil {
 		t.Fatal("expected offline push info")
 	}
@@ -177,7 +177,7 @@ func TestResolveInviteOfflinePushInfoAddsGroupID(t *testing.T) {
 		Title: "群通话邀请",
 		Desc:  "邀请你加入群视频通话",
 		Ex:    `{"pushType":"call","roomID":"client-room","sessionType":3}`,
-	})
+	}, "invitee")
 	if push == nil {
 		t.Fatal("expected offline push info")
 	}
@@ -202,6 +202,28 @@ func TestCallMediaLabel(t *testing.T) {
 	}
 	if got := callMediaLabel("audio"); got != "语音" {
 		t.Fatalf("audio label=%q", got)
+	}
+}
+
+func TestCallPushDisplayName(t *testing.T) {
+	user := &sdkws.UserInfo{
+		UserID:    "u1",
+		FirstName: "Zhang",
+		LastName:  "San",
+		Nickname:  "nick",
+	}
+	if got := callPushDisplayName("三哥", user, "u1"); got != "三哥" {
+		t.Fatalf("remark priority: got %q", got)
+	}
+	if got := callPushDisplayName("", user, "u1"); got != "Zhang San" {
+		t.Fatalf("full name: got %q", got)
+	}
+	nicknameOnly := &sdkws.UserInfo{UserID: "u2", Nickname: "only-nick"}
+	if got := callPushDisplayName("", nicknameOnly, "u2"); got != "only-nick" {
+		t.Fatalf("nickname: got %q", got)
+	}
+	if got := callPushDisplayName("", nil, "u-empty"); got != "u-empty" {
+		t.Fatalf("fallback: got %q", got)
 	}
 }
 
@@ -261,7 +283,7 @@ func TestResolveSignalingOfflinePushInfoSingleChatMissedCall(t *testing.T) {
 		Ex:           `{"pushType":"call","roomID":"room-abc","sessionType":1}`,
 	}
 
-	timeoutPush := s.resolveSignalingOfflinePushInfo(t.Context(), inv, invitePush, signalCallActionTimeout, "caller")
+	timeoutPush := s.resolveSignalingOfflinePushInfo(t.Context(), inv, invitePush, signalCallActionTimeout, "caller", "callee")
 	if timeoutPush == nil {
 		t.Fatal("expected offline push info")
 	}
@@ -275,7 +297,7 @@ func TestResolveSignalingOfflinePushInfoSingleChatMissedCall(t *testing.T) {
 		t.Fatalf("ios sound=%q, want empty for missed call", timeoutPush.IOSPushSound)
 	}
 
-	cancelPush := s.resolveSignalingOfflinePushInfo(t.Context(), inv, invitePush, signalCallActionCancel, "caller")
+	cancelPush := s.resolveSignalingOfflinePushInfo(t.Context(), inv, invitePush, signalCallActionCancel, "caller", "callee")
 	if cancelPush.Title != "caller" {
 		t.Fatalf("cancel title=%q", cancelPush.Title)
 	}
@@ -308,7 +330,7 @@ func TestResolveSignalingOfflinePushInfoGroupChatMissedCall(t *testing.T) {
 		Ex:           `{"pushType":"call","roomID":"room-group","sessionType":3}`,
 	}
 
-	timeoutPush := s.resolveSignalingOfflinePushInfo(t.Context(), inv, invitePush, signalCallActionTimeout, "caller")
+	timeoutPush := s.resolveSignalingOfflinePushInfo(t.Context(), inv, invitePush, signalCallActionTimeout, "caller", "callee")
 	if timeoutPush == nil {
 		t.Fatal("expected offline push info")
 	}
