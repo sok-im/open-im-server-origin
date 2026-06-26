@@ -1077,6 +1077,7 @@ func (s *rtcServer) isInvitationPending(ctx context.Context, inv *model.SignalIn
 		log.ZDebug(ctx, "lintao isInvitationPending: invitation is nil or roomID is empty", "inv", inv)
 		return false
 	}
+
 	if inv.Timeout > 0 && inv.InitiateTime > 0 {
 		deadlineMs := inv.InitiateTime + int64(inv.Timeout)*1000
 		if time.Now().UnixMilli() > deadlineMs {
@@ -1109,24 +1110,15 @@ func (s *rtcServer) isInvitationPending(ctx context.Context, inv *model.SignalIn
 		log.ZDebug(ctx, "lintao isInvitationPending: inviter active", "inv", inv)
 		return false
 	}
+
 	if inv.GroupID != "" {
 		log.ZDebug(ctx, "lintao isInvitationPending: group call", "inv", inv)
 		return true
 	}
 
-	// 1v1 unanswered with an empty LiveKit room: only pending while the inviter is still online.
-	platforms, err := s.userClient.GetUserOnlinePlatform(ctx, inv.InviterUserID)
-	if err != nil {
-		log.ZDebug(ctx, "lintao isInvitationPending: GetUserOnlinePlatform failed", "inv", inv)
-		return true
-	}
-	if len(platforms) > 0 {
-		log.ZDebug(ctx, "lintao isInvitationPending: platforms > 0", "inv", inv)
-		return true
-	}
-
-	log.ZDebug(ctx, "lintao isInvitationPending: GetUserOnlinePlatform success", "inv", inv)
-
+	// 1v1 unanswered with an empty LiveKit room: nobody is in the RTC session, so the
+	// callee cannot connect. Treat as ended even if the inviter is still online in IM
+	// (common after a local hang-up before server cancel) or call-status cache is stale.
 	return false
 }
 
