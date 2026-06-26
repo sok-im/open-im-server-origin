@@ -17,6 +17,7 @@ package rtc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -38,7 +39,10 @@ import (
 	"github.com/openimsdk/tools/mcontext"
 	"github.com/openimsdk/tools/utils/datautil"
 	"github.com/openimsdk/tools/utils/jsonutil"
+	"github.com/twitchtv/twirp"
 	"go.mongodb.org/mongo-driver/mongo"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -1071,6 +1075,23 @@ func (s *rtcServer) livekitRoomParticipantsMeta(ctx context.Context, roomID stri
 	return out, true, nil
 }
 
+// isLiveKitRoomGone reports whether LiveKit indicates the room no longer exists
+// (e.g. after cancel/hangup DeleteRoom). Transient errors return false.
+func isLiveKitRoomGone(err error) bool {
+	if err == nil {
+		return false
+	}
+	var twerr twirp.Error
+	if errors.As(err, &twerr) && twerr.Code() == twirp.NotFound {
+		return true
+	}
+	if st, ok := status.FromError(err); ok && st.Code() == codes.NotFound {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "not found") || strings.Contains(msg, "does not exist")
+}
+
 // isInvitationPending reports whether the invitation still represents an active call.
 func (s *rtcServer) isInvitationPending(ctx context.Context, inv *model.SignalInvitation) bool {
 	if inv == nil || inv.RoomID == "" {
@@ -1091,9 +1112,8 @@ func (s *rtcServer) isInvitationPending(ctx context.Context, inv *model.SignalIn
 		log.ZDebug(ctx, "lintao isInvitationPending: in call", "inv", inv)
 		return true
 	}
-	// Room torn down (cancel/hangup DeleteRoom) — call is over even if DB invitation lingers.
-	if lkErr != nil {
-		log.ZDebug(ctx, "lintao isInvitationPending: livekit room participants meta error", "inv", inv, "lkErr", lkErr)
+	if lkErr != nil && isLiveKitRoomGone(lkErr) {
+		log.ZDebug(ctx, "lintao isInvitationPending: LiveKit room gone", "inv", inv)
 		return false
 	}
 
@@ -1105,21 +1125,15 @@ func (s *rtcServer) isInvitationPending(ctx context.Context, inv *model.SignalIn
 		return inviterActive || s.hasParticipantCallStatusForRoom(ctx, inv)
 	}
 
-	// Unanswered: invitee-side cache alone must not keep the ring alive after the caller left.
 	if !inviterActive {
 		log.ZDebug(ctx, "lintao isInvitationPending: inviter active", "inv", inv)
 		return false
 	}
 
-	if inv.GroupID != "" {
-		log.ZDebug(ctx, "lintao isInvitationPending: group call", "inv", inv)
-		return true
-	}
-
-	// 1v1 unanswered with an empty LiveKit room: nobody is in the RTC session, so the
-	// callee cannot connect. Treat as ended even if the inviter is still online in IM
-	// (common after a local hang-up before server cancel) or call-status cache is stale.
-	return false
+	// Unanswered and inviter still tracked in call-status (within timeout above).
+	// Some clients ring before joining LiveKit, so an empty room is normal during this phase.
+	log.ZDebug(ctx, "lintao isInvitationPending: empty LiveKit room", "inv", inv)
+	return true
 }
 
 func (s *rtcServer) hasParticipantCallStatusForRoom(ctx context.Context, inv *model.SignalInvitation) bool {
