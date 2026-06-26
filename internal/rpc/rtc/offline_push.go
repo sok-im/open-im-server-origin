@@ -164,13 +164,13 @@ func invitationSessionType(inv *rtc.InvitationInfo) int32 {
 func callActionDefaultTitle(action, mediaLabel string) string {
 	switch action {
 	case signalCallActionCancel:
-		return "通话已取消"
+		return "未接来电"
 	case signalCallActionReject:
-		return "通话被拒绝"
+		return "未接来电"
 	case signalCallActionTimeout:
 		return "未接来电"
 	default:
-		return "通话邀请"
+		return "来电"
 	}
 }
 
