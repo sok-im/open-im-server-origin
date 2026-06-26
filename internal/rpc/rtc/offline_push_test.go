@@ -138,6 +138,36 @@ func TestCallMediaLabel(t *testing.T) {
 	}
 }
 
+func TestCallPushActorNameFromUser(t *testing.T) {
+	fullNameUser := &sdkws.UserInfo{
+		UserID:    "u6293309c.3616",
+		FirstName: "Tom",
+		LastName:  "Smith",
+		Nickname:  "nick",
+	}
+	if got := callPushActorNameFromUser(fullNameUser); got != "Tom Smith" {
+		t.Fatalf("full name: got %q", got)
+	}
+
+	nicknameOnly := &sdkws.UserInfo{UserID: "u1", Nickname: "only-nick"}
+	if got := callPushActorNameFromUser(nicknameOnly); got != "only-nick" {
+		t.Fatalf("nickname: got %q", got)
+	}
+
+	if got := callPushActorNameFromUser(&sdkws.UserInfo{UserID: "u-empty"}); got != "u-empty" {
+		t.Fatalf("userID fallback: got %q", got)
+	}
+}
+
+func TestCallActionDefaultDescUsesActorName(t *testing.T) {
+	if got := callActionDefaultDesc(signalCallActionCancel, "语音", "Tom Smith"); got != "Tom Smith已取消语音通话" {
+		t.Fatalf("single cancel: got %q", got)
+	}
+	if got := callActionDefaultDesc(signalCallActionTimeout, "语音", "Family Group"); got != "未接Family Group的语音通话" {
+		t.Fatalf("group timeout: got %q", got)
+	}
+}
+
 func TestResolveSignalingOfflinePushInfoOverridesInviteCopyForMissedCall(t *testing.T) {
 	s := &rtcServer{
 		config: &Config{

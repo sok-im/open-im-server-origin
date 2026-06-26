@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/openimsdk/open-im-server/v3/pkg/common/convert"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/model"
 	"github.com/openimsdk/protocol/constant"
 	"github.com/openimsdk/protocol/rtc"
@@ -217,28 +218,49 @@ func (s *rtcServer) resolveInviterDisplayName(ctx context.Context, inv *rtc.Invi
 }
 
 func (s *rtcServer) resolveUserDisplayName(ctx context.Context, groupID, userID string) string {
-	if userID == "" {
+	if groupID != "" {
+		return s.resolveGroupDisplayName(ctx, groupID)
+	}
+	return s.resolveSingleChatUserDisplayName(ctx, userID)
+}
+
+func (s *rtcServer) resolveGroupDisplayName(ctx context.Context, groupID string) string {
+	if groupID == "" {
 		return ""
 	}
-	if groupID != "" && s.groupClient != nil {
-		if member, err := s.groupClient.GetGroupMemberCache(ctx, groupID, userID); err == nil {
-			if name := strings.TrimSpace(member.Nickname); name != "" {
+	if s.groupClient != nil {
+		if groupInfo, err := s.groupClient.GetGroupInfoCache(ctx, groupID); err == nil {
+			if name := strings.TrimSpace(groupInfo.GroupName); name != "" {
 				return name
 			}
 		} else {
-			log.ZDebug(ctx, "resolveUserDisplayName: GetGroupMemberCache failed", "groupID", groupID, "userID", userID, "err", err)
+			log.ZDebug(ctx, "resolveGroupDisplayName: GetGroupInfoCache failed", "groupID", groupID, "err", err)
 		}
+	}
+	return groupID
+}
+
+func (s *rtcServer) resolveSingleChatUserDisplayName(ctx context.Context, userID string) string {
+	if userID == "" {
+		return ""
 	}
 	if s.userClient != nil {
 		if user, err := s.userClient.GetUserInfo(ctx, userID); err == nil {
-			if name := strings.TrimSpace(user.Nickname); name != "" {
-				return name
-			}
-			return user.UserID
+			return callPushActorNameFromUser(user)
 		}
-		log.ZDebug(ctx, "resolveUserDisplayName: GetUserInfo failed, fallback userID", "userID", userID)
+		log.ZDebug(ctx, "resolveSingleChatUserDisplayName: GetUserInfo failed, fallback userID", "userID", userID)
 	}
 	return userID
+}
+
+func callPushActorNameFromUser(user *sdkws.UserInfo) string {
+	if user == nil {
+		return ""
+	}
+	if name := convert.MemberDisplayNickname(user); name != "" {
+		return name
+	}
+	return user.UserID
 }
 
 func callMediaLabel(mediaType string) string {
