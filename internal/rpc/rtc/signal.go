@@ -852,6 +852,24 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 	if dbInv.GroupID != "" {
 		sessionType = int32(constant.ReadGroupChatType)
 	}
+
+	// For 1v1 calls, normalize the forwarded duration to accept→hangup using the
+	// server AcceptTime so peers never receive invite→hangup totals from apps.
+	if dbInv.GroupID == "" {
+		talkSecs, callStatus := singleChatCallDuration(dbInv)
+		if callStatus == callStatusAnswered {
+			req.CallDuration = talkSecs
+			if hungUp := signalReq.GetHungUp(); hungUp != nil {
+				hungUp.CallDuration = talkSecs
+			}
+		} else {
+			req.CallDuration = 0
+			if hungUp := signalReq.GetHungUp(); hungUp != nil {
+				hungUp.CallDuration = 0
+			}
+		}
+	}
+
 	content, err := marshalSignalReq(signalReq)
 	if err != nil {
 		log.ZWarn(ctx, "handleHungUp", err, "marshal signal req failed", "req", req, "dbInv", dbInv, "signalReq", signalReq)
@@ -943,20 +961,9 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 
 	duration := int64(0)
 	if dbInv.GroupID == "" {
-		// Prefer the SDK-reported accept→hangup seconds so that the chat-message
-		// duration matches both local records exactly.  The SDK always computes
-		// this from connectMs (the moment of acceptance on the client), so it is
-		// already accept→hangup.  We validate AcceptTime > 0 on the server side
-		// to guard against rogue clients sending a non-zero duration for an
-		// unanswered call.  Fall back to server-side computation for unanswered
-		// calls and for older clients that send CallDuration = 0.
-		var callStatus string
-		if req.CallDuration > 0 && dbInv.AcceptTime > 0 {
-			duration = req.CallDuration
-			callStatus = callStatusAnswered
-		} else {
-			duration, callStatus = singleChatCallDuration(dbInv)
-		}
+		// Always use AcceptTime→hangup on the server so chat duration excludes
+		// ring/wait time and is not affected by app-layer invite→hangup timers.
+		duration, callStatus := singleChatCallDuration(dbInv)
 		s.sendCallRecordChatMsg(ctx, dbInv, callStatus, duration)
 		log.ZInfo(ctx, "handleHungUp", "dbInv", dbInv, "duration", duration, "status", callStatus)
 	} else {
