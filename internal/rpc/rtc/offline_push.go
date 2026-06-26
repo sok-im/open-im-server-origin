@@ -70,10 +70,11 @@ func (s *rtcServer) resolveSignalingOfflinePushInfo(ctx context.Context, inv *rt
 		push := cloneOfflinePushInfo(clientPush)
 		sessionType := invitationSessionType(inv)
 		if action != signalCallActionInvite {
-			mediaLabel := callMediaLabel(inv.MediaType)
-			actorName := s.resolveUserDisplayName(ctx, inv.GroupID, actorUserID)
-			push.Title = callActionDefaultTitle(action, mediaLabel)
-			push.Desc = callActionDefaultDesc(action, mediaLabel, actorName)
+			if sessionType == int32(constant.SingleChatType) {
+				s.applySingleChatMissedCallOfflinePushCopy(ctx, push, inv, actorUserID)
+			} else {
+				s.applyGroupChatMissedCallOfflinePushCopy(push)
+			}
 			push.IOSPushSound = ""
 		}
 		push.Ex = syncCallWakePushEx(inv, sessionType, push.Ex)
@@ -102,26 +103,19 @@ func (s *rtcServer) resolveSignalingOfflinePushInfo(ctx context.Context, inv *rt
 	}
 
 	sessionType := invitationSessionType(inv)
-	mediaLabel := callMediaLabel(inv.MediaType)
 
 	if action != signalCallActionInvite {
-		actorName := s.resolveUserDisplayName(ctx, inv.GroupID, actorUserID)
-		push.Title = callActionDefaultTitle(action, mediaLabel)
-		push.Desc = callActionDefaultDesc(action, mediaLabel, actorName)
+		if sessionType == int32(constant.SingleChatType) {
+			s.applySingleChatMissedCallOfflinePushCopy(ctx, push, inv, actorUserID)
+		} else {
+			s.applyGroupChatMissedCallOfflinePushCopy(push)
+		}
 		push.IOSPushSound = ""
 	} else {
-		if push.Title == "" {
-			push.Title = cfg.OfflinePush.Title
-		}
-		if push.Title == "" {
-			push.Title = "SOK"
-		}
-		if push.Desc == "" {
-			push.Desc = cfg.OfflinePush.Desc
-		}
-		if push.Desc == "" {
-			actorName := s.resolveUserDisplayName(ctx, inv.GroupID, actorUserID)
-			push.Desc = callActionDefaultDesc(action, mediaLabel, actorName)
+		if sessionType == int32(constant.SingleChatType) {
+			s.applySingleChatInviteOfflinePushCopy(ctx, push, inv)
+		} else {
+			s.applyGroupChatInviteOfflinePushCopy(ctx, push, inv)
 		}
 		if push.IOSPushSound == "" {
 			push.IOSPushSound = callIOSPushSound
@@ -261,6 +255,51 @@ func callPushActorNameFromUser(user *sdkws.UserInfo) string {
 		return name
 	}
 	return user.UserID
+}
+
+func (s *rtcServer) applySingleChatInviteOfflinePushCopy(ctx context.Context, push *sdkws.OfflinePushInfo, inv *rtc.InvitationInfo) {
+	if push == nil || inv == nil {
+		return
+	}
+	if push.Title == "" {
+		push.Title = s.resolveSingleChatUserDisplayName(ctx, inv.InviterUserID)
+	}
+	if push.Desc == "" {
+		push.Desc = "[未接通话]"
+	}
+}
+
+func (s *rtcServer) applyGroupChatInviteOfflinePushCopy(ctx context.Context, push *sdkws.OfflinePushInfo, inv *rtc.InvitationInfo) {
+	if push == nil || inv == nil {
+		return
+	}
+	if push.Title == "" {
+		push.Title = "群组"
+	}
+	if push.Desc == "" {
+		inviterName := s.resolveSingleChatUserDisplayName(ctx, inv.InviterUserID)
+		push.Desc = inviterName + "邀请你多人通话"
+	}
+}
+
+func (s *rtcServer) applyGroupChatMissedCallOfflinePushCopy(push *sdkws.OfflinePushInfo) {
+	if push == nil {
+		return
+	}
+	push.Title = "群组"
+	push.Desc = "[未接通话]"
+}
+
+func (s *rtcServer) applySingleChatMissedCallOfflinePushCopy(ctx context.Context, push *sdkws.OfflinePushInfo, inv *rtc.InvitationInfo, actorUserID string) {
+	if push == nil || inv == nil {
+		return
+	}
+	titleUserID := inv.InviterUserID
+	if titleUserID == "" {
+		titleUserID = actorUserID
+	}
+	push.Title = s.resolveSingleChatUserDisplayName(ctx, titleUserID)
+	push.Desc = "[未接通话]"
 }
 
 func callMediaLabel(mediaType string) string {
