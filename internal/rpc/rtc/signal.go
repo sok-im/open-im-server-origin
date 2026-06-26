@@ -1074,21 +1074,25 @@ func (s *rtcServer) livekitRoomParticipantsMeta(ctx context.Context, roomID stri
 // isInvitationPending reports whether the invitation still represents an active call.
 func (s *rtcServer) isInvitationPending(ctx context.Context, inv *model.SignalInvitation) bool {
 	if inv == nil || inv.RoomID == "" {
+		log.ZDebug(ctx, "lintao isInvitationPending: invitation is nil or roomID is empty", "inv", inv)
 		return false
 	}
 	if inv.Timeout > 0 && inv.InitiateTime > 0 {
 		deadlineMs := inv.InitiateTime + int64(inv.Timeout)*1000
 		if time.Now().UnixMilli() > deadlineMs {
+			log.ZDebug(ctx, "lintao isInvitationPending: timeout", "inv", inv)
 			return false
 		}
 	}
 
 	_, inCall, lkErr := s.livekitRoomParticipantsMeta(ctx, inv.RoomID)
 	if lkErr == nil && inCall {
+		log.ZDebug(ctx, "lintao isInvitationPending: in call", "inv", inv)
 		return true
 	}
 	// Room torn down (cancel/hangup DeleteRoom) — call is over even if DB invitation lingers.
 	if lkErr != nil {
+		log.ZDebug(ctx, "lintao isInvitationPending: livekit room participants meta error", "inv", inv, "lkErr", lkErr)
 		return false
 	}
 
@@ -1096,25 +1100,34 @@ func (s *rtcServer) isInvitationPending(ctx context.Context, inv *model.SignalIn
 	inviterActive := inviterErr == nil && inviterSt.RoomID == inv.RoomID
 
 	if inv.AcceptTime > 0 {
+		log.ZDebug(ctx, "lintao isInvitationPending: accept time > 0", "inv", inv)
 		return inviterActive || s.hasParticipantCallStatusForRoom(ctx, inv)
 	}
 
 	// Unanswered: invitee-side cache alone must not keep the ring alive after the caller left.
 	if !inviterActive {
+		log.ZDebug(ctx, "lintao isInvitationPending: inviter active", "inv", inv)
 		return false
 	}
 	if inv.GroupID != "" {
+		log.ZDebug(ctx, "lintao isInvitationPending: group call", "inv", inv)
 		return true
 	}
 
 	// 1v1 unanswered with an empty LiveKit room: only pending while the inviter is still online.
 	platforms, err := s.userClient.GetUserOnlinePlatform(ctx, inv.InviterUserID)
 	if err != nil {
-		log.ZWarn(ctx, "isInvitationPending: GetUserOnlinePlatform failed", err,
-			"inviterUserID", inv.InviterUserID, "roomID", inv.RoomID)
+		log.ZDebug(ctx, "lintao isInvitationPending: GetUserOnlinePlatform failed", "inv", inv)
 		return true
 	}
-	return len(platforms) > 0
+	if len(platforms) > 0 {
+		log.ZDebug(ctx, "lintao isInvitationPending: platforms > 0", "inv", inv)
+		return true
+	}
+
+	log.ZDebug(ctx, "lintao isInvitationPending: GetUserOnlinePlatform success", "inv", inv)
+
+	return false
 }
 
 func (s *rtcServer) hasParticipantCallStatusForRoom(ctx context.Context, inv *model.SignalInvitation) bool {
@@ -1241,8 +1254,11 @@ func (s *rtcServer) GetSignalInvitationInfoStartApp(ctx context.Context, req *rt
 	}
 	if !s.isInvitationPending(ctx, inv) {
 		s.finalizeStaleInvitation(ctx, inv)
+		log.ZDebug(ctx, "lintao GetSignalInvitationInfoStartApp: invitation not found or expired", "inv", inv)
 		return nil, errs.ErrRecordNotFound.WrapMsg("invitation not found or expired", "userID", req.UserID)
 	}
+
+	log.ZDebug(ctx, "lintao GetSignalInvitationInfoStartApp: invitation found", "inv", inv)
 	return &rtc.GetSignalInvitationInfoStartAppResp{
 		Invitation: modelToInvitationInfo(inv),
 		OfflinePushInfo: &sdkws.OfflinePushInfo{
