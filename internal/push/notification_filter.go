@@ -14,6 +14,18 @@ func isSignalingNotification(contentType int32) bool {
 	return contentType >= constant.SignalingNotificationBegin && contentType <= constant.SignalingNotificationEnd
 }
 
+// isTargetedGroupMemberPush reports group-session messages aimed at one member (recvID != groupID),
+// such as a group call invite signaling sent only to the callee.
+func isTargetedGroupMemberPush(msg *sdkws.MsgData) bool {
+	if msg == nil || msg.SessionType != constant.ReadGroupChatType {
+		return false
+	}
+	if msg.GroupID == "" || msg.RecvID == "" || msg.RecvID == msg.GroupID {
+		return false
+	}
+	return isSignalingNotification(msg.ContentType)
+}
+
 func userNotificationEnabled(user *sdkws.UserInfo, contentType int32) bool {
 	if user == nil {
 		return true

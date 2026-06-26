@@ -883,7 +883,7 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 	invInfo := modelToInvitationInfo(dbInv)
 	peerIDs := hungUpPeerIDsFromDB(dbInv, req.UserID)
 	is1v1Unanswered := dbInv.GroupID == "" && dbInv.AcceptTime <= 0
-	log.ZInfo(ctx, "lintao handleHungUp: missed-call offline push decision",
+	log.ZInfo(ctx, "handleHungUp: missed-call offline push decision",
 		"roomID", dbInv.RoomID,
 		"hangUpUserID", req.UserID,
 		"inviterUserID", dbInv.InviterUserID,
@@ -904,7 +904,7 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 		missedCallPushTitle = hungUpOfflinePush.Title
 		missedCallPushDesc = hungUpOfflinePush.Desc
 	}
-	log.ZInfo(ctx, "lintao handleHungUp: sending hungUp signaling to peers",
+	log.ZInfo(ctx, "handleHungUp: sending hungUp signaling to peers",
 		"roomID", dbInv.RoomID,
 		"peerCount", len(peerIDs),
 		"peerIDs", peerIDs,
@@ -1123,25 +1123,25 @@ func isLiveKitRoomGone(err error) bool {
 // isInvitationPending reports whether the invitation still represents an active call.
 func (s *rtcServer) isInvitationPending(ctx context.Context, inv *model.SignalInvitation) bool {
 	if inv == nil || inv.RoomID == "" {
-		log.ZDebug(ctx, "lintao isInvitationPending: invitation is nil or roomID is empty", "inv", inv)
+		log.ZDebug(ctx, "isInvitationPending: invitation is nil or roomID is empty", "inv", inv)
 		return false
 	}
 
 	if inv.Timeout > 0 && inv.InitiateTime > 0 {
 		deadlineMs := inv.InitiateTime + int64(inv.Timeout)*1000
 		if time.Now().UnixMilli() > deadlineMs {
-			log.ZDebug(ctx, "lintao isInvitationPending: timeout", "inv", inv)
+			log.ZDebug(ctx, "isInvitationPending: timeout", "inv", inv)
 			return false
 		}
 	}
 
 	_, inCall, lkErr := s.livekitRoomParticipantsMeta(ctx, inv.RoomID)
 	if lkErr == nil && inCall {
-		log.ZDebug(ctx, "lintao isInvitationPending: in call", "inv", inv)
+		log.ZDebug(ctx, "isInvitationPending: in call", "inv", inv)
 		return true
 	}
 	if lkErr != nil && isLiveKitRoomGone(lkErr) {
-		log.ZDebug(ctx, "lintao isInvitationPending: LiveKit room gone", "inv", inv)
+		log.ZDebug(ctx, "isInvitationPending: LiveKit room gone", "inv", inv)
 		return false
 	}
 
@@ -1149,18 +1149,18 @@ func (s *rtcServer) isInvitationPending(ctx context.Context, inv *model.SignalIn
 	inviterActive := inviterErr == nil && inviterSt.RoomID == inv.RoomID
 
 	if inv.AcceptTime > 0 {
-		log.ZDebug(ctx, "lintao isInvitationPending: accept time > 0", "inv", inv)
+		log.ZDebug(ctx, "isInvitationPending: accept time > 0", "inv", inv)
 		return inviterActive || s.hasParticipantCallStatusForRoom(ctx, inv)
 	}
 
 	if !inviterActive {
-		log.ZDebug(ctx, "lintao isInvitationPending: inviter active", "inv", inv)
+		log.ZDebug(ctx, "isInvitationPending: inviter active", "inv", inv)
 		return false
 	}
 
 	// Unanswered and inviter still tracked in call-status (within timeout above).
 	// Some clients ring before joining LiveKit, so an empty room is normal during this phase.
-	log.ZDebug(ctx, "lintao isInvitationPending: empty LiveKit room", "inv", inv)
+	log.ZDebug(ctx, "isInvitationPending: empty LiveKit room", "inv", inv)
 	return true
 }
 
@@ -1288,11 +1288,11 @@ func (s *rtcServer) GetSignalInvitationInfoStartApp(ctx context.Context, req *rt
 	}
 	if !s.isInvitationPending(ctx, inv) {
 		s.finalizeStaleInvitation(ctx, inv)
-		log.ZDebug(ctx, "lintao GetSignalInvitationInfoStartApp: invitation not found or expired", "inv", inv)
+		log.ZDebug(ctx, "GetSignalInvitationInfoStartApp: invitation not found or expired", "inv", inv)
 		return nil, errs.ErrRecordNotFound.WrapMsg("invitation not found or expired", "userID", req.UserID)
 	}
 
-	log.ZDebug(ctx, "lintao GetSignalInvitationInfoStartApp: invitation found", "inv", inv)
+	log.ZDebug(ctx, "GetSignalInvitationInfoStartApp: invitation found", "inv", inv)
 	return &rtc.GetSignalInvitationInfoStartAppResp{
 		Invitation: modelToInvitationInfo(inv),
 		OfflinePushInfo: &sdkws.OfflinePushInfo{
@@ -1529,7 +1529,7 @@ func (s *rtcServer) sendSignalingNotification(ctx context.Context, sendID, recvI
 	}
 	// Invite / cancel / reject / timeout may wake offline devices to sync call state.
 	if offlinePush != nil && !offlinePushEligible {
-		log.ZInfo(ctx, "lintao sendSignalingNotification: offline push stripped (payload not eligible)",
+		log.ZInfo(ctx, "sendSignalingNotification: offline push stripped (payload not eligible)",
 			"sendID", sendID,
 			"recvID", recvID,
 			"sessionType", sessionType,
@@ -1576,7 +1576,7 @@ func (s *rtcServer) sendSignalingNotification(ctx context.Context, sendID, recvI
 
 	_, err := s.msgClient.MsgClient.SendMsg(ctx, &pbmsg.SendMsgReq{MsgData: msgData})
 	if err != nil {
-		log.ZError(ctx, "lintao sendSignalingNotification failed", err,
+		log.ZError(ctx, "sendSignalingNotification failed", err,
 			"sendID", sendID,
 			"recvID", recvID,
 			"sessionType", sessionType,
@@ -1586,7 +1586,7 @@ func (s *rtcServer) sendSignalingNotification(ctx context.Context, sendID, recvI
 		)
 		return err
 	}
-	log.ZInfo(ctx, "lintao sendSignalingNotification ok",
+	log.ZInfo(ctx, "sendSignalingNotification ok",
 		"sendID", sendID,
 		"recvID", recvID,
 		"sessionType", sessionType,
