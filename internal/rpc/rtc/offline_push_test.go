@@ -36,16 +36,12 @@ func TestBuildCallWakePushEx(t *testing.T) {
 	}
 }
 
-func TestResolveInviteOfflinePushInfoUsesConfigDefaults(t *testing.T) {
+func TestResolveInviteOfflinePushInfoSingleChatDefaults(t *testing.T) {
 	s := &rtcServer{
 		config: &Config{
 			NotificationConfig: config.Notification{
 				SignalingInvite: config.NotificationConfig{
-					OfflinePush: config.OfflinePushConfig{
-						Enable: true,
-						Title:  "SOK",
-						Desc:   "默认通话邀请",
-					},
+					OfflinePush: config.OfflinePushConfig{Enable: true},
 				},
 			},
 		},
@@ -60,10 +56,10 @@ func TestResolveInviteOfflinePushInfoUsesConfigDefaults(t *testing.T) {
 	if push == nil {
 		t.Fatal("expected offline push info")
 	}
-	if push.Title != "SOK" {
+	if push.Title != "SOK语音" {
 		t.Fatalf("title=%q", push.Title)
 	}
-	if push.Desc != "默认通话邀请" {
+	if push.Desc != "caller邀请你语音通话" {
 		t.Fatalf("desc=%q", push.Desc)
 	}
 	if push.IOSPushSound != callIOSPushSound {
@@ -71,6 +67,71 @@ func TestResolveInviteOfflinePushInfoUsesConfigDefaults(t *testing.T) {
 	}
 	if push.Ex == "" {
 		t.Fatal("expected wake push ex")
+	}
+}
+
+func TestResolveInviteOfflinePushInfoOverridesClientCopy(t *testing.T) {
+	s := &rtcServer{
+		config: &Config{
+			NotificationConfig: config.Notification{
+				SignalingInvite: config.NotificationConfig{
+					OfflinePush: config.OfflinePushConfig{Enable: true},
+				},
+			},
+		},
+	}
+	inv := &rtc.InvitationInfo{
+		RoomID:        "room-6b96d6c5-4f7c-43bb-b997-03e3bcef94e0",
+		InviterUserID: "8511557336",
+		MediaType:     "video",
+		SessionType:   int32(constant.SingleChatType),
+	}
+	push := s.resolveInviteOfflinePushInfo(t.Context(), inv, &sdkws.OfflinePushInfo{
+		Title:        "通话邀请",
+		Desc:         "邀请你进行视频通话",
+		IOSPushSound: "default",
+		Ex:           `{"pushType":"call","roomID":"room-6b96d6c5-4f7c-43bb-b997-03e3bcef94e0","sessionType":1,"mediaType":"video","sourceID":"8511557336"}`,
+	})
+	if push == nil {
+		t.Fatal("expected offline push info")
+	}
+	if push.Title != "SOK视频" {
+		t.Fatalf("title=%q, want SOK视频", push.Title)
+	}
+	if push.Desc != "8511557336邀请你视频通话" {
+		t.Fatalf("desc=%q, want 8511557336邀请你视频通话", push.Desc)
+	}
+	if push.IOSPushSound != "default" {
+		t.Fatalf("ios sound should be preserved from client, got %q", push.IOSPushSound)
+	}
+}
+
+func TestResolveInviteOfflinePushInfoGroupChatDefaults(t *testing.T) {
+	s := &rtcServer{
+		config: &Config{
+			NotificationConfig: config.Notification{
+				SignalingInvite: config.NotificationConfig{
+					OfflinePush: config.OfflinePushConfig{Enable: true},
+				},
+			},
+		},
+	}
+	inv := &rtc.InvitationInfo{
+		RoomID:        "room-server",
+		InviterUserID: "caller",
+		MediaType:     "video",
+		GroupID:       "g1",
+		SessionType:   int32(constant.ReadGroupChatType),
+	}
+	push := s.resolveInviteOfflinePushInfo(t.Context(), inv, nil)
+	if push == nil {
+		t.Fatal("expected offline push info")
+	}
+	if push.Title != "群组" {
+		t.Fatalf("title=%q", push.Title)
+	}
+	if push.Desc != "caller邀请你多人通话" {
+		t.Fatalf("desc=%q", push.Desc)
 	}
 }
 
@@ -120,6 +181,12 @@ func TestResolveInviteOfflinePushInfoAddsGroupID(t *testing.T) {
 	if push == nil {
 		t.Fatal("expected offline push info")
 	}
+	if push.Title != "群组" {
+		t.Fatalf("title=%q", push.Title)
+	}
+	if push.Desc != "caller邀请你多人通话" {
+		t.Fatalf("desc=%q", push.Desc)
+	}
 	var ex callWakePushEx
 	if err := jsonutil.JsonStringToStruct(push.Ex, &ex); err != nil {
 		t.Fatalf("unmarshal ex: %v", err)
@@ -135,6 +202,18 @@ func TestCallMediaLabel(t *testing.T) {
 	}
 	if got := callMediaLabel("audio"); got != "语音" {
 		t.Fatalf("audio label=%q", got)
+	}
+}
+
+func TestSingleChatInviteOfflinePushCopy(t *testing.T) {
+	if got := singleChatInviteOfflinePushTitle("语音"); got != "SOK语音" {
+		t.Fatalf("title=%q", got)
+	}
+	if got := singleChatInviteOfflinePushTitle("视频"); got != "SOK视频" {
+		t.Fatalf("title=%q", got)
+	}
+	if got := singleChatInviteOfflinePushDesc("张三", "视频"); got != "张三邀请你视频通话" {
+		t.Fatalf("desc=%q", got)
 	}
 }
 
@@ -159,16 +238,7 @@ func TestCallPushActorNameFromUser(t *testing.T) {
 	}
 }
 
-func TestCallActionDefaultDescUsesActorName(t *testing.T) {
-	if got := callActionDefaultDesc(signalCallActionCancel, "语音", "Tom Smith"); got != "Tom Smith已取消语音通话" {
-		t.Fatalf("single cancel: got %q", got)
-	}
-	if got := callActionDefaultDesc(signalCallActionTimeout, "语音", "Family Group"); got != "未接Family Group的语音通话" {
-		t.Fatalf("group timeout: got %q", got)
-	}
-}
-
-func TestResolveSignalingOfflinePushInfoOverridesInviteCopyForMissedCall(t *testing.T) {
+func TestResolveSignalingOfflinePushInfoSingleChatMissedCall(t *testing.T) {
 	s := &rtcServer{
 		config: &Config{
 			NotificationConfig: config.Notification{
@@ -195,21 +265,57 @@ func TestResolveSignalingOfflinePushInfoOverridesInviteCopyForMissedCall(t *test
 	if timeoutPush == nil {
 		t.Fatal("expected offline push info")
 	}
-	if timeoutPush.Title != "未接来电" {
-		t.Fatalf("title=%q, want 未接来电", timeoutPush.Title)
+	if timeoutPush.Title != "caller" {
+		t.Fatalf("title=%q, want caller", timeoutPush.Title)
 	}
-	if timeoutPush.Desc != "未接caller的语音通话" {
-		t.Fatalf("desc=%q, want 未接caller的语音通话", timeoutPush.Desc)
+	if timeoutPush.Desc != callOfflinePushMissedDesc {
+		t.Fatalf("desc=%q, want %q", timeoutPush.Desc, callOfflinePushMissedDesc)
 	}
 	if timeoutPush.IOSPushSound != "" {
 		t.Fatalf("ios sound=%q, want empty for missed call", timeoutPush.IOSPushSound)
 	}
 
 	cancelPush := s.resolveSignalingOfflinePushInfo(t.Context(), inv, invitePush, signalCallActionCancel, "caller")
-	if cancelPush.Title != "通话已取消" {
+	if cancelPush.Title != "caller" {
 		t.Fatalf("cancel title=%q", cancelPush.Title)
 	}
-	if cancelPush.Desc != "caller已取消语音通话" {
+	if cancelPush.Desc != callOfflinePushMissedDesc {
 		t.Fatalf("cancel desc=%q", cancelPush.Desc)
+	}
+}
+
+func TestResolveSignalingOfflinePushInfoGroupChatMissedCall(t *testing.T) {
+	s := &rtcServer{
+		config: &Config{
+			NotificationConfig: config.Notification{
+				SignalingInvite: config.NotificationConfig{
+					OfflinePush: config.OfflinePushConfig{Enable: true},
+				},
+			},
+		},
+	}
+	inv := &rtc.InvitationInfo{
+		RoomID:        "room-group",
+		InviterUserID: "caller",
+		MediaType:     "video",
+		GroupID:       "g1",
+		SessionType:   int32(constant.ReadGroupChatType),
+	}
+	invitePush := &sdkws.OfflinePushInfo{
+		Title:        "群通话邀请",
+		Desc:         "caller邀请你多人通话",
+		IOSPushSound: callIOSPushSound,
+		Ex:           `{"pushType":"call","roomID":"room-group","sessionType":3}`,
+	}
+
+	timeoutPush := s.resolveSignalingOfflinePushInfo(t.Context(), inv, invitePush, signalCallActionTimeout, "caller")
+	if timeoutPush == nil {
+		t.Fatal("expected offline push info")
+	}
+	if timeoutPush.Title != "群组" {
+		t.Fatalf("title=%q, want 群组", timeoutPush.Title)
+	}
+	if timeoutPush.Desc != callOfflinePushMissedDesc {
+		t.Fatalf("desc=%q, want %q", timeoutPush.Desc, callOfflinePushMissedDesc)
 	}
 }

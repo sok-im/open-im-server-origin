@@ -266,8 +266,21 @@ func (s *rtcServer) applySingleChatInviteOfflinePushCopy(ctx context.Context, pu
 	if push == nil || inv == nil {
 		return
 	}
-	push.Title = s.resolveSingleChatUserDisplayName(ctx, inv.InviterUserID)
-	push.Desc = callOfflinePushMissedDesc
+	mediaLabel := callMediaLabel(inv.MediaType)
+	push.Title = singleChatInviteOfflinePushTitle(mediaLabel)
+	inviterName := s.resolveSingleChatUserDisplayName(ctx, inv.InviterUserID)
+	push.Desc = singleChatInviteOfflinePushDesc(inviterName, mediaLabel)
+}
+
+func singleChatInviteOfflinePushTitle(mediaLabel string) string {
+	return "SOK" + mediaLabel
+}
+
+func singleChatInviteOfflinePushDesc(inviterName, mediaLabel string) string {
+	if inviterName != "" {
+		return inviterName + "邀请你" + mediaLabel + "通话"
+	}
+	return "邀请你" + mediaLabel + "通话"
 }
 
 func (s *rtcServer) applyGroupChatInviteOfflinePushCopy(ctx context.Context, push *sdkws.OfflinePushInfo, inv *rtc.InvitationInfo) {
