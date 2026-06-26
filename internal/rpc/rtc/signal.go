@@ -1969,8 +1969,12 @@ type callRecordData struct {
 // callRecordMsgOptions returns message Options for a persisted call-record chat message.
 // Unlike signalingMsgOptions (n_ notification conversation), these options route the
 // message into the si_/sg_ chat conversation and persist it to history.
+// Offline push is disabled: call-related wake notifications are delivered only via
+// signaling (invite/cancel/reject/timeout), which respect AvNotification. Without this,
+// hang-up/cancel call records would trigger a generic [NEWMSG] banner even when the
+// callee disabled AV notifications and never received the invite push.
 func callRecordMsgOptions() map[string]bool {
-	opts := make(map[string]bool, 7)
+	opts := make(map[string]bool, 8)
 	datautil.SetSwitchFromOptions(opts, constant.IsNotNotification, true)          // → si_/sg_ chat conversation
 	datautil.SetSwitchFromOptions(opts, constant.IsHistory, true)                  // → write to history
 	datautil.SetSwitchFromOptions(opts, constant.IsPersistent, true)               // → persist to storage
@@ -1978,6 +1982,7 @@ func callRecordMsgOptions() map[string]bool {
 	datautil.SetSwitchFromOptions(opts, constant.IsConversationUpdate, true)       // → update conv last message
 	datautil.SetSwitchFromOptions(opts, constant.IsSenderConversationUpdate, true) // → update inviter's conv too
 	datautil.SetSwitchFromOptions(opts, constant.IsSenderSync, true)               // → sync to inviter's other devices
+	datautil.SetSwitchFromOptions(opts, constant.IsOfflinePush, false)             // → no offline banner for call records
 	return opts
 }
 
