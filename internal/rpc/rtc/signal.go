@@ -1067,6 +1067,21 @@ func (s *rtcServer) livekitRoomParticipantsMeta(ctx context.Context, roomID stri
 	return out, true, nil
 }
 
+// isInvitationPending reports whether the invitation still represents an active call.
+// The LiveKit room must still have participants; if LiveKit is unreachable, the
+// inviter's call-status entry for this roomID is used as a fallback.
+func (s *rtcServer) isInvitationPending(ctx context.Context, inv *model.SignalInvitation) bool {
+	if inv == nil || inv.RoomID == "" {
+		return false
+	}
+	_, inCall, err := s.livekitRoomParticipantsMeta(ctx, inv.RoomID)
+	if err == nil {
+		return inCall
+	}
+	callSt, stErr := s.callStatusCache.GetCallStatus(ctx, inv.InviterUserID)
+	return stErr == nil && callSt.RoomID == inv.RoomID
+}
+
 // SignalGetTokenByRoomID returns a token for joining a room directly (HTTP API path).
 func (s *rtcServer) SignalGetTokenByRoomID(ctx context.Context, req *rtc.SignalGetTokenByRoomIDReq) (*rtc.SignalGetTokenByRoomIDResp, error) {
 	return s.getTokenByRoomID(ctx, req)
@@ -1126,6 +1141,12 @@ func (s *rtcServer) GetSignalInvitationInfo(ctx context.Context, req *rtc.GetSig
 	if err != nil {
 		return nil, err
 	}
+	if !s.isInvitationPending(ctx, inv) {
+		if delErr := s.db.DeleteInvitation(ctx, inv.RoomID); delErr != nil {
+			log.ZWarn(ctx, "GetSignalInvitationInfo: delete stale invitation failed", delErr, "roomID", inv.RoomID)
+		}
+		return nil, errs.ErrRecordNotFound.WrapMsg("invitation not found or expired", "roomID", inv.RoomID)
+	}
 	return &rtc.GetSignalInvitationInfoResp{
 		InvitationInfo: modelToInvitationInfo(inv),
 		OfflinePushInfo: &sdkws.OfflinePushInfo{
@@ -1141,6 +1162,12 @@ func (s *rtcServer) GetSignalInvitationInfoStartApp(ctx context.Context, req *rt
 	inv, err := s.db.GetInvitationByInviteeUserID(ctx, req.UserID)
 	if err != nil {
 		return nil, err
+	}
+	if !s.isInvitationPending(ctx, inv) {
+		if delErr := s.db.DeleteInvitation(ctx, inv.RoomID); delErr != nil {
+			log.ZWarn(ctx, "GetSignalInvitationInfoStartApp: delete stale invitation failed", delErr, "roomID", inv.RoomID, "userID", req.UserID)
+		}
+		return nil, errs.ErrRecordNotFound.WrapMsg("invitation not found or expired", "userID", req.UserID)
 	}
 	return &rtc.GetSignalInvitationInfoStartAppResp{
 		Invitation: modelToInvitationInfo(inv),
