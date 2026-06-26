@@ -1072,21 +1072,52 @@ func (s *rtcServer) livekitRoomParticipantsMeta(ctx context.Context, roomID stri
 }
 
 // isInvitationPending reports whether the invitation still represents an active call.
-// LiveKit participants are checked first; when the room is empty, call-status entries
-// for the inviter/invitees are used so ringing calls are not treated as stale merely
-// because the inviter has not joined LiveKit yet.
 func (s *rtcServer) isInvitationPending(ctx context.Context, inv *model.SignalInvitation) bool {
 	if inv == nil || inv.RoomID == "" {
 		return false
 	}
-	_, inCall, err := s.livekitRoomParticipantsMeta(ctx, inv.RoomID)
-	if err == nil && inCall {
+	if inv.Timeout > 0 && inv.InitiateTime > 0 {
+		deadlineMs := inv.InitiateTime + int64(inv.Timeout)*1000
+		if time.Now().UnixMilli() > deadlineMs {
+			return false
+		}
+	}
+
+	_, inCall, lkErr := s.livekitRoomParticipantsMeta(ctx, inv.RoomID)
+	if lkErr == nil && inCall {
 		return true
 	}
-	return s.hasCallStatusForRoom(ctx, inv)
+	// Room torn down (cancel/hangup DeleteRoom) — call is over even if DB invitation lingers.
+	if lkErr != nil {
+		return false
+	}
+
+	inviterSt, inviterErr := s.callStatusCache.GetCallStatus(ctx, inv.InviterUserID)
+	inviterActive := inviterErr == nil && inviterSt.RoomID == inv.RoomID
+
+	if inv.AcceptTime > 0 {
+		return inviterActive || s.hasParticipantCallStatusForRoom(ctx, inv)
+	}
+
+	// Unanswered: invitee-side cache alone must not keep the ring alive after the caller left.
+	if !inviterActive {
+		return false
+	}
+	if inv.GroupID != "" {
+		return true
+	}
+
+	// 1v1 unanswered with an empty LiveKit room: only pending while the inviter is still online.
+	platforms, err := s.userClient.GetUserOnlinePlatform(ctx, inv.InviterUserID)
+	if err != nil {
+		log.ZWarn(ctx, "isInvitationPending: GetUserOnlinePlatform failed", err,
+			"inviterUserID", inv.InviterUserID, "roomID", inv.RoomID)
+		return true
+	}
+	return len(platforms) > 0
 }
 
-func (s *rtcServer) hasCallStatusForRoom(ctx context.Context, inv *model.SignalInvitation) bool {
+func (s *rtcServer) hasParticipantCallStatusForRoom(ctx context.Context, inv *model.SignalInvitation) bool {
 	userIDs := append([]string{inv.InviterUserID}, inv.InviteeUserIDList...)
 	seen := make(map[string]struct{}, len(userIDs))
 	for _, uid := range userIDs {
