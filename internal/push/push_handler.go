@@ -168,13 +168,24 @@ func (c *ConsumerHandler) Push2User(ctx context.Context, userIDs []string, msg *
 	}
 
 	log.ZDebug(ctx, "single and notification push result", "result", wsResults, "msg", msg, "push_to_userID", userIDs)
+	if isSignalingNotification(msg.ContentType) {
+		log.ZInfo(ctx, "lintao signaling push online check",
+			"recvID", msg.RecvID,
+			"sendID", msg.SendID,
+			"clientMsgID", msg.ClientMsgID,
+			"signalingPayloadType", msgprocessor.SignalingPayloadTypeName(msg.Content),
+			"offlinePushOption", datautil.GetSwitchFromOptions(msg.Options, constant.IsOfflinePush),
+			"offlinePushTitle", offlinePushSummary(msg).title,
+			"wsResults", wsResults,
+		)
+	}
 	log.ZInfo(ctx, "single and notification push end")
 
 	if !c.shouldPushOffline(ctx, msg) {
 		return nil
 	}
 	if isSignalingNotification(msg.ContentType) {
-		log.ZInfo(ctx, "signaling offline push start",
+		log.ZInfo(ctx, "lintao signaling offline push start",
 			"recvID", msg.RecvID,
 			"sendID", msg.SendID,
 			"clientMsgID", msg.ClientMsgID,
@@ -194,14 +205,14 @@ func (c *ConsumerHandler) Push2User(ctx context.Context, userIDs []string, msg *
 		//receiver online push success
 		if v.OnlinePush {
 			if isSignalingNotification(msg.ContentType) {
-				log.ZInfo(ctx, "signaling offline push skipped: receiver online",
+				log.ZInfo(ctx, "lintao signaling offline push skipped: receiver online",
 					"userID", v.UserID,
 					"clientMsgID", msg.ClientMsgID,
 					"recvID", msg.RecvID,
 					"sendID", msg.SendID,
 				)
 			} else {
-				log.ZDebug(ctx, "offline push skipped: receiver already received via online push", "userID", v.UserID, "clientMsgID", msg.ClientMsgID)
+				log.ZDebug(ctx, "lintao offline push skipped: receiver already received via online push", "userID", v.UserID, "clientMsgID", msg.ClientMsgID)
 			}
 			return nil
 		}
@@ -223,20 +234,20 @@ func (c *ConsumerHandler) Push2User(ctx context.Context, userIDs []string, msg *
 	}
 	if len(needOfflinePushUserID) == 0 {
 		if isSignalingNotification(msg.ContentType) {
-			log.ZInfo(ctx, "signaling offline push skipped: no eligible users after filter",
+			log.ZInfo(ctx, "lintao signaling offline push skipped: no eligible users after filter",
 				"clientMsgID", msg.ClientMsgID,
 				"recvID", msg.RecvID,
 				"sendID", msg.SendID,
 				"contentType", msg.ContentType,
 			)
 		} else {
-			log.ZDebug(ctx, "offline push skipped: all users disabled notification switch", "clientMsgID", msg.ClientMsgID, "contentType", msg.ContentType)
+			log.ZDebug(ctx, "lintao offline push skipped: all users disabled notification switch", "clientMsgID", msg.ClientMsgID, "contentType", msg.ContentType)
 		}
 		return nil
 	}
 	err = c.offlinePushMsg(ctx, msg, needOfflinePushUserID)
 	if err != nil {
-		log.ZWarn(ctx, "offlinePushMsg failed", err, "needOfflinePushUserID length", len(needOfflinePushUserID), "msg", msg)
+		log.ZWarn(ctx, "lintao offlinePushMsg failed", err, "needOfflinePushUserID length", len(needOfflinePushUserID), "msg", msg)
 		return nil
 	}
 
@@ -247,14 +258,14 @@ func (c *ConsumerHandler) shouldPushOffline(ctx context.Context, msg *sdkws.MsgD
 	isOfflinePush := datautil.GetSwitchFromOptions(msg.Options, constant.IsOfflinePush)
 	if !isOfflinePush {
 		if isSignalingNotification(msg.ContentType) {
-			log.ZInfo(ctx, "signaling offline push skipped: IsOfflinePush option false",
+			log.ZInfo(ctx, "lintao signaling offline push skipped: IsOfflinePush option false",
 				"clientMsgID", msg.ClientMsgID,
 				"recvID", msg.RecvID,
 				"sendID", msg.SendID,
 				"contentType", msg.ContentType,
 			)
 		} else {
-			log.ZDebug(ctx, "offline push skipped: IsOfflinePush option not set", "clientMsgID", msg.ClientMsgID, "contentType", msg.ContentType)
+			log.ZDebug(ctx, "lintao offline push skipped: IsOfflinePush option not set", "clientMsgID", msg.ClientMsgID, "contentType", msg.ContentType)
 		}
 		return false
 	}
@@ -267,13 +278,25 @@ func (c *ConsumerHandler) shouldPushOffline(ctx context.Context, msg *sdkws.MsgD
 		return false
 	}
 	if isSignalingNotification(msg.ContentType) && !msgprocessor.IsOfflinePushSignalingContent(msg.Content) {
-		log.ZInfo(ctx, "signaling offline push skipped: non-offline-push signaling",
+		log.ZInfo(ctx, "lintao signaling offline push skipped: non-offline-push signaling",
 			"clientMsgID", msg.ClientMsgID,
 			"recvID", msg.RecvID,
 			"sendID", msg.SendID,
 			"contentType", msg.ContentType,
+			"signalingPayloadType", msgprocessor.SignalingPayloadTypeName(msg.Content),
+			"offlinePushTitle", offlinePushSummary(msg).title,
+			"hasOfflinePushInfo", msg.OfflinePushInfo != nil,
 		)
 		return false
+	}
+	if isSignalingNotification(msg.ContentType) {
+		log.ZInfo(ctx, "lintao signaling offline push allowed",
+			"clientMsgID", msg.ClientMsgID,
+			"recvID", msg.RecvID,
+			"sendID", msg.SendID,
+			"signalingPayloadType", msgprocessor.SignalingPayloadTypeName(msg.Content),
+			"offlinePushTitle", offlinePushSummary(msg).title,
+		)
 	}
 	return true
 }

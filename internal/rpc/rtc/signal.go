@@ -881,11 +881,39 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 	}
 	// Unanswered 1v1 hang-up: wake offline callees with a missed-call push so they sync state.
 	invInfo := modelToInvitationInfo(dbInv)
+	peerIDs := hungUpPeerIDsFromDB(dbInv, req.UserID)
+	is1v1Unanswered := dbInv.GroupID == "" && dbInv.AcceptTime <= 0
+	log.ZInfo(ctx, "lintao handleHungUp: missed-call offline push decision",
+		"roomID", dbInv.RoomID,
+		"hangUpUserID", req.UserID,
+		"inviterUserID", dbInv.InviterUserID,
+		"inviteeUserIDList", dbInv.InviteeUserIDList,
+		"peerIDs", peerIDs,
+		"groupID", dbInv.GroupID,
+		"acceptTime", dbInv.AcceptTime,
+		"is1v1Unanswered", is1v1Unanswered,
+		"mediaType", dbInv.MediaType,
+	)
 	var hungUpOfflinePush *sdkws.OfflinePushInfo
-	if dbInv.GroupID == "" && dbInv.AcceptTime <= 0 {
+	if is1v1Unanswered {
 		hungUpOfflinePush = s.resolveSignalingOfflinePushInfo(ctx, invInfo, offlinePushInfoFromInvitationModel(dbInv), signalCallActionTimeout, req.UserID)
 	}
-	for _, peerID := range hungUpPeerIDsFromDB(dbInv, req.UserID) {
+	missedCallPushTitle := ""
+	missedCallPushDesc := ""
+	if hungUpOfflinePush != nil {
+		missedCallPushTitle = hungUpOfflinePush.Title
+		missedCallPushDesc = hungUpOfflinePush.Desc
+	}
+	log.ZInfo(ctx, "lintao handleHungUp: sending hungUp signaling to peers",
+		"roomID", dbInv.RoomID,
+		"peerCount", len(peerIDs),
+		"peerIDs", peerIDs,
+		"missedCallPushEnabled", hungUpOfflinePush != nil,
+		"missedCallPushTitle", missedCallPushTitle,
+		"missedCallPushDesc", missedCallPushDesc,
+		"signalingPayloadType", msgprocessor.SignalingPayloadTypeName(content),
+	)
+	for _, peerID := range peerIDs {
 		if err := s.sendSignalingNotification(ctx, req.UserID, peerID, sessionType, dbInv.GroupID, hungUpOfflinePush, content); err != nil {
 			log.ZWarn(ctx, "sendSignalingNotification hungUp to peer failed", err, "peerID", peerID)
 		}
@@ -1491,8 +1519,26 @@ func signalingMsgOptions() map[string]bool {
 func (s *rtcServer) sendSignalingNotification(ctx context.Context, sendID, recvID string, sessionType int32, groupID string, offlinePush *sdkws.OfflinePushInfo, content []byte) error {
 	now := time.Now().UnixMilli()
 	opts := signalingMsgOptions()
+	signalingPayloadType := msgprocessor.SignalingPayloadTypeName(content)
+	offlinePushEligible := msgprocessor.IsOfflinePushSignalingContent(content)
+	requestedPushTitle := ""
+	requestedPushDesc := ""
+	if offlinePush != nil {
+		requestedPushTitle = offlinePush.Title
+		requestedPushDesc = offlinePush.Desc
+	}
 	// Invite / cancel / reject / timeout may wake offline devices to sync call state.
-	if offlinePush != nil && !msgprocessor.IsOfflinePushSignalingContent(content) {
+	if offlinePush != nil && !offlinePushEligible {
+		log.ZInfo(ctx, "lintao sendSignalingNotification: offline push stripped (payload not eligible)",
+			"sendID", sendID,
+			"recvID", recvID,
+			"sessionType", sessionType,
+			"groupID", groupID,
+			"signalingPayloadType", signalingPayloadType,
+			"requestedPushTitle", requestedPushTitle,
+			"requestedPushDesc", requestedPushDesc,
+			"contentLen", len(content),
+		)
 		offlinePush = nil
 	}
 	if offlinePush != nil {
@@ -1530,7 +1576,7 @@ func (s *rtcServer) sendSignalingNotification(ctx context.Context, sendID, recvI
 
 	_, err := s.msgClient.MsgClient.SendMsg(ctx, &pbmsg.SendMsgReq{MsgData: msgData})
 	if err != nil {
-		log.ZError(ctx, "sendSignalingNotification failed", err,
+		log.ZError(ctx, "lintao sendSignalingNotification failed", err,
 			"sendID", sendID,
 			"recvID", recvID,
 			"sessionType", sessionType,
@@ -1540,7 +1586,7 @@ func (s *rtcServer) sendSignalingNotification(ctx context.Context, sendID, recvI
 		)
 		return err
 	}
-	log.ZInfo(ctx, "sendSignalingNotification ok",
+	log.ZInfo(ctx, "lintao sendSignalingNotification ok",
 		"sendID", sendID,
 		"recvID", recvID,
 		"sessionType", sessionType,
@@ -1548,11 +1594,15 @@ func (s *rtcServer) sendSignalingNotification(ctx context.Context, sendID, recvI
 		"clientMsgID", msgData.ClientMsgID,
 		"serverMsgID", msgData.ServerMsgID,
 		"contentType", msgData.ContentType,
+		"signalingPayloadType", signalingPayloadType,
+		"offlinePushEligible", offlinePushEligible,
 		"offlinePushEnabled", offlinePushEnabled,
 		"offlinePushTitle", offlinePushTitle,
 		"offlinePushDesc", offlinePushDesc,
 		"offlinePushExLen", offlinePushExLen,
 		"offlinePushSound", offlinePushSound,
+		"requestedPushTitle", requestedPushTitle,
+		"requestedPushDesc", requestedPushDesc,
 	)
 
 	return nil

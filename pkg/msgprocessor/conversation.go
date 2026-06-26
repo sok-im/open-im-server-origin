@@ -175,6 +175,37 @@ func IsOfflinePushSignalingContent(content []byte) bool {
 	}
 }
 
+// SignalingPayloadTypeName returns the SignalReq payload type for logging; empty when unknown/unmarshal fails.
+func SignalingPayloadTypeName(content []byte) string {
+	if len(content) == 0 {
+		return ""
+	}
+	var req rtc.SignalReq
+	if err := proto.Unmarshal(content, &req); err != nil {
+		return ""
+	}
+	switch req.Payload.(type) {
+	case *rtc.SignalReq_Invite:
+		return "invite"
+	case *rtc.SignalReq_InviteInGroup:
+		return "inviteInGroup"
+	case *rtc.SignalReq_Cancel:
+		return "cancel"
+	case *rtc.SignalReq_Reject:
+		return "reject"
+	case *rtc.SignalReq_Timeout:
+		return "timeout"
+	case *rtc.SignalReq_HungUp:
+		return "hungUp"
+	case *rtc.SignalReq_Accept:
+		return "accept"
+	case *rtc.SignalReq_GetTokenByRoomID:
+		return "getTokenByRoomID"
+	default:
+		return "other"
+	}
+}
+
 type MsgBySeq []*sdkws.MsgData
 
 func (s MsgBySeq) Len() int {
