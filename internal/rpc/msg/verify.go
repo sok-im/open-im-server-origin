@@ -219,6 +219,10 @@ func (m *msgServer) modifyMessageByUserMessageReceiveOpt(ctx context.Context, us
 	if msgprocessor.IsSignalingContentType(pb.MsgData.ContentType) {
 		return true, nil
 	}
+	// 通话记录气泡需写入 si_ 会话并计入未读，离线被叫依赖此消息展示未接来电
+	if msgprocessor.IsRTCCallRecordMsg(pb.MsgData) {
+		return true, nil
+	}
 	// 第一优先级：接收方全局接收设置
 	// NotReceiveMessage 直接丢弃，无需执行后续任何权限或偏好查询
 	opt, err := m.UserLocalCache.GetUserGlobalMsgRecvOpt(ctx, userID)

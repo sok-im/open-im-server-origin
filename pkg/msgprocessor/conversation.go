@@ -15,6 +15,7 @@
 package msgprocessor
 
 import (
+	"encoding/json"
 	"sort"
 	"strings"
 
@@ -133,6 +134,29 @@ func IsSignalingContentType(contentType int32) bool {
 	return contentType >= constant.SignalingNotificationBegin && contentType <= constant.SignalingNotificationEnd
 }
 
+// IsRTCCallRecordMsg reports whether msg is a persisted 1v1 rtcCallRecord chat bubble.
+// These must reach offline callees even when conversation-level receive prefs block normal chat.
+func IsRTCCallRecordMsg(msg *sdkws.MsgData) bool {
+	if msg == nil || msg.ContentType != constant.Custom || len(msg.Content) == 0 {
+		return false
+	}
+	var outer map[string]string
+	if err := json.Unmarshal(msg.Content, &outer); err != nil {
+		return false
+	}
+	data := outer["data"]
+	if data == "" {
+		return false
+	}
+	var inner struct {
+		CustomType string `json:"customType"`
+	}
+	if err := json.Unmarshal([]byte(data), &inner); err != nil {
+		return false
+	}
+	return inner.CustomType == "rtcCallRecord"
+}
+
 // IsOfflinePushSignalingContent reports whether serialized SignalReq content should trigger offline push.
 // Invite / cancel / reject / timeout wake offline devices so callees or callers can sync call state.
 func IsOfflinePushSignalingContent(content []byte) bool {
@@ -144,7 +168,7 @@ func IsOfflinePushSignalingContent(content []byte) bool {
 		return false
 	}
 	switch req.Payload.(type) {
-	case *rtc.SignalReq_Invite, *rtc.SignalReq_InviteInGroup, *rtc.SignalReq_Cancel, *rtc.SignalReq_Reject, *rtc.SignalReq_Timeout:
+	case *rtc.SignalReq_Invite, *rtc.SignalReq_InviteInGroup, *rtc.SignalReq_Cancel, *rtc.SignalReq_Reject, *rtc.SignalReq_Timeout, *rtc.SignalReq_HungUp:
 		return true
 	default:
 		return false

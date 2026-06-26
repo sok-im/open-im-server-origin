@@ -875,10 +875,14 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 		log.ZWarn(ctx, "handleHungUp", err, "marshal signal req failed", "req", req, "dbInv", dbInv, "signalReq", signalReq)
 		return nil, err
 	}
-	// Notify peers using the authoritative DB participant list.
-	// Hang-up is online-only; do not trigger offline push (invite signaling only).
+	// Unanswered 1v1 hang-up: wake offline callees (same as cancel) so they sync missed-call state.
+	invInfo := modelToInvitationInfo(dbInv)
+	var hungUpOfflinePush *sdkws.OfflinePushInfo
+	if dbInv.GroupID == "" && dbInv.AcceptTime <= 0 {
+		hungUpOfflinePush = s.resolveSignalingOfflinePushInfo(ctx, invInfo, offlinePushInfoFromInvitationModel(dbInv), signalCallActionCancel, req.UserID)
+	}
 	for _, peerID := range hungUpPeerIDsFromDB(dbInv, req.UserID) {
-		if err := s.sendSignalingNotification(ctx, req.UserID, peerID, sessionType, dbInv.GroupID, nil, content); err != nil {
+		if err := s.sendSignalingNotification(ctx, req.UserID, peerID, sessionType, dbInv.GroupID, hungUpOfflinePush, content); err != nil {
 			log.ZWarn(ctx, "sendSignalingNotification hungUp to peer failed", err, "peerID", peerID)
 		}
 	}
@@ -1068,18 +1072,61 @@ func (s *rtcServer) livekitRoomParticipantsMeta(ctx context.Context, roomID stri
 }
 
 // isInvitationPending reports whether the invitation still represents an active call.
-// The LiveKit room must still have participants; if LiveKit is unreachable, the
-// inviter's call-status entry for this roomID is used as a fallback.
+// LiveKit participants are checked first; when the room is empty, call-status entries
+// for the inviter/invitees are used so ringing calls are not treated as stale merely
+// because the inviter has not joined LiveKit yet.
 func (s *rtcServer) isInvitationPending(ctx context.Context, inv *model.SignalInvitation) bool {
 	if inv == nil || inv.RoomID == "" {
 		return false
 	}
 	_, inCall, err := s.livekitRoomParticipantsMeta(ctx, inv.RoomID)
-	if err == nil {
-		return inCall
+	if err == nil && inCall {
+		return true
 	}
-	callSt, stErr := s.callStatusCache.GetCallStatus(ctx, inv.InviterUserID)
-	return stErr == nil && callSt.RoomID == inv.RoomID
+	return s.hasCallStatusForRoom(ctx, inv)
+}
+
+func (s *rtcServer) hasCallStatusForRoom(ctx context.Context, inv *model.SignalInvitation) bool {
+	userIDs := append([]string{inv.InviterUserID}, inv.InviteeUserIDList...)
+	seen := make(map[string]struct{}, len(userIDs))
+	for _, uid := range userIDs {
+		uid = strings.TrimSpace(uid)
+		if uid == "" {
+			continue
+		}
+		if _, ok := seen[uid]; ok {
+			continue
+		}
+		seen[uid] = struct{}{}
+		callSt, err := s.callStatusCache.GetCallStatus(ctx, uid)
+		if err == nil && callSt.RoomID == inv.RoomID {
+			return true
+		}
+	}
+	return false
+}
+
+// finalizeStaleInvitation removes an invitation that is no longer active and, for
+// unanswered 1v1 calls, writes a missed-call chat record so offline callees see it
+// after syncing. TryDeleteInvitation ensures only one path emits the record.
+func (s *rtcServer) finalizeStaleInvitation(ctx context.Context, inv *model.SignalInvitation) {
+	if inv == nil || inv.RoomID == "" {
+		return
+	}
+	claimed, err := s.db.TryDeleteInvitation(ctx, inv.RoomID)
+	if err != nil {
+		log.ZWarn(ctx, "finalizeStaleInvitation: TryDeleteInvitation failed", err, "roomID", inv.RoomID)
+		return
+	}
+	if !claimed {
+		return
+	}
+	s.deleteCallStatusForInvitation(ctx, inv)
+	if inv.GroupID == "" && inv.AcceptTime <= 0 {
+		s.sendCallRecordChatMsg(ctx, inv, callStatusNotConnected, 0)
+		log.ZInfo(ctx, "finalizeStaleInvitation: sent missed call record",
+			"roomID", inv.RoomID, "inviterUserID", inv.InviterUserID, "inviteeUserIDList", inv.InviteeUserIDList)
+	}
 }
 
 // SignalGetTokenByRoomID returns a token for joining a room directly (HTTP API path).
@@ -1142,9 +1189,7 @@ func (s *rtcServer) GetSignalInvitationInfo(ctx context.Context, req *rtc.GetSig
 		return nil, err
 	}
 	if !s.isInvitationPending(ctx, inv) {
-		if delErr := s.db.DeleteInvitation(ctx, inv.RoomID); delErr != nil {
-			log.ZWarn(ctx, "GetSignalInvitationInfo: delete stale invitation failed", delErr, "roomID", inv.RoomID)
-		}
+		s.finalizeStaleInvitation(ctx, inv)
 		return nil, errs.ErrRecordNotFound.WrapMsg("invitation not found or expired", "roomID", inv.RoomID)
 	}
 	return &rtc.GetSignalInvitationInfoResp{
@@ -1164,9 +1209,7 @@ func (s *rtcServer) GetSignalInvitationInfoStartApp(ctx context.Context, req *rt
 		return nil, err
 	}
 	if !s.isInvitationPending(ctx, inv) {
-		if delErr := s.db.DeleteInvitation(ctx, inv.RoomID); delErr != nil {
-			log.ZWarn(ctx, "GetSignalInvitationInfoStartApp: delete stale invitation failed", delErr, "roomID", inv.RoomID, "userID", req.UserID)
-		}
+		s.finalizeStaleInvitation(ctx, inv)
 		return nil, errs.ErrRecordNotFound.WrapMsg("invitation not found or expired", "userID", req.UserID)
 	}
 	return &rtc.GetSignalInvitationInfoStartAppResp{
@@ -2038,6 +2081,11 @@ func callRecordDescription(mediaType, status string, duration int64) string {
 	}
 }
 
+// callRecordClientMsgID returns a stable id so duplicate finalize/send paths are idempotent per room.
+func callRecordClientMsgID(roomID string) string {
+	return "rtc-call-record-" + roomID
+}
+
 // sendCallRecordChatMsg sends a Custom (110) chat message to the si_ conversation
 // representing a completed 1v1 call. Errors are non-fatal and only logged.
 //
@@ -2087,7 +2135,7 @@ func (s *rtcServer) sendCallRecordChatMsg(ctx context.Context, inv *model.Signal
 		CreateTime:  now,
 		SendTime:    now,
 		ServerMsgID: uuid.New().String(),
-		ClientMsgID: uuid.New().String(),
+		ClientMsgID: callRecordClientMsgID(inv.RoomID),
 		Options:     callRecordMsgOptions(),
 	}
 
