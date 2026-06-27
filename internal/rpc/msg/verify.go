@@ -219,7 +219,7 @@ func (m *msgServer) modifyMessageByUserMessageReceiveOpt(ctx context.Context, us
 	if msgprocessor.IsSignalingContentType(pb.MsgData.ContentType) {
 		return true, nil
 	}
-	// 通话记录气泡需写入 si_ 会话并计入未读，离线被叫依赖此消息展示未接来电
+	// 通话记录气泡需写入 si_ 会话；未接来电计入未读，已接通通话不计未读
 	if msgprocessor.IsRTCCallRecordMsg(pb.MsgData) {
 		return true, nil
 	}
