@@ -520,7 +520,7 @@ func (s *userServer) SetDeleteAccountInterval(ctx context.Context, req *pbuser.S
 			"userID", req.UserID)
 	}
 
-	log.ZInfo(ctx, "SetDeleteAccountInterval: success",
+	log.ZInfo(ctx, "lintao SetDeleteAccountInterval: success",
 		"userID", req.UserID,
 		"deleteAccountInterval", interval,
 		"newDeadline", newDeadline.Format(time.RFC3339))
