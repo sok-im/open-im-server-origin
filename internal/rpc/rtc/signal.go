@@ -1044,6 +1044,8 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 		}
 	}
 
+	log.ZInfo(ctx, "handleHungUp", "dbInv", dbInv)
+
 	return &rtc.SignalHungUpResp{}, nil
 }
 
