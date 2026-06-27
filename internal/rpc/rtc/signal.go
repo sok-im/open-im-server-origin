@@ -667,6 +667,9 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 			log.ZWarn(ctx, "handleReject: PullInvitee failed", err, "roomID", dbInv.RoomID, "userID", req.UserID, "req", req, "dbInv", dbInv)
 		}
 
+		participantUserIDs := s.groupCallInRoomParticipantUserIDs(ctx, dbInv.RoomID)
+		go s.sendGroupCallParticipantDeclinedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, participantUserIDs, signalCallActionReject, req.UserID)
+
 		// Check whether any participant other than the inviter has actually
 		// joined the LiveKit room.  Rejecters never enter LiveKit, so a
 		// participant count > 0 (excluding the inviter who waits in the room)
@@ -829,6 +832,9 @@ func (s *rtcServer) handleCancel(ctx context.Context, req *rtc.SignalCancelReq, 
 
 	// For group calls, notify non-invited members that the call was cancelled.
 	if dbInv.GroupID != "" {
+		participantUserIDs := s.groupCallInRoomParticipantUserIDs(ctx, dbInv.RoomID)
+		go s.sendGroupCallParticipantDeclinedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, participantUserIDs, signalCallActionCancel, req.UserID)
+
 		go s.broadcastGroupCallStatusToNonInvited(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
 
 		log.ZDebug(ctx, "handleCancel: sendGroupCallEndedNotification", "dbInv", dbInv, "groupCallEndedClaimed", groupCallEndedClaimed)
@@ -1724,6 +1730,8 @@ func (s *rtcServer) groupCallNotificationConfig(contentType int32) config.Notifi
 		return s.config.NotificationConfig.GroupCallEnded
 	case constant.GroupCallParticipantCountUpdatedNotification:
 		return s.config.NotificationConfig.GroupCallParticipantCountUpdated
+	case constant.GroupCallParticipantDeclinedNotification:
+		return s.config.NotificationConfig.GroupCallParticipantDeclined
 	default:
 		return config.NotificationConfig{}
 	}
@@ -1952,6 +1960,107 @@ func (s *rtcServer) sendGroupCallParticipantCountUpdatedNotification(ctx context
 	}
 }
 
+// groupCallInRoomParticipantUserIDs returns LiveKit participant identities for an ongoing group call.
+func (s *rtcServer) groupCallInRoomParticipantUserIDs(ctx context.Context, roomID string) []string {
+	if roomID == "" {
+		return nil
+	}
+	lp, err := s.roomClient.ListParticipants(ctx, &livekit.ListParticipantsRequest{Room: roomID})
+	if err != nil {
+		log.ZWarn(ctx, "groupCallInRoomParticipantUserIDs: ListParticipants failed", err, "roomID", roomID)
+		return nil
+	}
+	ids := make([]string, 0, len(lp.Participants))
+	for _, p := range lp.Participants {
+		if id := p.GetIdentity(); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+// groupCallParticipantDeclinedDefaultTips returns display text when an invitee rejects/times out
+// or the inviter cancels during a group call.
+func groupCallParticipantDeclinedDefaultTips(actionType, nickname string, count int32) string {
+	name := nickname
+	if name == "" {
+		name = "Someone"
+	}
+	countTips := groupCallParticipantCountDefaultTips(count)
+	switch actionType {
+	case signalCallActionReject:
+		return fmt.Sprintf("%s rejected the call. %s", name, countTips)
+	case signalCallActionTimeout:
+		return fmt.Sprintf("%s did not answer. %s", name, countTips)
+	case signalCallActionCancel:
+		return fmt.Sprintf("%s cancelled the call. %s", name, countTips)
+	default:
+		return countTips
+	}
+}
+
+// sendGroupCallParticipantDeclinedNotification sends a GroupCallParticipantDeclinedNotification
+// (1528) to the group when an invitee rejects or times out, or the inviter cancels, while the
+// group call is still relevant (ongoing or winding down).  Same delivery profile as 1527.
+func (s *rtcServer) sendGroupCallParticipantDeclinedNotification(ctx context.Context, groupID, roomID, mediaType string, participantUserIDs []string, actionType, opUserID string) {
+	if groupID == "" || opUserID == "" {
+		return
+	}
+
+	groupInfo, err := s.groupClient.GetGroupInfoCache(ctx, groupID)
+	if err != nil {
+		log.ZWarn(ctx, "sendGroupCallParticipantDeclinedNotification: GetGroupInfoCache failed", err, "groupID", groupID)
+		return
+	}
+
+	participantCount := int32(len(participantUserIDs))
+
+	publicUserList := make([]*sdkws.PublicUserInfo, 0, len(participantUserIDs))
+	for _, userID := range participantUserIDs {
+		publicUserList = append(publicUserList, &sdkws.PublicUserInfo{UserID: userID})
+	}
+
+	tips := &sdkws.GroupCallParticipantDeclinedTips{
+		Group:               groupInfo,
+		RoomID:              roomID,
+		MediaType:           mediaType,
+		OpUser:              &sdkws.PublicUserInfo{UserID: opUserID},
+		ActionType:          actionType,
+		ParticipantCount:    participantCount,
+		ParticipantUserList: publicUserList,
+		DefaultTips:         groupCallParticipantDeclinedDefaultTips(actionType, opUserID, participantCount),
+	}
+
+	detail := jsonutil.StructToJsonString(tips)
+	elem := sdkws.NotificationElem{Detail: detail}
+	content, err := json.Marshal(&elem)
+	if err != nil {
+		log.ZWarn(ctx, "sendGroupCallParticipantDeclinedNotification: marshal NotificationElem failed", err)
+		return
+	}
+
+	notifyCfg := s.groupCallNotificationConfig(constant.GroupCallParticipantDeclinedNotification)
+	now := time.Now().UnixMilli()
+	msgData := &sdkws.MsgData{
+		SendID:          groupID,
+		RecvID:          groupID,
+		GroupID:         groupID,
+		SessionType:     int32(constant.ReadGroupChatType),
+		ContentType:     int32(constant.GroupCallParticipantDeclinedNotification),
+		MsgFrom:         int32(constant.SysMsgType),
+		Content:         content,
+		CreateTime:      now,
+		SendTime:        now,
+		ServerMsgID:     uuid.New().String(),
+		ClientMsgID:     uuid.New().String(),
+		Options:         s.groupCallNotificationMsgOptions(constant.GroupCallParticipantDeclinedNotification),
+		OfflinePushInfo: offlinePushInfoFromConfig(notifyCfg),
+	}
+	if _, err := s.msgClient.MsgClient.SendMsg(ctx, &pbmsg.SendMsgReq{MsgData: msgData}); err != nil {
+		log.ZWarn(ctx, "sendGroupCallParticipantDeclinedNotification: SendMsg failed", err, "groupID", groupID, "actionType", actionType, "opUserID", opUserID)
+	}
+}
+
 // sendGroupCallEndedNotification sends a GroupCallEndedNotification (1523) on the
 // group notification channel (n_) so online clients receive OnGroupCallEnded.
 // endReason: hungup | cancel | reject | timeout
@@ -2171,14 +2280,14 @@ type callRecordData struct {
 // should not see a new unread badge when the hang-up record is written.
 func callRecordMsgOptions(status string) map[string]bool {
 	opts := make(map[string]bool, 8)
-	datautil.SetSwitchFromOptions(opts, constant.IsNotNotification, true)          // → si_/sg_ chat conversation
-	datautil.SetSwitchFromOptions(opts, constant.IsHistory, true)                  // → write to history
-	datautil.SetSwitchFromOptions(opts, constant.IsPersistent, true)               // → persist to storage
+	datautil.SetSwitchFromOptions(opts, constant.IsNotNotification, true)                     // → si_/sg_ chat conversation
+	datautil.SetSwitchFromOptions(opts, constant.IsHistory, true)                             // → write to history
+	datautil.SetSwitchFromOptions(opts, constant.IsPersistent, true)                          // → persist to storage
 	datautil.SetSwitchFromOptions(opts, constant.IsUnreadCount, status != callStatusAnswered) // → unread only for missed/unanswered calls
-	datautil.SetSwitchFromOptions(opts, constant.IsConversationUpdate, true)       // → update conv last message
-	datautil.SetSwitchFromOptions(opts, constant.IsSenderConversationUpdate, true) // → update inviter's conv too
-	datautil.SetSwitchFromOptions(opts, constant.IsSenderSync, true)               // → sync to inviter's other devices
-	datautil.SetSwitchFromOptions(opts, constant.IsOfflinePush, false)             // → no offline banner for call records
+	datautil.SetSwitchFromOptions(opts, constant.IsConversationUpdate, true)                  // → update conv last message
+	datautil.SetSwitchFromOptions(opts, constant.IsSenderConversationUpdate, true)            // → update inviter's conv too
+	datautil.SetSwitchFromOptions(opts, constant.IsSenderSync, true)                          // → sync to inviter's other devices
+	datautil.SetSwitchFromOptions(opts, constant.IsOfflinePush, false)                        // → no offline banner for call records
 	return opts
 }
 
@@ -2322,20 +2431,40 @@ func (s *rtcServer) handleTimeout(ctx context.Context, req *rtc.SignalTimeoutReq
 	if dbInv.GroupID != "" {
 		lp, listErr := s.roomClient.ListParticipants(ctx, &livekit.ListParticipantsRequest{Room: dbInv.RoomID})
 		joinedCount := 0
+		inRoom := make(map[string]struct{})
+		var participantUserIDs []string
 		if listErr != nil {
 			log.ZWarn(ctx, "handleTimeout: ListParticipants failed", listErr, "roomID", dbInv.RoomID)
 		} else {
 			for _, p := range lp.Participants {
-				if p.GetIdentity() != dbInv.InviterUserID {
+				id := p.GetIdentity()
+				if id == "" {
+					continue
+				}
+				inRoom[id] = struct{}{}
+				participantUserIDs = append(participantUserIDs, id)
+				if id != dbInv.InviterUserID {
 					joinedCount++
 				}
 			}
 		}
 
+		notifyTimeoutDeclined := func() {
+			for _, inviteeID := range dbInv.InviteeUserIDList {
+				if _, joined := inRoom[inviteeID]; joined {
+					continue
+				}
+				go s.sendGroupCallParticipantDeclinedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, participantUserIDs, signalCallActionTimeout, inviteeID)
+			}
+		}
+
 		if joinedCount > 0 {
 			log.ZInfo(ctx, "handleTimeout: group call continues", "roomID", dbInv.RoomID, "joinedCount", joinedCount)
+			notifyTimeoutDeclined()
 			return &rtc.SignalTimeoutResp{}, nil
 		}
+
+		notifyTimeoutDeclined()
 
 		if _, err := s.roomClient.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: dbInv.RoomID}); err != nil {
 			log.ZWarn(ctx, "handleTimeout: LiveKit DeleteRoom failed", err, "roomID", dbInv.RoomID)

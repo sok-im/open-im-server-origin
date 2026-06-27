@@ -233,6 +233,16 @@ groupCallParticipantCountUpdated:
     desc: ""
     ext: ""
 
+groupCallParticipantDeclined:
+  isSendMsg: false
+  reliabilityLevel: 1
+  unreadCount: false
+  offlinePush:
+    enable: false
+    title: ""
+    desc: ""
+    ext: ""
+
 # 1v1 / 群音视频邀请信令离线推送（SignalingNotification）
 signalingInvite:
   isSendMsg: false

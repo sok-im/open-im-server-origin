@@ -170,6 +170,7 @@ type Notification struct {
 	GroupCallStarted                  NotificationConfig `mapstructure:"groupCallStarted"`
 	GroupCallEnded                    NotificationConfig `mapstructure:"groupCallEnded"`
 	GroupCallParticipantCountUpdated  NotificationConfig `mapstructure:"groupCallParticipantCountUpdated"`
+	GroupCallParticipantDeclined      NotificationConfig `mapstructure:"groupCallParticipantDeclined"`
 	SignalingInvite                   NotificationConfig `mapstructure:"signalingInvite"`
 	GroupBurnDurationSet      NotificationConfig `mapstructure:"groupBurnDurationSet"`
 	GroupFaceURLSet           NotificationConfig `mapstructure:"groupFaceURLSet"`
