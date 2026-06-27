@@ -867,28 +867,13 @@ func (s *rtcServer) handleCancel(ctx context.Context, req *rtc.SignalCancelReq, 
 	// Cancel always terminates the call — remove status for all participants.
 	s.deleteCallStatusForInvitation(ctx, dbInv)
 
-	// Ghost-call guard: if the call was already answered (AcceptTime > 0) when the
-	// inviter cancelled, the first cancel signal (sent above) may have been dropped by
-	// an invitee who was in a transitional "connecting" or "pulling video" state.
-	// Re-send after room deletion so the peer receives the signal once the LiveKit
-	// "room closed" event has put their client in a receptive state.
-	if dbInv.AcceptTime > 0 && len(dbInv.InviteeUserIDList) > 0 {
-		ghostGuardCancelContent := content
-		ghostGuardCancelInvitees := dbInv.InviteeUserIDList
-		ghostGuardCancelSenderID := req.UserID
-		ghostGuardCancelSessionType := sessionType
-		ghostGuardCancelGroupID := dbInv.GroupID
-		ghostGuardCancelRoomID := dbInv.RoomID
-		go func() {
-			time.Sleep(800 * time.Millisecond)
-			for _, inviteeID := range ghostGuardCancelInvitees {
-				if err := s.sendSignalingNotification(context.WithoutCancel(ctx), ghostGuardCancelSenderID, inviteeID, ghostGuardCancelSessionType, ghostGuardCancelGroupID, nil, ghostGuardCancelContent); err != nil {
-					log.ZWarn(context.WithoutCancel(ctx), "handleCancel: ghost-call guard re-send failed", err,
-						"inviteeID", inviteeID, "roomID", ghostGuardCancelRoomID)
-				}
-			}
-		}()
-	}
+	// Ghost-call guard: the first cancel signal (sent above) may have been dropped by
+	// an invitee in a transitional "connecting" / "entering" / "pulling video" state.
+	// Because the signaling notification is transient (not persisted, not in history),
+	// a dropped push is never re-synced, leaving the invitee in a ghost call.
+	// Re-send on a staggered schedule so the dismiss lands once the invitee's client
+	// becomes idle. Not gated on AcceptTime — the race can open before Accept commits.
+	s.resendSignalingDismiss(ctx, req.UserID, dbInv.InviteeUserIDList, sessionType, dbInv.GroupID, dbInv.RoomID, content)
 
 	// For group calls, notify non-invited members that the call was cancelled.
 	if dbInv.GroupID != "" {
@@ -1080,36 +1065,20 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 		go s.broadcastGroupCallStatusToNonInvited(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
 	}
 
-	// Ghost-call guard: re-send HungUp to peers after room deletion for answered calls.
+	// Ghost-call guard: re-send HungUp to peers after the room has been torn down.
 	//
-	// Race scenario: the peer (B) accepted the call and was actively "pulling video"
-	// (subscribed to LiveKit tracks) when the caller (A) hung up.  The first HungUp
-	// signal (sent above, before room deletion) may have been delivered while B's
-	// call engine was busy processing track data and unable to act on it.  Once the
-	// LiveKit room is deleted, B's SDK fires a "room closed" event that interrupts
-	// any in-flight track operations; the delayed re-send below arrives after that
-	// event, at which point B's client should be in an idle/disconnected state and
-	// can properly dismiss the call UI.
+	// Race scenario: the peer (B) was "entering" the call — joining LiveKit and
+	// actively pulling A's video tracks — when the caller (A) hung up. The first
+	// HungUp push (sent above, before room deletion) can be delivered while B's call
+	// engine is busy and unable to act on it; because the signaling notification is
+	// transient (not persisted, not in history), it is then lost forever and B is
+	// left in a ghost call (chat record shows ended, UI still in-call).
 	//
-	// Duplicate HungUp signals must be idempotent on the client: a second "call ended"
-	// signal received while already dismissed is a no-op.
-	if dbInv.AcceptTime > 0 && len(peerIDs) > 0 {
-		ghostGuardContent := content
-		ghostGuardPeerIDs := peerIDs
-		ghostGuardSenderID := req.UserID
-		ghostGuardSessionType := sessionType
-		ghostGuardGroupID := dbInv.GroupID
-		ghostGuardRoomID := dbInv.RoomID
-		go func() {
-			time.Sleep(800 * time.Millisecond)
-			for _, peerID := range ghostGuardPeerIDs {
-				if err := s.sendSignalingNotification(context.WithoutCancel(ctx), ghostGuardSenderID, peerID, ghostGuardSessionType, ghostGuardGroupID, nil, ghostGuardContent); err != nil {
-					log.ZWarn(context.WithoutCancel(ctx), "handleHungUp: ghost-call guard re-send failed", err,
-						"peerID", peerID, "roomID", ghostGuardRoomID)
-				}
-			}
-		}()
-	}
+	// resendSignalingDismiss re-sends on a staggered schedule so that at least one
+	// dismiss lands once B finishes joining and becomes idle. It is intentionally
+	// NOT gated on AcceptTime: B may still be "pulling video" before its Accept is
+	// committed on the server, so AcceptTime==0 must be covered too.
+	s.resendSignalingDismiss(ctx, req.UserID, peerIDs, sessionType, dbInv.GroupID, dbInv.RoomID, content)
 
 	duration := int64(0)
 	if dbInv.GroupID == "" {
@@ -1724,6 +1693,55 @@ func (s *rtcServer) sendSignalingNotification(ctx context.Context, sendID, recvI
 	)
 
 	return nil
+}
+
+// signalingDismissResendDelays is the staggered re-send schedule (gaps between
+// consecutive re-sends, after the initial in-line send) used by the ghost-call
+// guard. The cumulative coverage (~0.5s, ~2s, ~5s) is sized to outlast the window
+// during which a peer's client is busy entering the LiveKit room and pulling the
+// other party's video tracks.
+var signalingDismissResendDelays = []time.Duration{
+	500 * time.Millisecond,
+	1500 * time.Millisecond,
+	3 * time.Second,
+}
+
+// resendSignalingDismiss re-sends an end-of-call signaling notification (HungUp /
+// Cancel) to the given recipients on a staggered schedule, then returns immediately
+// (the work runs in a detached goroutine).
+//
+// Ghost-call background: the dismiss notification that drives the peer's
+// OnHangUp / OnInvitationCancelled callback is sent as a transient message
+// (IsHistory=false, IsPersistent=false — see signalingMsgOptions). It is never
+// stored, so if the peer's client is busy "entering" the call (joining LiveKit /
+// subscribing to video tracks) when the single live push arrives, the push is
+// silently dropped and never re-synced, leaving the UI stuck in a ghost call.
+//
+// We therefore proactively re-send the same dismiss a few times. Whenever the peer
+// finishes joining and returns to an idle/receptive state, at least one re-send
+// lands and dismisses the call UI. Re-sends intentionally carry no offline push,
+// and duplicate dismiss signals are idempotent on the client (a "call ended" signal
+// received while already dismissed is a no-op).
+//
+// Unlike the earlier guard, this is NOT gated on AcceptTime: the race window can
+// open before the callee's Accept is committed on the server (Accept and the
+// peer's HungUp/Cancel are concurrent), so AcceptTime==0 must still be covered.
+func (s *rtcServer) resendSignalingDismiss(ctx context.Context, senderID string, recvIDs []string, sessionType int32, groupID, roomID string, content []byte) {
+	if len(recvIDs) == 0 || len(content) == 0 {
+		return
+	}
+	recipients := append([]string(nil), recvIDs...)
+	detached := context.WithoutCancel(ctx)
+	go func() {
+		for _, delay := range signalingDismissResendDelays {
+			time.Sleep(delay)
+			for _, recvID := range recipients {
+				if err := s.sendSignalingNotification(detached, senderID, recvID, sessionType, groupID, nil, content); err != nil {
+					log.ZWarn(detached, "resendSignalingDismiss: re-send failed", err, "recvID", recvID, "roomID", roomID)
+				}
+			}
+		}
+	}()
 }
 
 // GroupCallStatusOngoing and GroupCallStatusEnded are the two states broadcast
