@@ -37,7 +37,9 @@ func NewCronTaskCmd() *CronTaskCmd {
 	// 示例：
 	//   chatAPI:
 	//     address: "http://127.0.0.1:10008"
-	// adminToken 由 crontask 通过 IM auth-rpc GetAdminToken 自动获取，无需额外配置。
+	//     adminAddress: "http://127.0.0.1:10009"
+	//     adminAccount: "chatAdmin"
+	//     adminPassword: ""  # 留空则默认 md5(adminAccount)
 	ret.configMap = map[string]any{
 		OpenIMCronTaskCfgFileName: &cronTaskConfig.CronTask,
 		ShareFileName:             &cronTaskConfig.Share,

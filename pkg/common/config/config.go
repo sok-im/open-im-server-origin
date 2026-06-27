@@ -457,9 +457,13 @@ type Share struct {
 
 // ChatAPI 是 chat HTTP API 服务的访问配置。
 // Address 为 chat-api 根地址（如 http://127.0.0.1:10008），用于 POST /account/del。
-// token 由 crontask 通过 IM auth-rpc GetAdminToken 自动获取，无需手动填写。
+// AdminAddress 为 chat-admin-api 根地址（如 http://127.0.0.1:10009），用于 POST /account/login 获取 chat adminToken。
+// AdminAccount/AdminPassword 为 chat 管理员凭据；密码留空时默认 md5(account) 十六进制，与 chat 初始化逻辑一致。
 type ChatAPI struct {
-	Address string `mapstructure:"address"`
+	Address       string `mapstructure:"address"`
+	AdminAddress  string `mapstructure:"adminAddress"`
+	AdminAccount  string `mapstructure:"adminAccount"`
+	AdminPassword string `mapstructure:"adminPassword"`
 }
 
 type MaxRequestBody struct {
@@ -911,6 +915,12 @@ func FillCronTaskDefaults(ct *CronTask) {
 	}
 	if ct.ChatAPI.Address == "" {
 		ct.ChatAPI.Address = "http://127.0.0.1:10008"
+	}
+	if ct.ChatAPI.AdminAddress == "" {
+		ct.ChatAPI.AdminAddress = "http://127.0.0.1:10009"
+	}
+	if ct.ChatAPI.AdminAccount == "" {
+		ct.ChatAPI.AdminAccount = "chatAdmin"
 	}
 	if ct.RetainChatRecords < 1 {
 		ct.RetainChatRecords = 365

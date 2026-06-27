@@ -22,7 +22,6 @@ import (
 	kdisc "github.com/openimsdk/open-im-server/v3/pkg/common/discoveryregister"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/database"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/database/mgo"
-	"github.com/openimsdk/open-im-server/v3/pkg/rpcli"
 	pbconversation "github.com/openimsdk/protocol/conversation"
 	"github.com/openimsdk/protocol/msg"
 	"github.com/openimsdk/protocol/third"
@@ -70,11 +69,6 @@ func Start(ctx context.Context, cfg *CronTaskConfig) error {
 	if err != nil {
 		return err
 	}
-	authConn, err := client.GetConn(ctx, cfg.Share.RpcRegisterName.Auth)
-	if err != nil {
-		return err
-	}
-
 	mgocli, err := mongoutil.NewMongoDB(ctx, cfg.MongodbConfig.Build())
 	if err != nil {
 		return errs.WrapMsg(err, "crontask: connect mongodb failed")
@@ -93,7 +87,6 @@ func Start(ctx context.Context, cfg *CronTaskConfig) error {
 		msgClient:           msg.NewMsgClient(msgConn),
 		conversationClient:  pbconversation.NewConversationClient(conversationConn),
 		thirdClient:         third.NewThirdClient(thirdConn),
-		authClient:          rpcli.NewAuthClient(authConn),
 		userOfflineRecordDB: userOfflineRecordDB,
 		chatAPIAddress:      cfg.CronTask.ChatAPI.Address,
 	}
@@ -129,7 +122,6 @@ type cronServer struct {
 	msgClient           msg.MsgClient
 	conversationClient  pbconversation.ConversationClient
 	thirdClient         third.ThirdClient
-	authClient          *rpcli.AuthClient
 	userOfflineRecordDB database.UserOfflineRecord
 	chatAPIAddress      string
 }

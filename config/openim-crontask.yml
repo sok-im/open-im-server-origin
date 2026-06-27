@@ -7,3 +7,6 @@ fileExpireTime: 180
 deleteObjectType: ["msg-picture","msg-file", "msg-voice","msg-video","msg-video-snapshot","sdklog"]
 chatAPI:
   address: http://127.0.0.1:10008
+  adminAddress: http://127.0.0.1:10009
+  adminAccount: chatAdmin
+  # adminPassword: ""  # 留空则默认 md5(adminAccount) 十六进制

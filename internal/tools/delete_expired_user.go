@@ -59,7 +59,7 @@ func (c *cronServer) deleteExpiredOfflineUsers() {
 
 // deleteExpiredUser 通过 chat HTTP API POST /account/del 删除单个过期用户。
 // chat 服务端会处理：强制登出、删除好友/群组关系、清理 chat 账号数据等。
-// adminToken 为当次批次开始时通过 IM auth-rpc GetAdminToken 获取的管理员 token。
+// adminToken 为当次批次开始时通过 chat-admin-api /account/login 获取的 chat adminToken。
 // 返回 true 表示 chat 业务成功且已清理 user_offline_record。
 func (c *cronServer) deleteExpiredUser(ctx context.Context, adminToken, userID string) bool {
 	log.ZInfo(ctx, "lintao deleteExpiredUser: start", "userID", userID)
