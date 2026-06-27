@@ -519,6 +519,11 @@ func (s *userServer) SetDeleteAccountInterval(ctx context.Context, req *pbuser.S
 		log.ZWarn(ctx, "SetDeleteAccountInterval: RefreshOfflineTime failed", err,
 			"userID", req.UserID)
 	}
+
+	log.ZInfo(ctx, "SetDeleteAccountInterval: success",
+		"userID", req.UserID,
+		"deleteAccountInterval", interval,
+		"newDeadline", newDeadline.Format(time.RFC3339))
 	return &pbuser.SetDeleteAccountIntervalResp{}, nil
 }
 

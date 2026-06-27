@@ -18,7 +18,7 @@ const deleteExpiredUserBatchLimit = 100
 // chatHTTPClient 带超时，防止 chat 服务无响应时 cron worker 永久挂起。
 var chatHTTPClient = &http.Client{Timeout: 3 * time.Second}
 
-// deleteExpiredOfflineUsers 是 cron "@hourly" 触发的入口。
+// deleteExpiredOfflineUsers 是 cron "@every 1m" 触发的入口。
 // 批量查询离线时长超过 delete_account_interval 的用户并依次调用 chat /account/del 删除。
 func (c *cronServer) deleteExpiredOfflineUsers() {
 	now := time.Now()
@@ -46,7 +46,9 @@ func (c *cronServer) deleteExpiredOfflineUsers() {
 	for i, u := range users {
 		subCtx := mcontext.SetOperationID(c.ctx, fmt.Sprintf("%s_%d", operationID, i))
 		c.deleteExpiredUser(subCtx, adminToken, u.UserID)
+		log.ZInfo(subCtx, "deleteExpiredUser: success", "userID", u.UserID)
 	}
+	
 	log.ZInfo(ctx, "deleteExpiredOfflineUsers: done", "count", len(users), "elapsed", time.Since(now))
 }
 

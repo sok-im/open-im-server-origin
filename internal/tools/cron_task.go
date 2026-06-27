@@ -171,14 +171,14 @@ func (c *cronServer) registerClearGroupBurnExpiredMsgs() error {
 	return errs.WrapMsg(err, "failed to register clear group burn expired msgs cron task")
 }
 
-// registerDeleteExpiredOfflineUsers 注册每小时执行一次的用户自动删除任务。
-// 固定使用 "@hourly" 表达式，与其他任务使用的 CronExecuteTime 独立。
+// registerDeleteExpiredOfflineUsers 注册每分钟执行一次的用户自动删除任务。
+// 固定使用 "@every 1m" 表达式，与其他任务使用的 CronExecuteTime 独立。
 // chatAPI.address 未配置时跳过注册。
 func (c *cronServer) registerDeleteExpiredOfflineUsers() error {
 	if c.chatAPIAddress == "" {
 		log.ZInfo(c.ctx, "disable auto delete expired offline users: chatAPI.address not configured")
 		return nil
 	}
-	_, err := c.cron.AddFunc("@hourly", c.deleteExpiredOfflineUsers)
+	_, err := c.cron.AddFunc("@every 1m", c.deleteExpiredOfflineUsers)
 	return errs.WrapMsg(err, "failed to register delete expired offline users cron task")
 }
