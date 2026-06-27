@@ -131,6 +131,8 @@ func (s *rtcServer) resolveSignalingOfflinePushInfo(ctx context.Context, inv *rt
 		push.Ex = cfg.OfflinePush.Ext
 	}
 	push.Ex = syncCallWakePushEx(inv, sessionType, push.Ex)
+	// Call invite push should wake the app, not increment the IM unread badge.
+	push.IOSBadgeCount = false
 	log.ZInfo(ctx, "resolveSignalingOfflinePushInfo done",
 		"action", action,
 		"roomID", inv.RoomID,

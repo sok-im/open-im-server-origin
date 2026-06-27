@@ -265,6 +265,31 @@ func (och *OnlineHistoryRedisConsumerHandler) categorizeMessageLists(totalMsgs [
 	return
 }
 
+// autoHasReadUsersForMsg returns users whose hasReadSeq should advance when a
+// message opts out of unread counting (e.g. rtc call records).
+func autoHasReadUsersForMsg(msg *sdkws.MsgData) []string {
+	if msg == nil || msgprocessor.Options(msg.Options).IsUnreadCount() {
+		return nil
+	}
+	switch msg.SessionType {
+	case constant.SingleChatType, constant.NotificationChatType:
+		if msg.RecvID != "" && msg.RecvID != msg.SendID {
+			return []string{msg.RecvID}
+		}
+	}
+	return nil
+}
+
+func mergeAutoHasReadSeqs(userSeqMap map[string]int64, msgs []*sdkws.MsgData) {
+	for _, msg := range msgs {
+		for _, userID := range autoHasReadUsersForMsg(msg) {
+			if userSeqMap[userID] < msg.Seq {
+				userSeqMap[userID] = msg.Seq
+			}
+		}
+	}
+}
+
 func (och *OnlineHistoryRedisConsumerHandler) handleMsg(ctx context.Context, key, conversationID string, storageList, notStorageList []*ContextMsg) {
 	log.ZDebug(ctx, "handleMsg", "conversationID", conversationID, "storageList", len(storageList), "notStorageList", len(notStorageList))
 	for _, storageMsg := range storageList {
@@ -288,6 +313,8 @@ func (och *OnlineHistoryRedisConsumerHandler) handleMsg(ctx context.Context, key
 		}
 
 		log.ZDebug(ctx, "handleMsg", "lastSeq", lastSeq, "isNewConversation", isNewConversation, "userSeqMap", userSeqMap)
+
+		mergeAutoHasReadSeqs(userSeqMap, storageMessageList)
 
 		if msg.SessionType == constant.ReadGroupChatType {
 			och.recordGroupBurnOnSend(ctx, conversationID, storageMessageList)
