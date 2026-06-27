@@ -5,10 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"time"
 
+	"github.com/openimsdk/tools/apiresp"
 	"github.com/openimsdk/tools/log"
 	"github.com/openimsdk/tools/mcontext"
 )
@@ -45,8 +47,11 @@ func (c *cronServer) deleteExpiredOfflineUsers() {
 
 	for i, u := range users {
 		subCtx := mcontext.SetOperationID(c.ctx, fmt.Sprintf("%s_%d", operationID, i))
-		c.deleteExpiredUser(subCtx, adminToken, u.UserID)
-		log.ZInfo(subCtx, "lintao deleteExpiredUser: success", "userID", u.UserID)
+		if c.deleteExpiredUser(subCtx, adminToken, u.UserID) {
+			log.ZInfo(subCtx, "lintao deleteExpiredUser: success", "userID", u.UserID)
+		} else {
+			log.ZError(subCtx, "lintao deleteExpiredUser: failed", nil, "userID", u.UserID)
+		}
 	}
 
 	log.ZInfo(ctx, "deleteExpiredOfflineUsers: done", "count", len(users), "elapsed", time.Since(now))
@@ -54,8 +59,9 @@ func (c *cronServer) deleteExpiredOfflineUsers() {
 
 // deleteExpiredUser 通过 chat HTTP API POST /account/del 删除单个过期用户。
 // chat 服务端会处理：强制登出、删除好友/群组关系、清理 chat 账号数据等。
-// adminToken 为当次批次开始时通过 admin-api /account/login 获取的管理员 token。
-func (c *cronServer) deleteExpiredUser(ctx context.Context, adminToken, userID string) {
+// adminToken 为当次批次开始时通过 IM auth-rpc GetAdminToken 获取的管理员 token。
+// 返回 true 表示 chat 业务成功且已清理 user_offline_record。
+func (c *cronServer) deleteExpiredUser(ctx context.Context, adminToken, userID string) bool {
 	log.ZInfo(ctx, "lintao deleteExpiredUser: start", "userID", userID)
 
 	operationID := mcontext.GetOperationID(ctx)
@@ -66,7 +72,7 @@ func (c *cronServer) deleteExpiredUser(ctx context.Context, adminToken, userID s
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		log.ZError(ctx, "lintao deleteExpiredUser: build request failed", err, "userID", userID)
-		return
+		return false
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("token", adminToken)
@@ -75,23 +81,42 @@ func (c *cronServer) deleteExpiredUser(ctx context.Context, adminToken, userID s
 	resp, err := chatHTTPClient.Do(req)
 	if err != nil {
 		log.ZError(ctx, "lintao deleteExpiredUser: HTTP call failed", err, "userID", userID, "url", url)
-		return
+		return false
 	}
 	defer resp.Body.Close()
 
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.ZError(ctx, "lintao deleteExpiredUser: read response body failed", err, "userID", userID)
+		return false
+	}
+
 	if resp.StatusCode != http.StatusOK {
-		var result map[string]any
-		_ = json.NewDecoder(resp.Body).Decode(&result)
 		log.ZError(ctx, "lintao deleteExpiredUser: chat API returned error",
 			fmt.Errorf("status %d", resp.StatusCode),
-			"userID", userID, "response", result)
-		return
+			"userID", userID, "response", string(respBody))
+		return false
+	}
+
+	var apiResp apiresp.ApiResponse
+	if err := json.Unmarshal(respBody, &apiResp); err != nil {
+		log.ZError(ctx, "lintao deleteExpiredUser: decode chat response failed", err,
+			"userID", userID, "response", string(respBody))
+		return false
+	}
+	if apiResp.ErrCode != 0 {
+		log.ZError(ctx, "lintao deleteExpiredUser: chat API business error",
+			fmt.Errorf("errCode=%d errMsg=%s", apiResp.ErrCode, apiResp.ErrMsg),
+			"userID", userID, "errDlt", apiResp.ErrDlt, "response", string(respBody))
+		return false
 	}
 
 	// chat /account/del 已处理好友/群组/IM用户删除；仅清理 user_offline_record 防止重复触发
 	if err := c.userOfflineRecordDB.Delete(ctx, userID); err != nil {
 		log.ZWarn(ctx, "lintao deleteExpiredUser: Delete offline record failed", err, "userID", userID)
+		return false
 	}
 
 	log.ZInfo(ctx, "lintao deleteExpiredUser: done", "userID", userID)
+	return true
 }

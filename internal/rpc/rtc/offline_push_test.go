@@ -300,8 +300,8 @@ func TestResolveSignalingOfflinePushInfoSingleChatMissedCall(t *testing.T) {
 	if err := jsonutil.JsonStringToStruct(timeoutPush.Ex, &timeoutEx); err != nil {
 		t.Fatalf("unmarshal timeout ex: %v", err)
 	}
-	if timeoutEx.PushType != callSignalingWakePushType {
-		t.Fatalf("timeout pushType=%q, want %q", timeoutEx.PushType, callSignalingWakePushType)
+	if timeoutEx.PushType != callWakePushType {
+		t.Fatalf("timeout pushType=%q, want %q", timeoutEx.PushType, callWakePushType)
 	}
 
 	cancelPush := s.resolveSignalingOfflinePushInfo(t.Context(), inv, invitePush, signalCallActionCancel, "caller", "callee")
@@ -315,8 +315,8 @@ func TestResolveSignalingOfflinePushInfoSingleChatMissedCall(t *testing.T) {
 	if err := jsonutil.JsonStringToStruct(cancelPush.Ex, &cancelEx); err != nil {
 		t.Fatalf("unmarshal cancel ex: %v", err)
 	}
-	if cancelEx.PushType != callSignalingWakePushType {
-		t.Fatalf("cancel pushType=%q, want %q", cancelEx.PushType, callSignalingWakePushType)
+	if cancelEx.PushType != callWakePushType {
+		t.Fatalf("cancel pushType=%q, want %q", cancelEx.PushType, callWakePushType)
 	}
 }
 
@@ -358,7 +358,7 @@ func TestResolveSignalingOfflinePushInfoGroupChatMissedCall(t *testing.T) {
 	if err := jsonutil.JsonStringToStruct(timeoutPush.Ex, &timeoutEx); err != nil {
 		t.Fatalf("unmarshal timeout ex: %v", err)
 	}
-	if timeoutEx.PushType != callSignalingWakePushType {
-		t.Fatalf("timeout pushType=%q, want %q", timeoutEx.PushType, callSignalingWakePushType)
+	if timeoutEx.PushType != callWakePushType {
+		t.Fatalf("timeout pushType=%q, want %q", timeoutEx.PushType, callWakePushType)
 	}
 }

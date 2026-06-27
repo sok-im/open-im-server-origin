@@ -15,8 +15,7 @@ import (
 
 const (
 	callWakePushSchemaVersion = 1
-	callWakePushType          = "call"
-	callSignalingWakePushType = "callSignaling"
+	callWakePushType = "call"
 	callIOSPushSound          = "call.caf"
 	callOfflinePushMissedDesc = "未接通话"
 
@@ -84,7 +83,7 @@ func (s *rtcServer) resolveSignalingOfflinePushInfo(ctx context.Context, inv *rt
 		} else {
 			s.applyGroupChatInviteOfflinePushCopy(ctx, push, inv, calleeUserID)
 		}
-		push.Ex = syncCallWakePushEx(inv, sessionType, push.Ex, wakePushTypeForAction(action))
+		push.Ex = syncCallWakePushEx(inv, sessionType, push.Ex, callWakePushType)
 		log.ZInfo(ctx, "resolveSignalingOfflinePushInfo: using client offlinePushInfo only (config disabled)",
 			"action", action,
 			"roomID", inv.RoomID,
@@ -131,7 +130,7 @@ func (s *rtcServer) resolveSignalingOfflinePushInfo(ctx context.Context, inv *rt
 	if push.Ex == "" && cfg.OfflinePush.Ext != "" {
 		push.Ex = cfg.OfflinePush.Ext
 	}
-	push.Ex = syncCallWakePushEx(inv, sessionType, push.Ex, wakePushTypeForAction(action))
+	push.Ex = syncCallWakePushEx(inv, sessionType, push.Ex, callWakePushType)
 	log.ZInfo(ctx, "resolveSignalingOfflinePushInfo done",
 		"action", action,
 		"roomID", inv.RoomID,
@@ -353,13 +352,6 @@ func callMediaLabel(mediaType string) string {
 	default:
 		return "语音"
 	}
-}
-
-func wakePushTypeForAction(action string) string {
-	if action == signalCallActionInvite {
-		return callWakePushType
-	}
-	return callSignalingWakePushType
 }
 
 func buildCallWakePushEx(inv *rtc.InvitationInfo, sessionType int32) string {
