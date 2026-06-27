@@ -667,8 +667,7 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 			log.ZWarn(ctx, "handleReject: PullInvitee failed", err, "roomID", dbInv.RoomID, "userID", req.UserID, "req", req, "dbInv", dbInv)
 		}
 
-		participantUserIDs := s.groupCallInRoomParticipantUserIDs(ctx, dbInv.RoomID)
-		go s.sendGroupCallParticipantDeclinedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, participantUserIDs, signalCallActionReject, req.UserID)
+		go s.sendGroupCallParticipantDeclinedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, signalCallActionReject, req.UserID)
 
 		// Check whether any participant other than the inviter has actually
 		// joined the LiveKit room.  Rejecters never enter LiveKit, so a
@@ -832,8 +831,7 @@ func (s *rtcServer) handleCancel(ctx context.Context, req *rtc.SignalCancelReq, 
 
 	// For group calls, notify non-invited members that the call was cancelled.
 	if dbInv.GroupID != "" {
-		participantUserIDs := s.groupCallInRoomParticipantUserIDs(ctx, dbInv.RoomID)
-		go s.sendGroupCallParticipantDeclinedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, participantUserIDs, signalCallActionCancel, req.UserID)
+		go s.sendGroupCallParticipantDeclinedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, signalCallActionCancel, req.UserID)
 
 		go s.broadcastGroupCallStatusToNonInvited(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
 
@@ -1960,49 +1958,10 @@ func (s *rtcServer) sendGroupCallParticipantCountUpdatedNotification(ctx context
 	}
 }
 
-// groupCallInRoomParticipantUserIDs returns LiveKit participant identities for an ongoing group call.
-func (s *rtcServer) groupCallInRoomParticipantUserIDs(ctx context.Context, roomID string) []string {
-	if roomID == "" {
-		return nil
-	}
-	lp, err := s.roomClient.ListParticipants(ctx, &livekit.ListParticipantsRequest{Room: roomID})
-	if err != nil {
-		log.ZWarn(ctx, "groupCallInRoomParticipantUserIDs: ListParticipants failed", err, "roomID", roomID)
-		return nil
-	}
-	ids := make([]string, 0, len(lp.Participants))
-	for _, p := range lp.Participants {
-		if id := p.GetIdentity(); id != "" {
-			ids = append(ids, id)
-		}
-	}
-	return ids
-}
-
-// groupCallParticipantDeclinedDefaultTips returns display text when an invitee rejects/times out
-// or the inviter cancels during a group call.
-func groupCallParticipantDeclinedDefaultTips(actionType, nickname string, count int32) string {
-	name := nickname
-	if name == "" {
-		name = "Someone"
-	}
-	countTips := groupCallParticipantCountDefaultTips(count)
-	switch actionType {
-	case signalCallActionReject:
-		return fmt.Sprintf("%s rejected the call. %s", name, countTips)
-	case signalCallActionTimeout:
-		return fmt.Sprintf("%s did not answer. %s", name, countTips)
-	case signalCallActionCancel:
-		return fmt.Sprintf("%s cancelled the call. %s", name, countTips)
-	default:
-		return countTips
-	}
-}
-
 // sendGroupCallParticipantDeclinedNotification sends a GroupCallParticipantDeclinedNotification
 // (1528) to the group when an invitee rejects or times out, or the inviter cancels, while the
 // group call is still relevant (ongoing or winding down).  Same delivery profile as 1527.
-func (s *rtcServer) sendGroupCallParticipantDeclinedNotification(ctx context.Context, groupID, roomID, mediaType string, participantUserIDs []string, actionType, opUserID string) {
+func (s *rtcServer) sendGroupCallParticipantDeclinedNotification(ctx context.Context, groupID, roomID, mediaType, actionType, opUserID string) {
 	if groupID == "" || opUserID == "" {
 		return
 	}
@@ -2013,22 +1972,12 @@ func (s *rtcServer) sendGroupCallParticipantDeclinedNotification(ctx context.Con
 		return
 	}
 
-	participantCount := int32(len(participantUserIDs))
-
-	publicUserList := make([]*sdkws.PublicUserInfo, 0, len(participantUserIDs))
-	for _, userID := range participantUserIDs {
-		publicUserList = append(publicUserList, &sdkws.PublicUserInfo{UserID: userID})
-	}
-
 	tips := &sdkws.GroupCallParticipantDeclinedTips{
-		Group:               groupInfo,
-		RoomID:              roomID,
-		MediaType:           mediaType,
-		OpUser:              &sdkws.PublicUserInfo{UserID: opUserID},
-		ActionType:          actionType,
-		ParticipantCount:    participantCount,
-		ParticipantUserList: publicUserList,
-		DefaultTips:         groupCallParticipantDeclinedDefaultTips(actionType, opUserID, participantCount),
+		Group:      groupInfo,
+		RoomID:     roomID,
+		MediaType:  mediaType,
+		OpUser:     &sdkws.PublicUserInfo{UserID: opUserID},
+		ActionType: actionType,
 	}
 
 	detail := jsonutil.StructToJsonString(tips)
@@ -2432,7 +2381,6 @@ func (s *rtcServer) handleTimeout(ctx context.Context, req *rtc.SignalTimeoutReq
 		lp, listErr := s.roomClient.ListParticipants(ctx, &livekit.ListParticipantsRequest{Room: dbInv.RoomID})
 		joinedCount := 0
 		inRoom := make(map[string]struct{})
-		var participantUserIDs []string
 		if listErr != nil {
 			log.ZWarn(ctx, "handleTimeout: ListParticipants failed", listErr, "roomID", dbInv.RoomID)
 		} else {
@@ -2442,7 +2390,6 @@ func (s *rtcServer) handleTimeout(ctx context.Context, req *rtc.SignalTimeoutReq
 					continue
 				}
 				inRoom[id] = struct{}{}
-				participantUserIDs = append(participantUserIDs, id)
 				if id != dbInv.InviterUserID {
 					joinedCount++
 				}
@@ -2454,7 +2401,7 @@ func (s *rtcServer) handleTimeout(ctx context.Context, req *rtc.SignalTimeoutReq
 				if _, joined := inRoom[inviteeID]; joined {
 					continue
 				}
-				go s.sendGroupCallParticipantDeclinedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, participantUserIDs, signalCallActionTimeout, inviteeID)
+				go s.sendGroupCallParticipantDeclinedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, signalCallActionTimeout, inviteeID)
 			}
 		}
 
