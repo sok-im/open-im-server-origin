@@ -1739,11 +1739,7 @@ func (s *rtcServer) groupCallNotificationConfig(contentType int32) config.Notifi
 // routes the message into the group notification session (n_<groupID>), not sg_.
 func (s *rtcServer) groupCallNotificationMsgOptions(contentType int32) map[string]bool {
 	cfg := s.groupCallNotificationConfig(contentType)
-	opts := config.GetOptionsByNotification(cfg, nil)
-	datautil.SetSwitchFromOptions(opts, constant.IsNotNotification, false)
-	datautil.SetSwitchFromOptions(opts, constant.IsUnreadCount, false)
-	datautil.SetSwitchFromOptions(opts, constant.IsConversationUpdate, false)
-	return opts
+	return config.GetOptionsByNotification(cfg, nil)
 }
 
 func offlinePushInfoFromConfig(cfg config.NotificationConfig) *sdkws.OfflinePushInfo {
@@ -2229,14 +2225,14 @@ type callRecordData struct {
 // hang-up/cancel call records would trigger a generic [NEWMSG] banner even when the
 // callee disabled AV notifications and never received the invite push.
 //
-// Call records never increment unread: invite/missed/answered events are handled
-// via signaling or call UI, not as chat unread badges.
-func callRecordMsgOptions() map[string]bool {
+// Answered calls do not increment unread count: both parties were on the call and
+// should not see a new unread badge when the hang-up record is written.
+func callRecordMsgOptions(status string) map[string]bool {
 	opts := make(map[string]bool, 8)
-	datautil.SetSwitchFromOptions(opts, constant.IsNotNotification, true)          // → si_/sg_ chat conversation
-	datautil.SetSwitchFromOptions(opts, constant.IsHistory, true)                  // → write to history
-	datautil.SetSwitchFromOptions(opts, constant.IsPersistent, true)               // → persist to storage
-	datautil.SetSwitchFromOptions(opts, constant.IsUnreadCount, false)             // → never increment unread count
+	datautil.SetSwitchFromOptions(opts, constant.IsNotNotification, true)                     // → si_/sg_ chat conversation
+	datautil.SetSwitchFromOptions(opts, constant.IsHistory, true)                             // → write to history
+	datautil.SetSwitchFromOptions(opts, constant.IsPersistent, true)                          // → persist to storage
+	datautil.SetSwitchFromOptions(opts, constant.IsUnreadCount, status != callStatusAnswered) // → unread only for missed/unanswered calls
 	datautil.SetSwitchFromOptions(opts, constant.IsConversationUpdate, true)                  // → update conv last message
 	datautil.SetSwitchFromOptions(opts, constant.IsSenderConversationUpdate, true)            // → update inviter's conv too
 	datautil.SetSwitchFromOptions(opts, constant.IsSenderSync, true)                          // → sync to inviter's other devices
@@ -2324,7 +2320,7 @@ func (s *rtcServer) sendCallRecordChatMsg(ctx context.Context, inv *model.Signal
 		SendTime:    now,
 		ServerMsgID: uuid.New().String(),
 		ClientMsgID: callRecordClientMsgID(inv.RoomID),
-		Options:     callRecordMsgOptions(),
+		Options:     callRecordMsgOptions(status),
 	}
 
 	log.ZInfo(ctx, "sendCallRecordChatMsg", "msgData", msgData, "inv", inv)

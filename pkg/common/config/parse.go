@@ -64,6 +64,9 @@ func GetOptionsByNotification(cfg NotificationConfig, sendMessage *bool) msgproc
 	if sendMessage != nil {
 		cfg.IsSendMsg = *sendMessage
 	}
+	if cfg.IsSendMsg {
+		opts = msgprocessor.WithOptions(opts, msgprocessor.WithUnreadCount(true))
+	}
 	if cfg.OfflinePush.Enable {
 		opts = msgprocessor.WithOptions(opts, msgprocessor.WithOfflinePush(true))
 	}
@@ -73,7 +76,6 @@ func GetOptionsByNotification(cfg NotificationConfig, sendMessage *bool) msgproc
 		opts = msgprocessor.WithOptions(opts, msgprocessor.WithHistory(true), msgprocessor.WithPersistent())
 	}
 	opts = msgprocessor.WithOptions(opts, msgprocessor.WithSendMsg(cfg.IsSendMsg))
-	opts = msgprocessor.WithOptions(opts, msgprocessor.WithUnreadCount(cfg.UnreadCount))
 
 	return opts
 }
