@@ -631,6 +631,26 @@ func (s *rtcServer) handleAccept(ctx context.Context, req *rtc.SignalAcceptReq, 
 	//   - 被叫拒绝：handleReject → TryDeleteInvitation
 	//   - 超时未接：handleTimeout → TryDeleteInvitation
 
+	// Ghost-call guard (second check): re-verify the invitation exists just before
+	// handing the token to the acceptor.  A concurrent HungUp/Cancel that ran between
+	// the first re-check (above) and here will have:
+	//   1. already sent a HungUp/Cancel signal to the acceptor while they were still
+	//      in "ringing" or "accepting" state (client may have dropped that signal), and
+	//   2. deleted the LiveKit room.
+	// Returning an error here causes the acceptor's client to receive a failed Accept
+	// response, which it must translate into "call already ended" and dismiss the call UI.
+	// This closes the race window from O(entire Accept handler duration) to
+	// O(setCallStatusInCall + group-notification dispatch latency).
+	if _, finalCheckErr := s.db.GetInvitationByRoomID(ctx, dbInv.RoomID); finalCheckErr != nil {
+		if errs.ErrRecordNotFound.Is(finalCheckErr) {
+			log.ZWarn(ctx, "handleAccept: invitation deleted concurrently; rejecting to prevent ghost call",
+				nil, "roomID", dbInv.RoomID, "acceptorID", req.UserID)
+			s.deleteCallStatusForUser(ctx, req.UserID, dbInv.RoomID)
+			return nil, errs.ErrRecordNotFound.WrapMsg("call already ended", "roomID", dbInv.RoomID)
+		}
+		log.ZWarn(ctx, "handleAccept: final invitation re-check failed (non-fatal, proceeding)", finalCheckErr, "roomID", dbInv.RoomID)
+	}
+
 	log.ZDebug(ctx, "handleAccept: end", "req", req)
 
 	return &rtc.SignalAcceptResp{
@@ -847,6 +867,29 @@ func (s *rtcServer) handleCancel(ctx context.Context, req *rtc.SignalCancelReq, 
 	// Cancel always terminates the call — remove status for all participants.
 	s.deleteCallStatusForInvitation(ctx, dbInv)
 
+	// Ghost-call guard: if the call was already answered (AcceptTime > 0) when the
+	// inviter cancelled, the first cancel signal (sent above) may have been dropped by
+	// an invitee who was in a transitional "connecting" or "pulling video" state.
+	// Re-send after room deletion so the peer receives the signal once the LiveKit
+	// "room closed" event has put their client in a receptive state.
+	if dbInv.AcceptTime > 0 && len(dbInv.InviteeUserIDList) > 0 {
+		ghostGuardCancelContent := content
+		ghostGuardCancelInvitees := dbInv.InviteeUserIDList
+		ghostGuardCancelSenderID := req.UserID
+		ghostGuardCancelSessionType := sessionType
+		ghostGuardCancelGroupID := dbInv.GroupID
+		ghostGuardCancelRoomID := dbInv.RoomID
+		go func() {
+			time.Sleep(800 * time.Millisecond)
+			for _, inviteeID := range ghostGuardCancelInvitees {
+				if err := s.sendSignalingNotification(context.WithoutCancel(ctx), ghostGuardCancelSenderID, inviteeID, ghostGuardCancelSessionType, ghostGuardCancelGroupID, nil, ghostGuardCancelContent); err != nil {
+					log.ZWarn(context.WithoutCancel(ctx), "handleCancel: ghost-call guard re-send failed", err,
+						"inviteeID", inviteeID, "roomID", ghostGuardCancelRoomID)
+				}
+			}
+		}()
+	}
+
 	// For group calls, notify non-invited members that the call was cancelled.
 	if dbInv.GroupID != "" {
 		go s.sendGroupCallParticipantDeclinedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, signalCallActionCancel, req.UserID)
@@ -1035,6 +1078,37 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 	// Notify non-invited group members that the call has ended so they dismiss the banner.
 	if dbInv.GroupID != "" {
 		go s.broadcastGroupCallStatusToNonInvited(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
+	}
+
+	// Ghost-call guard: re-send HungUp to peers after room deletion for answered calls.
+	//
+	// Race scenario: the peer (B) accepted the call and was actively "pulling video"
+	// (subscribed to LiveKit tracks) when the caller (A) hung up.  The first HungUp
+	// signal (sent above, before room deletion) may have been delivered while B's
+	// call engine was busy processing track data and unable to act on it.  Once the
+	// LiveKit room is deleted, B's SDK fires a "room closed" event that interrupts
+	// any in-flight track operations; the delayed re-send below arrives after that
+	// event, at which point B's client should be in an idle/disconnected state and
+	// can properly dismiss the call UI.
+	//
+	// Duplicate HungUp signals must be idempotent on the client: a second "call ended"
+	// signal received while already dismissed is a no-op.
+	if dbInv.AcceptTime > 0 && len(peerIDs) > 0 {
+		ghostGuardContent := content
+		ghostGuardPeerIDs := peerIDs
+		ghostGuardSenderID := req.UserID
+		ghostGuardSessionType := sessionType
+		ghostGuardGroupID := dbInv.GroupID
+		ghostGuardRoomID := dbInv.RoomID
+		go func() {
+			time.Sleep(800 * time.Millisecond)
+			for _, peerID := range ghostGuardPeerIDs {
+				if err := s.sendSignalingNotification(context.WithoutCancel(ctx), ghostGuardSenderID, peerID, ghostGuardSessionType, ghostGuardGroupID, nil, ghostGuardContent); err != nil {
+					log.ZWarn(context.WithoutCancel(ctx), "handleHungUp: ghost-call guard re-send failed", err,
+						"peerID", peerID, "roomID", ghostGuardRoomID)
+				}
+			}
+		}()
 	}
 
 	duration := int64(0)
