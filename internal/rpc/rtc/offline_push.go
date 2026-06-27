@@ -16,6 +16,7 @@ import (
 const (
 	callWakePushSchemaVersion = 1
 	callWakePushType          = "call"
+	callSignalingWakePushType = "callSignaling"
 	callIOSPushSound          = "call.caf"
 	callOfflinePushMissedDesc = "未接通话"
 
@@ -83,7 +84,7 @@ func (s *rtcServer) resolveSignalingOfflinePushInfo(ctx context.Context, inv *rt
 		} else {
 			s.applyGroupChatInviteOfflinePushCopy(ctx, push, inv, calleeUserID)
 		}
-		push.Ex = syncCallWakePushEx(inv, sessionType, push.Ex)
+		push.Ex = syncCallWakePushEx(inv, sessionType, push.Ex, wakePushTypeForAction(action))
 		log.ZInfo(ctx, "resolveSignalingOfflinePushInfo: using client offlinePushInfo only (config disabled)",
 			"action", action,
 			"roomID", inv.RoomID,
@@ -130,7 +131,7 @@ func (s *rtcServer) resolveSignalingOfflinePushInfo(ctx context.Context, inv *rt
 	if push.Ex == "" && cfg.OfflinePush.Ext != "" {
 		push.Ex = cfg.OfflinePush.Ext
 	}
-	push.Ex = syncCallWakePushEx(inv, sessionType, push.Ex)
+	push.Ex = syncCallWakePushEx(inv, sessionType, push.Ex, wakePushTypeForAction(action))
 	log.ZInfo(ctx, "resolveSignalingOfflinePushInfo done",
 		"action", action,
 		"roomID", inv.RoomID,
@@ -354,15 +355,22 @@ func callMediaLabel(mediaType string) string {
 	}
 }
 
+func wakePushTypeForAction(action string) string {
+	if action == signalCallActionInvite {
+		return callWakePushType
+	}
+	return callSignalingWakePushType
+}
+
 func buildCallWakePushEx(inv *rtc.InvitationInfo, sessionType int32) string {
 	ex := callWakePushEx{}
-	applyServerCallWakePushEx(&ex, inv, sessionType)
+	applyServerCallWakePushEx(&ex, inv, sessionType, callWakePushType)
 	return jsonutil.StructToJsonString(ex)
 }
 
 // syncCallWakePushEx merges server-authoritative invite fields into wake-push ex.
 // Client-provided ex fields are preserved when parseable; invalid ex falls back to server build.
-func syncCallWakePushEx(inv *rtc.InvitationInfo, sessionType int32, exJSON string) string {
+func syncCallWakePushEx(inv *rtc.InvitationInfo, sessionType int32, exJSON, pushType string) string {
 	if inv == nil || inv.RoomID == "" {
 		return exJSON
 	}
@@ -373,11 +381,11 @@ func syncCallWakePushEx(inv *rtc.InvitationInfo, sessionType int32, exJSON strin
 	if err := jsonutil.JsonStringToStruct(exJSON, &ex); err != nil {
 		return buildCallWakePushEx(inv, sessionType)
 	}
-	applyServerCallWakePushEx(&ex, inv, sessionType)
+	applyServerCallWakePushEx(&ex, inv, sessionType, pushType)
 	return jsonutil.StructToJsonString(ex)
 }
 
-func applyServerCallWakePushEx(ex *callWakePushEx, inv *rtc.InvitationInfo, sessionType int32) {
+func applyServerCallWakePushEx(ex *callWakePushEx, inv *rtc.InvitationInfo, sessionType int32, pushType string) {
 	if ex == nil || inv == nil {
 		return
 	}
@@ -388,7 +396,9 @@ func applyServerCallWakePushEx(ex *callWakePushEx, inv *rtc.InvitationInfo, sess
 	if ex.SessionType == 0 {
 		ex.SessionType = sessionType
 	}
-	if ex.PushType == "" {
+	if pushType != "" {
+		ex.PushType = pushType
+	} else if ex.PushType == "" {
 		ex.PushType = callWakePushType
 	}
 	if ex.SchemaVersion == 0 {

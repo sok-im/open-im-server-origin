@@ -142,7 +142,7 @@ func TestSyncCallWakePushExAddsGroupID(t *testing.T) {
 		MediaType:     "video",
 		InviterUserID: "caller",
 		GroupID:       "g1",
-	}, int32(constant.ReadGroupChatType), clientEx)
+	}, int32(constant.ReadGroupChatType), clientEx, callWakePushType)
 
 	var ex callWakePushEx
 	if err := jsonutil.JsonStringToStruct(got, &ex); err != nil {
@@ -296,6 +296,13 @@ func TestResolveSignalingOfflinePushInfoSingleChatMissedCall(t *testing.T) {
 	if timeoutPush.IOSPushSound != "" {
 		t.Fatalf("ios sound=%q, want empty for missed call", timeoutPush.IOSPushSound)
 	}
+	var timeoutEx callWakePushEx
+	if err := jsonutil.JsonStringToStruct(timeoutPush.Ex, &timeoutEx); err != nil {
+		t.Fatalf("unmarshal timeout ex: %v", err)
+	}
+	if timeoutEx.PushType != callSignalingWakePushType {
+		t.Fatalf("timeout pushType=%q, want %q", timeoutEx.PushType, callSignalingWakePushType)
+	}
 
 	cancelPush := s.resolveSignalingOfflinePushInfo(t.Context(), inv, invitePush, signalCallActionCancel, "caller", "callee")
 	if cancelPush.Title != "caller" {
@@ -303,6 +310,13 @@ func TestResolveSignalingOfflinePushInfoSingleChatMissedCall(t *testing.T) {
 	}
 	if cancelPush.Desc != callOfflinePushMissedDesc {
 		t.Fatalf("cancel desc=%q", cancelPush.Desc)
+	}
+	var cancelEx callWakePushEx
+	if err := jsonutil.JsonStringToStruct(cancelPush.Ex, &cancelEx); err != nil {
+		t.Fatalf("unmarshal cancel ex: %v", err)
+	}
+	if cancelEx.PushType != callSignalingWakePushType {
+		t.Fatalf("cancel pushType=%q, want %q", cancelEx.PushType, callSignalingWakePushType)
 	}
 }
 
@@ -339,5 +353,12 @@ func TestResolveSignalingOfflinePushInfoGroupChatMissedCall(t *testing.T) {
 	}
 	if timeoutPush.Desc != callOfflinePushMissedDesc {
 		t.Fatalf("desc=%q, want %q", timeoutPush.Desc, callOfflinePushMissedDesc)
+	}
+	var timeoutEx callWakePushEx
+	if err := jsonutil.JsonStringToStruct(timeoutPush.Ex, &timeoutEx); err != nil {
+		t.Fatalf("unmarshal timeout ex: %v", err)
+	}
+	if timeoutEx.PushType != callSignalingWakePushType {
+		t.Fatalf("timeout pushType=%q, want %q", timeoutEx.PushType, callSignalingWakePushType)
 	}
 }
