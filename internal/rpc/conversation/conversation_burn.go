@@ -22,23 +22,41 @@ import (
 	"github.com/openimsdk/tools/log"
 )
 
-// syncSenderConversationBurnOnCreateSingleChat 发起单聊时，若发送者已设置个人阅后即焚（用户全局 MsgBurnDuration），
-// 为新会话同步会话级 BurnDuration，供 recordBurnDeadlines 读取。
-func (c *conversationServer) syncSenderConversationBurnOnCreateSingleChat(
-	ctx context.Context, sendID, recvID, conversationID string,
-) {
+func (c *conversationServer) senderMsgBurnDuration(ctx context.Context, sendID string) int32 {
+	if sendID == "" {
+		return 0
+	}
 	sender, err := c.userClient.GetUserInfo(ctx, sendID)
 	if err != nil {
-		log.ZWarn(ctx, "syncSenderConversationBurnOnCreateSingleChat GetUserInfo failed", err, "sendID", sendID)
+		log.ZWarn(ctx, "senderMsgBurnDuration GetUserInfo failed", err, "sendID", sendID)
+		return 0
+	}
+	if sender == nil {
+		return 0
+	}
+	return sender.MsgBurnDuration
+}
+
+func applySenderBurnToConversation(conv *dbModel.Conversation, burnDuration int32) {
+	if burnDuration <= 0 {
 		return
 	}
-	if sender == nil || sender.MsgBurnDuration <= 0 {
+	conv.BurnDuration = burnDuration
+	conv.IsPrivateChat = true
+}
+
+// syncSenderConversationBurnOnCreateSingleChat 发起单聊时，若发送者已设置个人阅后即焚（用户全局 MsgBurnDuration），
+// 为新会话同步会话级 BurnDuration 并通知客户端，供 recordBurnDeadlines 读取。
+func (c *conversationServer) syncSenderConversationBurnOnCreateSingleChat(
+	ctx context.Context, sendID, recvID, conversationID string, burnDuration int32,
+) {
+	if burnDuration <= 0 {
 		return
 	}
 	conv := dbModel.Conversation{
 		ConversationID:   conversationID,
 		ConversationType: constant.SingleChatType,
-		BurnDuration:     sender.MsgBurnDuration,
+		BurnDuration:     burnDuration,
 		IsPrivateChat:    true,
 		UserID:           recvID,
 	}
@@ -52,6 +70,6 @@ func (c *conversationServer) syncSenderConversationBurnOnCreateSingleChat(
 		true,
 	); err != nil {
 		log.ZWarn(ctx, "syncSenderConversationBurnOnCreateSingleChat syncSingleChatPrivateSettings failed", err,
-			"sendID", sendID, "recvID", recvID, "conversationID", conversationID, "burnDuration", sender.MsgBurnDuration)
+			"sendID", sendID, "recvID", recvID, "conversationID", conversationID, "burnDuration", burnDuration)
 	}
 }

@@ -529,11 +529,14 @@ func (c *conversationServer) CreateSingleChatConversations(ctx context.Context,
 ) (*pbconversation.CreateSingleChatConversationsResp, error) {
 	switch req.ConversationType {
 	case constant.SingleChatType:
+		burnDuration := c.senderMsgBurnDuration(ctx, req.SendID)
+
 		var conversation dbModel.Conversation
 		conversation.ConversationID = req.ConversationID
 		conversation.ConversationType = req.ConversationType
 		conversation.OwnerUserID = req.SendID
 		conversation.UserID = req.RecvID
+		applySenderBurnToConversation(&conversation, burnDuration)
 		err := c.conversationDatabase.CreateConversation(ctx, []*dbModel.Conversation{&conversation})
 		if err != nil {
 			log.ZWarn(ctx, "create conversation failed", err, "conversation", conversation)
@@ -542,11 +545,12 @@ func (c *conversationServer) CreateSingleChatConversations(ctx context.Context,
 		conversation2 := conversation
 		conversation2.OwnerUserID = req.RecvID
 		conversation2.UserID = req.SendID
+		applySenderBurnToConversation(&conversation2, burnDuration)
 		err = c.conversationDatabase.CreateConversation(ctx, []*dbModel.Conversation{&conversation2})
 		if err != nil {
 			log.ZWarn(ctx, "create conversation failed", err, "conversation2", conversation)
 		}
-		c.syncSenderConversationBurnOnCreateSingleChat(ctx, req.SendID, req.RecvID, req.ConversationID)
+		c.syncSenderConversationBurnOnCreateSingleChat(ctx, req.SendID, req.RecvID, req.ConversationID, burnDuration)
 	case constant.NotificationChatType:
 		var conversation dbModel.Conversation
 		conversation.ConversationID = req.ConversationID

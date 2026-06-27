@@ -183,6 +183,7 @@ func (m *msgServer) sendMsgSingleChat(ctx context.Context, req *pbmsg.SendMsgReq
 	if err := m.webhookBeforeMsgModify(ctx, &m.config.WebhooksConfig.BeforeMsgModify, req); err != nil {
 		return nil, err
 	}
+	m.ensureSenderSingleChatBurn(ctx, req.MsgData.SendID, req.MsgData.RecvID)
 	log.ZInfo(ctx, "sendMsgSingleChat after modify", "isNotification", isNotification, "msgdata", req.MsgData)
 	if err := m.MsgDatabase.MsgToMQ(ctx, conversationutil.GenConversationUniqueKeyForSingle(req.MsgData.SendID, req.MsgData.RecvID), req.MsgData); err != nil {
 		prommetrics.SingleChatMsgProcessFailedCounter.Inc()
