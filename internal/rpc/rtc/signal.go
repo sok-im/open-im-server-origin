@@ -569,6 +569,24 @@ func (s *rtcServer) handleAccept(ctx context.Context, req *rtc.SignalAcceptReq, 
 		return nil, err
 	}
 
+	if err := s.db.SetAcceptTime(ctx, dbInv.RoomID, time.Now().UnixMilli()); err != nil {
+		log.ZWarn(ctx, "handleAccept: SetAcceptTime failed", err, "roomID", dbInv.RoomID)
+	}
+
+	// Re-read the invitation after SetAcceptTime. A concurrent hang-up/cancel/reject
+	// may have deleted it while this handler was running; returning a token then would
+	// leave the acceptor in a ghost call (chat record shows ended, UI still in-call).
+	freshInv, freshErr := s.db.GetInvitationByRoomID(ctx, dbInv.RoomID)
+	if freshErr != nil {
+		if errs.ErrRecordNotFound.Is(freshErr) {
+			log.ZInfo(ctx, "handleAccept: call ended during accept", "roomID", dbInv.RoomID, "userID", req.UserID)
+			return nil, errs.ErrRecordNotFound.WrapMsg("call already ended", "roomID", dbInv.RoomID)
+		}
+		log.ZWarn(ctx, "handleAccept: GetInvitationByRoomID after SetAcceptTime failed", freshErr, "roomID", dbInv.RoomID)
+		return nil, freshErr
+	}
+	dbInv = freshInv
+
 	sessionType := int32(constant.SingleChatType)
 	if dbInv.GroupID != "" {
 		sessionType = int32(constant.ReadGroupChatType)
@@ -582,10 +600,6 @@ func (s *rtcServer) handleAccept(ctx context.Context, req *rtc.SignalAcceptReq, 
 
 	if err := s.sendSignalingNotification(ctx, req.UserID, dbInv.InviterUserID, sessionType, dbInv.GroupID, req.OfflinePushInfo, content); err != nil {
 		log.ZWarn(ctx, "handleAccept: sendSignalingNotification accept to inviter failed", err, "inviterID", dbInv.InviterUserID)
-	}
-
-	if err := s.db.SetAcceptTime(ctx, dbInv.RoomID, time.Now().UnixMilli()); err != nil {
-		log.ZWarn(ctx, "handleAccept: SetAcceptTime failed", err, "roomID", dbInv.RoomID)
 	}
 
 	// Transition inviter and acceptor to "in-call".
