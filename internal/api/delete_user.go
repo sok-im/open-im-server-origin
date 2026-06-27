@@ -232,11 +232,14 @@ func (d *DeleteUserApi) deleteFriendsReferencingUser(ctx context.Context, delete
 		if ownerUserID == deletedUserID {
 			continue
 		}
-		if _, err := d.friendClient.DeleteFriend(d.adminCtx(ctx), &relation.DeleteFriendReq{
+		// DeleteFriendOneway notifies ownerUserID (FriendsInfoUpdateNotification) so their
+		// client refreshes friend list and call-record display. DeleteFriend would notify
+		// the deleted user only, leaving owners stale after account deletion.
+		if _, err := d.friendClient.DeleteFriendOneway(d.adminCtx(ctx), &relation.DeleteFriendReq{
 			OwnerUserID:  ownerUserID,
 			FriendUserID: deletedUserID,
 		}); err != nil {
-			log.ZWarn(ctx, "DeleteUser: DeleteFriend (friend→owner) failed", err,
+			log.ZWarn(ctx, "DeleteUser: DeleteFriendOneway (friend→owner) failed", err,
 				"ownerUserID", ownerUserID, "friendUserID", deletedUserID)
 		}
 	}
