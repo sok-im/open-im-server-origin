@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/openimsdk/open-im-server/v3/pkg/authverify"
+	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/controller"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/database"
 	"github.com/openimsdk/open-im-server/v3/pkg/rpcli"
 	"github.com/openimsdk/protocol/constant"
@@ -22,6 +23,7 @@ import (
 // It follows the same direct-DB pattern as UserGlobalBlackApi.
 type DeleteUserApi struct {
 	userDB         database.User
+	userDatabase   controller.UserDatabase
 	friendDB       database.Friend
 	phoneSNDB      database.PhoneSN
 	totpDB         database.UserTotp
@@ -34,6 +36,7 @@ type DeleteUserApi struct {
 
 func NewDeleteUserApi(
 	userDB database.User,
+	userDatabase controller.UserDatabase,
 	friendDB database.Friend,
 	phoneSNDB database.PhoneSN,
 	totpDB database.UserTotp,
@@ -45,6 +48,7 @@ func NewDeleteUserApi(
 ) *DeleteUserApi {
 	return &DeleteUserApi{
 		userDB:         userDB,
+		userDatabase:   userDatabase,
 		friendDB:       friendDB,
 		phoneSNDB:      phoneSNDB,
 		totpDB:         totpDB,
@@ -193,10 +197,8 @@ func (d *DeleteUserApi) DeleteUser(c *gin.Context) {
 		}
 	}
 
-	// 6. Hard-delete user document from MongoDB.
-	// Redis cache will become stale and expire via TTL; the user can no longer
-	// authenticate because their tokens were already invalidated in step 2.
-	if err := d.userDB.Delete(c, []string{req.UserID}); err != nil {
+	// 6. Hard-delete user document and purge Redis user cache immediately.
+	if err := d.userDatabase.Delete(c, []string{req.UserID}); err != nil {
 		apiresp.GinError(c, err)
 		return
 	}

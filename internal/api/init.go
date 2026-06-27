@@ -30,10 +30,12 @@ import (
 )
 
 type Config struct {
-	API           config.API
-	Share         config.Share
-	Discovery     config.Discovery
-	MongodbConfig config.Mongo
+	API              config.API
+	Share            config.Share
+	Discovery        config.Discovery
+	MongodbConfig    config.Mongo
+	RedisConfig      config.Redis
+	LocalCacheConfig config.LocalCache
 }
 
 func Start(ctx context.Context, index int, cfg *Config) error {

@@ -23,6 +23,7 @@ import (
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/cache"
 	cacheredis "github.com/openimsdk/open-im-server/v3/pkg/common/storage/cache/redis"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/controller"
+	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/database"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/database/mgo"
 	"github.com/openimsdk/open-im-server/v3/pkg/rpcli"
 	"github.com/openimsdk/protocol/rtc"
@@ -47,6 +48,7 @@ type rtcServer struct {
 	config           *Config
 	db               controller.RtcDatabase
 	globalBlackDB    controller.UserGlobalBlackDatabase
+	userDB           database.User
 	roomClient       *lksdk.RoomServiceClient
 	msgClient        *rpcli.MsgClient
 	userClient       *rpcli.UserClient
@@ -74,6 +76,10 @@ func Start(ctx context.Context, cfg *Config, client discovery.SvcDiscoveryRegist
 	}
 
 	globalBlackMgo, err := mgo.NewUserGlobalBlackMongo(mgocli.GetDB())
+	if err != nil {
+		return err
+	}
+	userMgo, err := mgo.NewUserMongo(mgocli.GetDB())
 	if err != nil {
 		return err
 	}
@@ -110,6 +116,7 @@ func Start(ctx context.Context, cfg *Config, client discovery.SvcDiscoveryRegist
 		config:          cfg,
 		db:              controller.NewRtcDatabase(signalDB),
 		globalBlackDB:   controller.NewUserGlobalBlackDatabase(globalBlackMgo),
+		userDB:          userMgo,
 		roomClient:      roomClient,
 		msgClient:       rpcli.NewMsgClient(msgConn),
 		userClient:      rpcli.NewUserClient(userConn),

@@ -450,7 +450,7 @@ func (s *rtcServer) filterNotAllowedInvitees(ctx context.Context, inviterID stri
 			notAllowSet[inviteeID] = struct{}{}
 			continue
 		}
-		userInfo, err := s.userClient.GetUserInfo(ctx, inviteeID)
+		dbUser, err := s.userDB.Take(ctx, inviteeID)
 		if err != nil {
 			if errs.ErrRecordNotFound.Is(err) {
 				notAllowUserIDs = append(notAllowUserIDs, inviteeID)
@@ -458,8 +458,12 @@ func (s *rtcServer) filterNotAllowedInvitees(ctx context.Context, inviterID stri
 				missingUserSet[inviteeID] = struct{}{}
 				continue
 			}
-			log.ZError(ctx, "filterNotAllowedInvitees: GetUserInfo failed", err, "inviteeID", inviteeID)
+			log.ZError(ctx, "filterNotAllowedInvitees: Take user failed", err, "inviteeID", inviteeID)
 			return nil, nil, nil, nil, nil, err
+		}
+		userInfo := &sdkws.UserInfo{
+			UserID:            dbUser.UserID,
+			CallAcceptSetting: dbUser.CallAcceptSetting,
 		}
 		blocked, err := s.relationClient.IsBlack(ctx, inviterID, inviteeID)
 		if err != nil {
