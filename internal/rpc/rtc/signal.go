@@ -2484,11 +2484,6 @@ func (s *rtcServer) handleTimeout(ctx context.Context, req *rtc.SignalTimeoutReq
 		}
 	}
 
-	if dbInv.AcceptTime > 0 {
-		log.ZInfo(ctx, "handleTimeout: call already answered, skip tear-down", "roomID", dbInv.RoomID, "acceptTime", dbInv.AcceptTime)
-		return &rtc.SignalTimeoutResp{}, nil
-	}
-
 	if dbInv.GroupID != "" {
 		lp, listErr := s.roomClient.ListParticipants(ctx, &livekit.ListParticipantsRequest{Room: dbInv.RoomID})
 		joinedCount := 0
@@ -2508,22 +2503,30 @@ func (s *rtcServer) handleTimeout(ctx context.Context, req *rtc.SignalTimeoutReq
 			}
 		}
 
-		notifyTimeoutDeclined := func() {
-			for _, inviteeID := range dbInv.InviteeUserIDList {
-				if _, joined := inRoom[inviteeID]; joined {
-					continue
-				}
-				go s.sendGroupCallParticipantDeclinedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, signalCallActionTimeout, inviteeID)
+		timedOutInvitees := make([]string, 0, len(dbInv.InviteeUserIDList))
+		for _, inviteeID := range dbInv.InviteeUserIDList {
+			if _, joined := inRoom[inviteeID]; joined {
+				continue
 			}
+			timedOutInvitees = append(timedOutInvitees, inviteeID)
+		}
+		for _, inviteeID := range timedOutInvitees {
+			go s.sendGroupCallParticipantDeclinedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, signalCallActionTimeout, inviteeID)
 		}
 
-		if joinedCount > 0 {
-			log.ZInfo(ctx, "handleTimeout: group call continues", "roomID", dbInv.RoomID, "joinedCount", joinedCount)
-			notifyTimeoutDeclined()
+		// When at least one invitee has joined (or accept is recorded), the group
+		// call continues. Still notify declined for offline/unanswered invitees.
+		if dbInv.AcceptTime > 0 || joinedCount > 0 {
+			log.ZInfo(ctx, "handleTimeout: group call continues, timed out invitees notified",
+				"roomID", dbInv.RoomID, "joinedCount", joinedCount, "acceptTime", dbInv.AcceptTime, "timedOutInvitees", timedOutInvitees)
+			for _, inviteeID := range timedOutInvitees {
+				if err := s.db.PullInvitee(ctx, dbInv.RoomID, inviteeID); err != nil {
+					log.ZWarn(ctx, "handleTimeout: PullInvitee failed", err, "roomID", dbInv.RoomID, "userID", inviteeID)
+				}
+				s.deleteCallStatusForUser(ctx, inviteeID, dbInv.RoomID)
+			}
 			return &rtc.SignalTimeoutResp{}, nil
 		}
-
-		notifyTimeoutDeclined()
 
 		if _, err := s.roomClient.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: dbInv.RoomID}); err != nil {
 			log.ZWarn(ctx, "handleTimeout: LiveKit DeleteRoom failed", err, "roomID", dbInv.RoomID)
@@ -2545,6 +2548,10 @@ func (s *rtcServer) handleTimeout(ctx context.Context, req *rtc.SignalTimeoutReq
 			s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, groupCallDurationFromInvitation(dbInv), signalCallActionTimeout)
 		}
 	} else {
+		if dbInv.AcceptTime > 0 {
+			log.ZInfo(ctx, "handleTimeout: call already answered, skip tear-down", "roomID", dbInv.RoomID, "acceptTime", dbInv.AcceptTime)
+			return &rtc.SignalTimeoutResp{}, nil
+		}
 		if _, err := s.roomClient.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: dbInv.RoomID}); err != nil {
 			log.ZWarn(ctx, "handleTimeout: LiveKit DeleteRoom failed", err, "roomID", dbInv.RoomID)
 		}
