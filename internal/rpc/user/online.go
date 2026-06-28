@@ -104,15 +104,15 @@ func (s *userServer) updateOfflineRecord(ctx context.Context, userID string, has
 		// 所有平台已离线，写入离线记录（含预计算的删除截止时间）
 		offlineTime := time.Now()
 		deadline := s.calcDeleteDeadline(ctx, userID, offlineTime)
-		log.ZInfo(ctx, "lintao updateOfflineRecord: Upsert", "userID", userID, "offlineTime", offlineTime, "deadline", deadline)
+		log.ZInfo(ctx, "tom updateOfflineRecord: Upsert", "userID", userID, "offlineTime", offlineTime, "deadline", deadline)
 		if err := s.userOfflineRecord.Upsert(ctx, userID, offlineTime, deadline); err != nil {
-			log.ZWarn(ctx, "lintao updateOfflineRecord: Upsert failed", err, "userID", userID)
+			log.ZWarn(ctx, "tom updateOfflineRecord: Upsert failed", err, "userID", userID)
 		}
 	} else if hasOnline {
-		log.ZInfo(ctx, "lintao updateOfflineRecord: Delete", "userID", userID)
+		log.ZInfo(ctx, "tom updateOfflineRecord: Delete", "userID", userID)
 		// 用户重新上线，删除离线记录，停止计时
 		if err := s.userOfflineRecord.Delete(ctx, userID); err != nil {
-			log.ZWarn(ctx, "lintao updateOfflineRecord: Delete failed", err, "userID", userID)
+			log.ZWarn(ctx, "tom updateOfflineRecord: Delete failed", err, "userID", userID)
 		}
 	}
 }

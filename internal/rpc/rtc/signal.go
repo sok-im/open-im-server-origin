@@ -408,10 +408,13 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 	// Notify every group member who was NOT explicitly invited so they can
 	// render the "call in progress" banner and optionally join.
 	// Run in a goroutine so large groups don't block the caller's response.
-	go s.broadcastGroupCallStatusToNonInvited(context.WithoutCancel(ctx), inv.GroupID, inv.RoomID, inv.MediaType, inv.InviterUserID, inv.InviteeUserIDList, GroupCallStatusOngoing)
+
+	log.ZInfo(ctx, "lintao handleInviteInGroup: broadcastGroupCallStatusToNonInvited", "inv", inv)
+
+	s.broadcastGroupCallStatusToNonInvited(ctx, inv.GroupID, inv.RoomID, inv.MediaType, inv.InviterUserID, inv.InviteeUserIDList, GroupCallStatusOngoing)
 
 	// Send a group-chat timeline notification to all members: "XXX started an audio/video call".
-	go s.sendGroupCallStartedNotification(context.WithoutCancel(ctx), inv.GroupID, inv.InviterUserID, inv.MediaType)
+	s.sendGroupCallStartedNotification(ctx, inv.GroupID, inv.InviterUserID, inv.MediaType)
 
 	resp := &rtc.SignalInviteInGroupResp{
 		Token:              token,
@@ -727,19 +730,17 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 			log.ZWarn(ctx, "handleReject: TryDeleteInvitation failed", claimErr, "roomID", dbInv.RoomID, "req", req, "dbInv", dbInv)
 		}
 
-		//s.sendCallRecordChatMsg(ctx, dbInv, callStatusRejected, 0)
-
 		log.ZInfo(ctx, "handleReject", "req", req, "dbInv", dbInv)
 
 		// All invitees rejected — delete call-status for all participants.
 		s.deleteCallStatusForInvitation(ctx, dbInv)
 
-		go s.broadcastGroupCallStatusToNonInvited(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
-
-		log.ZDebug(ctx, "handleReject: sendGroupCallEndedNotification", "dbInv", dbInv, "claimed", claimed)
+		log.ZDebug(ctx, "lintao handleReject: sendGroupCallEndedNotification", "dbInv", dbInv, "claimed", claimed)
 
 		if claimed {
-			s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, groupCallDurationFromInvitation(dbInv), signalCallActionReject)
+			s.broadcastGroupCallStatusToNonInvited(ctx, dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
+
+			s.sendGroupCallEndedNotification(ctx, dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, groupCallDurationFromInvitation(dbInv), signalCallActionReject)
 		}
 
 	} else {
@@ -837,12 +838,13 @@ func (s *rtcServer) handleCancel(ctx context.Context, req *rtc.SignalCancelReq, 
 	if dbInv.GroupID != "" {
 		go s.sendGroupCallParticipantDeclinedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, signalCallActionCancel, req.UserID)
 
-		go s.broadcastGroupCallStatusToNonInvited(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
-
 		log.ZDebug(ctx, "handleCancel: sendGroupCallEndedNotification", "dbInv", dbInv, "groupCallEndedClaimed", groupCallEndedClaimed)
 
 		if groupCallEndedClaimed {
-			s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, groupCallDurationFromInvitation(dbInv), signalCallActionCancel)
+
+			s.broadcastGroupCallStatusToNonInvited(ctx, dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
+
+			s.sendGroupCallEndedNotification(ctx, dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, groupCallDurationFromInvitation(dbInv), signalCallActionCancel)
 		}
 	} else {
 		s.sendCallRecordChatMsg(ctx, dbInv, callStatusCancelled, 0)
@@ -1018,11 +1020,6 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 	// Call is fully over — remove status for all participants.
 	s.deleteCallStatusForInvitation(ctx, dbInv)
 
-	// Notify non-invited group members that the call has ended so they dismiss the banner.
-	if dbInv.GroupID != "" {
-		go s.broadcastGroupCallStatusToNonInvited(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
-	}
-
 	duration := int64(0)
 	if dbInv.GroupID == "" {
 		// Always use AcceptTime→hangup on the server so chat duration excludes
@@ -1044,7 +1041,9 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 		log.ZDebug(ctx, "handleHungUp: sendGroupCallEndedNotification", "dbInv", dbInv, "claimed", claimed)
 
 		if claimed {
-			s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, duration, signalCallActionHungUp)
+			s.broadcastGroupCallStatusToNonInvited(ctx, dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
+
+			s.sendGroupCallEndedNotification(ctx, dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, duration, signalCallActionHungUp)
 		}
 	}
 
@@ -1453,15 +1452,17 @@ func (s *rtcServer) SignalNotifyGroupCallEnded(ctx context.Context, req *rtc.Sig
 
 	// Notify non-invited members so they dismiss the "call in progress" banner.
 	// Mirror the same call made in handleHungUp's tear-down path.
-	go s.broadcastGroupCallStatusToNonInvited(context.WithoutCancel(ctx), req.GroupID, req.RoomID, mediaType, inviterUserID, inv.InviteeUserIDList, GroupCallStatusEnded)
-
-	log.ZDebug(ctx, "SignalNotifyGroupCallEnded: sendGroupCallEndedNotification", "req", req, "claimed", claimed, "claimErr", claimErr)
 
 	endReason := req.GetEndReason()
 	if endReason == "" {
 		endReason = signalCallActionHungUp
 	}
-	s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), req.GroupID, inviterUserID, mediaType, resolveGroupCallDurationSecs(inv, req.DurationSecs), endReason)
+
+	log.ZDebug(ctx, "lintao SignalNotifyGroupCallEnded: sendGroupCallEndedNotification", "req", req, "claimed", claimed, "claimErr", claimErr)
+
+	s.sendGroupCallEndedNotification(ctx, req.GroupID, inviterUserID, mediaType, resolveGroupCallDurationSecs(inv, req.DurationSecs), endReason)
+
+	s.broadcastGroupCallStatusToNonInvited(ctx, req.GroupID, req.RoomID, mediaType, inviterUserID, inv.InviteeUserIDList, GroupCallStatusEnded)
 
 	return &rtc.SignalNotifyGroupCallEndedResp{}, nil
 }
@@ -1692,7 +1693,7 @@ func (s *rtcServer) broadcastGroupCallStatusToNonInvited(ctx context.Context, gr
 		InviterUserID: inviterUserID,
 	})
 	if err != nil {
-		log.ZWarn(ctx, "broadcastGroupCallStatusToNonInvited: marshal failed", err)
+		log.ZWarn(ctx, "lintao broadcastGroupCallStatusToNonInvited: marshal failed", err)
 		return
 	}
 
@@ -1701,7 +1702,9 @@ func (s *rtcServer) broadcastGroupCallStatusToNonInvited(ctx context.Context, gr
 			continue
 		}
 		if err := s.sendCustomSignalNotification(ctx, inviterUserID, memberID, int32(constant.SingleChatType), content); err != nil {
-			log.ZWarn(ctx, "broadcastGroupCallStatusToNonInvited: send failed", err, "memberID", memberID, "status", status)
+			log.ZWarn(ctx, "lintao broadcastGroupCallStatusToNonInvited: send failed", err, "memberID", memberID, "status", status)
+		} else {
+			log.ZInfo(ctx, "lintao broadcastGroupCallStatusToNonInvited: send ok", "memberID", memberID, "status", status)
 		}
 	}
 }
@@ -2344,6 +2347,8 @@ func (s *rtcServer) handleTimeout(ctx context.Context, req *rtc.SignalTimeoutReq
 		return nil, errs.ErrArgs.WrapMsg("invitation is nil")
 	}
 
+	log.ZInfo(ctx, "handleTimeout: start", "req", req)
+
 	dbInv, err := s.db.GetInvitationByRoomID(ctx, req.Invitation.RoomID)
 	if err != nil {
 		log.ZWarn(ctx, "handleTimeout: GetInvitationByRoomID failed", err, "roomID", req.Invitation.RoomID)
@@ -2404,7 +2409,9 @@ func (s *rtcServer) handleTimeout(ctx context.Context, req *rtc.SignalTimeoutReq
 			}
 			timedOutInvitees = append(timedOutInvitees, inviteeID)
 		}
+
 		for _, inviteeID := range timedOutInvitees {
+			log.ZInfo(ctx, "handleTimeout: sendGroupCallParticipantDeclinedNotification to invitee", "inviteeID", inviteeID)
 			go s.sendGroupCallParticipantDeclinedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, signalCallActionTimeout, inviteeID)
 		}
 
@@ -2434,12 +2441,12 @@ func (s *rtcServer) handleTimeout(ctx context.Context, req *rtc.SignalTimeoutReq
 		// Timeout ended the group call — remove all participants' statuses.
 		s.deleteCallStatusForInvitation(ctx, dbInv)
 
-		go s.broadcastGroupCallStatusToNonInvited(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
-
-		log.ZDebug(ctx, "handleTimeout: sendGroupCallEndedNotification", "dbInv", dbInv, "claimed", claimed)
+		log.ZDebug(ctx, "lintao handleTimeout: sendGroupCallEndedNotification", "dbInv", dbInv, "claimed", claimed)
 
 		if claimed {
-			s.sendGroupCallEndedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, groupCallDurationFromInvitation(dbInv), signalCallActionTimeout)
+			s.broadcastGroupCallStatusToNonInvited(ctx, dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
+
+			s.sendGroupCallEndedNotification(ctx, dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, groupCallDurationFromInvitation(dbInv), signalCallActionTimeout)
 		}
 	} else {
 		if dbInv.AcceptTime > 0 {
