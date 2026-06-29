@@ -11,6 +11,7 @@ import (
 )
 
 type TronIndexer struct {
+	chainKey        string
 	client          *TronClient
 	db              controller.RedPacketDatabase
 	pollInterval    time.Duration
@@ -18,11 +19,12 @@ type TronIndexer struct {
 	contractAddress string
 }
 
-func NewTronIndexer(client *TronClient, db controller.RedPacketDatabase, pollInterval int, startBlock int64) *TronIndexer {
+func NewTronIndexer(chainKey string, client *TronClient, db controller.RedPacketDatabase, pollInterval int, startBlock int64) *TronIndexer {
 	if pollInterval <= 0 {
 		pollInterval = 3
 	}
 	return &TronIndexer{
+		chainKey:        chainKey,
 		client:          client,
 		db:              db,
 		pollInterval:    time.Duration(pollInterval) * time.Second,
@@ -84,7 +86,7 @@ func (t *TronIndexer) compensate(ctx context.Context) error {
 		return fmt.Errorf("get expired packets failed: %w", err)
 	}
 	for _, rp := range packets {
-		if err := t.db.UpdateRedPacketStatus(ctx, rp.ChainType, rp.PacketID, "EXPIRED"); err != nil {
+		if err := t.db.UpdateRedPacketStatus(ctx, rp.ChainKey, rp.PacketID, "EXPIRED"); err != nil {
 			log.ZWarn(ctx, "redpacket tron compensation mark expired failed", err, "packetID", rp.PacketID)
 			continue
 		}
@@ -215,6 +217,7 @@ func (t *TronIndexer) handleTronPacketClaimed(ctx context.Context, event *Parsed
 	log.ZInfo(ctx, "tron PacketClaimed event", "packetID", packetID.String(), "claimer", claimer.Hex(), "amount", amount.String(), "txID", txID)
 
 	claim := &model.RedPacketClaim{
+		ChainKey:      t.chainKey,
 		ChainType:     "TRON",
 		PacketID:      packetID.String(),
 		ClaimerWallet: claimer.Hex(),
@@ -235,7 +238,7 @@ func (t *TronIndexer) handleTronPacketClaimed(ctx context.Context, event *Parsed
 	// Pass "" for forced status; DB layer auto-derives COMPLETED/ACTIVE.
 	// txID is the idempotency key: prevents double-counting if ClaimResult RPC
 	// already processed this same transaction.
-	return t.db.UpdateRedPacketClaimProgress(ctx, "TRON", packetID.String(), amount.String(), "", txID)
+	return t.db.UpdateRedPacketClaimProgress(ctx, t.chainKey, packetID.String(), amount.String(), "", txID)
 }
 
 func (t *TronIndexer) handleTronPacketRefunded(ctx context.Context, event *ParsedEvent, txID string) error {
@@ -246,6 +249,7 @@ func (t *TronIndexer) handleTronPacketRefunded(ctx context.Context, event *Parse
 	log.ZInfo(ctx, "tron PacketRefunded event", "packetID", packetID.String(), "refundTo", refundTo.Hex(), "amount", amount.String(), "txID", txID)
 
 	if err := t.db.SaveRefund(ctx, &model.RedPacketRefund{
+		ChainKey:  t.chainKey,
 		ChainType: "TRON",
 		PacketID:  packetID.String(),
 		RefundTo:  refundTo.Hex(),
@@ -255,7 +259,7 @@ func (t *TronIndexer) handleTronPacketRefunded(ctx context.Context, event *Parse
 	}); err != nil {
 		return err
 	}
-	return t.db.UpdateRedPacketStatus(ctx, "TRON", packetID.String(), "REFUNDED")
+	return t.db.UpdateRedPacketStatus(ctx, t.chainKey, packetID.String(), "REFUNDED")
 }
 
 func (t *TronIndexer) GetLastProcessedBlock() int64 {

@@ -2,7 +2,7 @@ package redpacket
 
 import (
 	"context"
-	"crypto/ecdsa"
+	"strings"
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/openimsdk/open-im-server/v3/internal/rpc/redpacket/chain"
@@ -28,9 +28,7 @@ type redPacketServer struct {
 	pbredpacket.UnimplementedRedPacketServer
 	config         *Config
 	db             controller.RedPacketDatabase
-	chainClient    *chain.ChainClient
-	tronClient     *chain.TronClient
-	signerKey      *ecdsa.PrivateKey
+	chainRuntimes  map[string]*chainRuntime
 	groupClient    *rpcli.GroupClient
 	relationClient *rpcli.RelationClient
 }
@@ -73,47 +71,75 @@ func Start(ctx context.Context, conf *Config, registry discovery.SvcDiscoveryReg
 
 	repo := controller.NewRedPacketDatabase(rpDB, claimDB, claimAuthDB, refundDB, challengeDB, bindingDB, auditLogDB)
 
-	chainClient, err := chain.NewClient(
-		conf.RpcConfig.Chain.RPCURL,
-		conf.RpcConfig.Chain.ContractAddress,
-		conf.RpcConfig.Chain.ChainID,
-		conf.RpcConfig.Chain.SignerPrivateKey,
-		conf.RpcConfig.Chain.ConfigAdminPrivateKey,
-	)
-	if err != nil {
-		log.ZWarn(ctx, "redpacket eth client init failed, continuing without it", err)
-		chainClient = nil
-	}
-
-	var tronClient *chain.TronClient
-	if conf.RpcConfig.Tron.FullNodeURL != "" {
-		abiJSON, abiErr := chain.ExtractABIFromEmbeddedArtifact()
-		if abiErr != nil {
-			log.ZWarn(ctx, "redpacket tron load abi failed", abiErr)
-		} else {
-			tronClient, err = chain.NewTronClient(
-				conf.RpcConfig.Tron.FullNodeURL,
-				conf.RpcConfig.Tron.ContractBase58,
-				conf.RpcConfig.Tron.OwnerBase58,
-				conf.RpcConfig.Tron.PrivateKeyHex,
-				abiJSON,
-				conf.RpcConfig.Tron.FeeLimit,
+	runtimes := make(map[string]*chainRuntime)
+	runtimeCfgs := buildRuntimeConfigs(conf.RpcConfig)
+	var abiJSON []byte
+	for chainKey, runtimeCfg := range runtimeCfgs {
+		chainType, typeErr := normalizeChainType(runtimeCfg.ChainType)
+		if typeErr != nil {
+			log.ZWarn(ctx, "skip redpacket runtime with unsupported chain type", typeErr, "chainKey", chainKey)
+			continue
+		}
+		runtime := &chainRuntime{
+			ChainKey:        chainKey,
+			ChainType:       chainType,
+			ChainID:         runtimeCfg.ChainID,
+			ContractAddress: runtimeCfg.ContractAddress,
+		}
+		switch chainType {
+		case "EVM":
+			evmClient, clientErr := chain.NewClient(
+				runtimeCfg.RPCURL,
+				runtimeCfg.ContractAddress,
+				runtimeCfg.ChainID,
+				runtimeCfg.SignerPrivateKey,
+				runtimeCfg.ConfigAdminPrivateKey,
 			)
-			if err != nil {
-				log.ZWarn(ctx, "redpacket tron client init failed", err)
-				tronClient = nil
+			if clientErr != nil {
+				log.ZWarn(ctx, "redpacket evm client init failed, continuing without it", clientErr, "chainKey", chainKey)
+			} else {
+				runtime.EVMClient = evmClient
+				if runtime.ChainID == 0 {
+					if chainValue := evmClient.ChainID(); chainValue != nil {
+						runtime.ChainID = chainValue.Int64()
+					}
+				}
+				runtime.ContractAddress = evmClient.ContractAddress().Hex()
+			}
+			if k := runtimeCfg.SignerPrivateKey; k != "" {
+				sk, parseErr := crypto.HexToECDSA(strings.TrimPrefix(k, "0x"))
+				if parseErr != nil {
+					log.ZWarn(ctx, "redpacket signer private key parse failed", parseErr, "chainKey", chainKey)
+				} else {
+					runtime.SignerKey = sk
+				}
+			}
+		case "TRON":
+			if len(abiJSON) == 0 {
+				var abiErr error
+				abiJSON, abiErr = chain.ExtractABIFromEmbeddedArtifact()
+				if abiErr != nil {
+					log.ZWarn(ctx, "redpacket tron load abi failed", abiErr)
+				}
+			}
+			if len(abiJSON) > 0 {
+				tronClient, clientErr := chain.NewTronClient(
+					runtimeCfg.FullNodeURL,
+					runtimeCfg.ContractBase58,
+					runtimeCfg.OwnerBase58,
+					runtimeCfg.PrivateKeyHex,
+					abiJSON,
+					runtimeCfg.FeeLimit,
+				)
+				if clientErr != nil {
+					log.ZWarn(ctx, "redpacket tron client init failed", clientErr, "chainKey", chainKey)
+				} else {
+					runtime.TronClient = tronClient
+					runtime.ContractAddress = tronClient.ContractAddress()
+				}
 			}
 		}
-	}
-
-	var signerKey *ecdsa.PrivateKey
-	if k := conf.RpcConfig.Chain.SignerPrivateKey; k != "" {
-		sk, parseErr := crypto.HexToECDSA(k)
-		if parseErr != nil {
-			log.ZWarn(ctx, "redpacket signer private key parse failed", parseErr)
-		} else {
-			signerKey = sk
-		}
+		runtimes[chainKey] = runtime
 	}
 
 	groupConn, err := registry.GetConn(ctx, conf.Share.RpcRegisterName.Group)
@@ -128,9 +154,7 @@ func Start(ctx context.Context, conf *Config, registry discovery.SvcDiscoveryReg
 	srv := &redPacketServer{
 		config:         conf,
 		db:             repo,
-		chainClient:    chainClient,
-		tronClient:     tronClient,
-		signerKey:      signerKey,
+		chainRuntimes:  runtimes,
 		groupClient:    rpcli.NewGroupClient(groupConn),
 		relationClient: rpcli.NewRelationClient(friendConn),
 	}
@@ -138,13 +162,18 @@ func Start(ctx context.Context, conf *Config, registry discovery.SvcDiscoveryReg
 	pbredpacket.RegisterRedPacketServer(server, srv)
 
 	if conf.RpcConfig.Indexer.PollInterval > 0 {
-		if chainClient != nil {
-			ethIndexer := chain.NewIndexer(chainClient, repo, conf.RpcConfig.Indexer.PollInterval, 0, conf.RpcConfig.Indexer.MaxBlocksPerPoll)
-			ethIndexer.Start(ctx)
-		}
-		if tronClient != nil {
-			tronIndexer := chain.NewTronIndexer(tronClient, repo, conf.RpcConfig.Indexer.PollInterval, 0)
-			tronIndexer.Start(ctx)
+		for _, runtime := range runtimes {
+			if runtime == nil {
+				continue
+			}
+			if runtime.EVMClient != nil {
+				ethIndexer := chain.NewIndexer(runtime.ChainKey, runtime.EVMClient, repo, conf.RpcConfig.Indexer.PollInterval, 0, conf.RpcConfig.Indexer.MaxBlocksPerPoll)
+				ethIndexer.Start(ctx)
+			}
+			if runtime.TronClient != nil {
+				tronIndexer := chain.NewTronIndexer(runtime.ChainKey, runtime.TronClient, repo, conf.RpcConfig.Indexer.PollInterval, 0)
+				tronIndexer.Start(ctx)
+			}
 		}
 	} else {
 		log.ZInfo(ctx, "redpacket indexer disabled by config", "pollInterval", conf.RpcConfig.Indexer.PollInterval)

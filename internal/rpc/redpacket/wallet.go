@@ -26,7 +26,7 @@ func (s *redPacketServer) IssueWalletBindChallenge(ctx context.Context, req *pbr
 		return nil, servererrs.ErrNoPermission.WrapMsg("op user id is empty")
 	}
 
-	chainType, err := normalizeChainType(req.ChainType)
+	chainType, err := resolveBindingChainType(req.ChainKey, req.ChainType)
 	if err != nil {
 		return nil, err
 	}
@@ -53,6 +53,7 @@ func (s *redPacketServer) IssueWalletBindChallenge(ctx context.Context, req *pbr
 	challenge := &model.WalletBindingChallenge{
 		ChallengeID:   challengeID,
 		UserID:        currentUserID,
+		ChainKey:      strings.TrimSpace(req.ChainKey),
 		ChainType:     chainType,
 		ChainID:       req.ChainID,
 		WalletAddress: walletAddress,
@@ -72,6 +73,7 @@ func (s *redPacketServer) IssueWalletBindChallenge(ctx context.Context, req *pbr
 	return &pbredpacket.IssueWalletBindChallengeResp{
 		ChallengeID: challengeID,
 		UserID:      currentUserID,
+		ChainKey:    strings.TrimSpace(req.ChainKey),
 		ChainType:   chainType,
 		ChainID:     req.ChainID,
 		Wallet:      walletAddress,
@@ -145,6 +147,7 @@ func (s *redPacketServer) ConfirmWalletBind(ctx context.Context, req *pbredpacke
 
 	return &pbredpacket.ConfirmWalletBindResp{
 		UserID:        binding.UserID,
+		ChainKey:      challenge.ChainKey,
 		ChainType:     binding.ChainType,
 		ChainID:       binding.ChainID,
 		WalletAddress: binding.WalletAddress,
@@ -159,7 +162,7 @@ func (s *redPacketServer) GetWalletBinding(ctx context.Context, req *pbredpacket
 		return nil, servererrs.ErrNoPermission.WrapMsg("op user id is empty")
 	}
 
-	normalizedChainType, err := normalizeChainType(req.ChainType)
+	normalizedChainType, err := resolveBindingChainType(req.ChainKey, req.ChainType)
 	if err != nil {
 		return nil, err
 	}
@@ -169,6 +172,7 @@ func (s *redPacketServer) GetWalletBinding(ctx context.Context, req *pbredpacket
 	}
 	return &pbredpacket.GetWalletBindingResp{
 		UserID:        binding.UserID,
+		ChainKey:      req.ChainKey,
 		ChainType:     binding.ChainType,
 		ChainID:       binding.ChainID,
 		WalletAddress: binding.WalletAddress,

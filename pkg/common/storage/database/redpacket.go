@@ -9,34 +9,34 @@ import (
 type RedPacket interface {
 	Create(ctx context.Context, rp *model.RedPacket) error
 	GetByBizID(ctx context.Context, bizID string) (*model.RedPacket, error)
-	GetByChainTypeAndPacketID(ctx context.Context, chainType, packetID string) (*model.RedPacket, error)
+	GetByChainKeyAndPacketID(ctx context.Context, chainKey, packetID string) (*model.RedPacket, error)
 	UpdateCreated(ctx context.Context, rp *model.RedPacket) error
-	UpdateStatus(ctx context.Context, chainType, packetID, status string) error
+	UpdateStatus(ctx context.Context, chainKey, packetID, status string) error
 	// UpdateClaimProgress atomically increments the claim counter for packetID.
 	// claimTxHash is used as an idempotency key so that re-processing the same
 	// on-chain transaction never double-counts. When status is empty the method
 	// auto-derives the correct status (COMPLETED or ACTIVE).
-	UpdateClaimProgress(ctx context.Context, chainType, packetID, claimedAmount, status, claimTxHash string) error
+	UpdateClaimProgress(ctx context.Context, chainKey, packetID, claimedAmount, status, claimTxHash string) error
 	// GetExpiredPending returns ACTIVE packets whose expiry_at < now (unix seconds).
 	GetExpiredPending(ctx context.Context, now int64) ([]*model.RedPacket, error)
 }
 
 type RedPacketClaim interface {
 	Save(ctx context.Context, claim *model.RedPacketClaim) error
-	GetByChainTypeAndPacketIDAndClaimer(ctx context.Context, chainType, packetID, claimer string) (*model.RedPacketClaim, error)
-	GetByChainTypeAndPacketIDAndUserID(ctx context.Context, chainType, packetID, userID string) (*model.RedPacketClaim, error)
-	ListByChainTypeAndPacketID(ctx context.Context, chainType, packetID string) ([]*model.RedPacketClaim, error)
+	GetByChainKeyAndPacketIDAndClaimer(ctx context.Context, chainKey, packetID, claimer string) (*model.RedPacketClaim, error)
+	GetByChainKeyAndPacketIDAndUserID(ctx context.Context, chainKey, packetID, userID string) (*model.RedPacketClaim, error)
+	ListByChainKeyAndPacketID(ctx context.Context, chainKey, packetID string) ([]*model.RedPacketClaim, error)
 }
 
 type RedPacketClaimAuth interface {
 	Create(ctx context.Context, auth *model.RedPacketClaimAuth) error
-	Get(ctx context.Context, packetID, claimer string) (*model.RedPacketClaimAuth, error)
+	Get(ctx context.Context, chainKey, packetID, claimer string) (*model.RedPacketClaimAuth, error)
 	MarkUsed(ctx context.Context, authNonce string) error
 }
 
 type RedPacketRefund interface {
 	Save(ctx context.Context, refund *model.RedPacketRefund) error
-	GetByChainTypeAndPacketID(ctx context.Context, chainType, packetID string) (*model.RedPacketRefund, error)
+	GetByChainKeyAndPacketID(ctx context.Context, chainKey, packetID string) (*model.RedPacketRefund, error)
 }
 
 type AdminAuditLog interface {
