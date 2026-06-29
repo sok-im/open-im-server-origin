@@ -48,9 +48,9 @@ func (c *cronServer) deleteExpiredOfflineUsers() {
 	for i, u := range users {
 		subCtx := mcontext.SetOperationID(c.ctx, fmt.Sprintf("%s_%d", operationID, i))
 		if c.deleteExpiredUser(subCtx, adminToken, u.UserID) {
-			log.ZInfo(subCtx, "tommie deleteExpiredUser: success", "userID", u.UserID)
+			log.ZInfo(subCtx, "deleteExpiredUser: success", "userID", u.UserID)
 		} else {
-			log.ZError(subCtx, "tommie deleteExpiredUser: failed", nil, "userID", u.UserID)
+			log.ZError(subCtx, "deleteExpiredUser: failed", nil, "userID", u.UserID)
 		}
 	}
 
@@ -62,7 +62,7 @@ func (c *cronServer) deleteExpiredOfflineUsers() {
 // adminToken 为当次批次开始时通过 chat-admin-api /account/login 获取的 chat adminToken。
 // 返回 true 表示 chat 业务成功且已清理 user_offline_record。
 func (c *cronServer) deleteExpiredUser(ctx context.Context, adminToken, userID string) bool {
-	log.ZInfo(ctx, "tommie deleteExpiredUser: start", "userID", userID)
+	log.ZInfo(ctx, "deleteExpiredUser: start", "userID", userID)
 
 	operationID := mcontext.GetOperationID(ctx)
 
@@ -71,7 +71,7 @@ func (c *cronServer) deleteExpiredUser(ctx context.Context, adminToken, userID s
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
-		log.ZError(ctx, "tommie deleteExpiredUser: build request failed", err, "userID", userID)
+		log.ZError(ctx, "deleteExpiredUser: build request failed", err, "userID", userID)
 		return false
 	}
 	req.Header.Set("Content-Type", "application/json")
@@ -80,19 +80,19 @@ func (c *cronServer) deleteExpiredUser(ctx context.Context, adminToken, userID s
 
 	resp, err := chatHTTPClient.Do(req)
 	if err != nil {
-		log.ZError(ctx, "tommie deleteExpiredUser: HTTP call failed", err, "userID", userID, "url", url)
+		log.ZError(ctx, "deleteExpiredUser: HTTP call failed", err, "userID", userID, "url", url)
 		return false
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.ZError(ctx, "tommie deleteExpiredUser: read response body failed", err, "userID", userID)
+		log.ZError(ctx, "deleteExpiredUser: read response body failed", err, "userID", userID)
 		return false
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		log.ZError(ctx, "tommie deleteExpiredUser: chat API returned error",
+		log.ZError(ctx, "deleteExpiredUser: chat API returned error",
 			fmt.Errorf("status %d", resp.StatusCode),
 			"userID", userID, "response", string(respBody))
 		return false
@@ -100,12 +100,12 @@ func (c *cronServer) deleteExpiredUser(ctx context.Context, adminToken, userID s
 
 	var apiResp apiresp.ApiResponse
 	if err := json.Unmarshal(respBody, &apiResp); err != nil {
-		log.ZError(ctx, "tommie deleteExpiredUser: decode chat response failed", err,
+		log.ZError(ctx, "deleteExpiredUser: decode chat response failed", err,
 			"userID", userID, "response", string(respBody))
 		return false
 	}
 	if apiResp.ErrCode != 0 {
-		log.ZError(ctx, "tommie deleteExpiredUser: chat API business error",
+		log.ZError(ctx, "deleteExpiredUser: chat API business error",
 			fmt.Errorf("errCode=%d errMsg=%s", apiResp.ErrCode, apiResp.ErrMsg),
 			"userID", userID, "errDlt", apiResp.ErrDlt, "response", string(respBody))
 		return false
@@ -113,10 +113,10 @@ func (c *cronServer) deleteExpiredUser(ctx context.Context, adminToken, userID s
 
 	// chat /account/del 已处理好友/群组/IM用户删除；仅清理 user_offline_record 防止重复触发
 	if err := c.userOfflineRecordDB.Delete(ctx, userID); err != nil {
-		log.ZWarn(ctx, "tommie deleteExpiredUser: Delete offline record failed", err, "userID", userID)
+		log.ZWarn(ctx, "deleteExpiredUser: Delete offline record failed", err, "userID", userID)
 		return false
 	}
 
-	log.ZInfo(ctx, "tommie deleteExpiredUser: done", "userID", userID)
+	log.ZInfo(ctx, "deleteExpiredUser: done", "userID", userID)
 	return true
 }

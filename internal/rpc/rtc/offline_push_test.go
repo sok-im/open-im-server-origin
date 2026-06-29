@@ -246,7 +246,7 @@ func TestCallPushActorNameFromUser(t *testing.T) {
 		LastName:  "Smith",
 		Nickname:  "nick",
 	}
-	if got := callPushActorNameFromUser(fullNameUser); got != "tommie Smith" {
+	if got := callPushActorNameFromUser(fullNameUser); got != "Smith" {
 		t.Fatalf("full name: got %q", got)
 	}
 

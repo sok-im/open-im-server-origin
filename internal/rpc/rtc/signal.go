@@ -409,7 +409,7 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 	// render the "call in progress" banner and optionally join.
 	// Run in a goroutine so large groups don't block the caller's response.
 
-	log.ZInfo(ctx, "lintao handleInviteInGroup: broadcastGroupCallStatusToNonInvited", "inv", inv)
+	log.ZDebug(ctx, "lintao handleInviteInGroup: broadcastGroupCallStatusToNonInvited", "inv", inv)
 
 	s.broadcastGroupCallStatusToNonInvited(ctx, inv.GroupID, inv.RoomID, inv.MediaType, inv.InviterUserID, inv.InviteeUserIDList, GroupCallStatusOngoing)
 
@@ -1704,7 +1704,7 @@ func (s *rtcServer) broadcastGroupCallStatusToNonInvited(ctx context.Context, gr
 		if err := s.sendCustomSignalNotification(ctx, inviterUserID, memberID, int32(constant.SingleChatType), content); err != nil {
 			log.ZWarn(ctx, "lintao broadcastGroupCallStatusToNonInvited: send failed", err, "memberID", memberID, "status", status)
 		} else {
-			log.ZInfo(ctx, "lintao broadcastGroupCallStatusToNonInvited: send ok", "memberID", memberID, "status", status)
+			log.ZDebug(ctx, "lintao broadcastGroupCallStatusToNonInvited: send ok", "memberID", memberID, "status", status)
 		}
 	}
 }
