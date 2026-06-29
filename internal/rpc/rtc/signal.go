@@ -306,7 +306,7 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 		callSt, err := s.callStatusCache.GetCallStatus(ctx, inviteeID)
 		if err != nil {
 			// key 不存在或查询失败均视为"不忙"，继续正常邀请流程。
-			log.ZDebug(ctx, "lintao handleInviteInGroup: GetCallStatus for invitee", err, "inviteeID", inviteeID)
+			log.ZError(ctx, "lintao handleInviteInGroup: GetCallStatus for invitee failed", err, "inviteeID", inviteeID)
 			continue
 		}
 		if callSt.Status == model.CallStatusInCall {
@@ -793,21 +793,29 @@ func (s *rtcServer) handleCancel(ctx context.Context, req *rtc.SignalCancelReq, 
 	}
 
 	if dbInv.GroupID != "" {
-		// If an invitee has already joined the LiveKit room, the group call is
-		// ongoing. Do not tear it down on cancel; the inviter should hang up instead.
+		// Only skip cancel tear-down when the inviter is already in the LiveKit
+		// room and at least one invitee has joined — that means the group call is
+		// truly ongoing and the inviter should use hangUp to leave.
+		// If invitees joined but the inviter never entered (or left before cancel),
+		// proceed with cancel so accepted invitees are notified and cleaned up.
 		lp, listErr := s.roomClient.ListParticipants(ctx, &livekit.ListParticipantsRequest{Room: dbInv.RoomID})
 		joinedCount := 0
+		inviterInRoom := false
 		if listErr != nil {
 			log.ZWarn(ctx, "lintao handleCancel: ListParticipants failed", listErr, "roomID", dbInv.RoomID)
 		} else {
 			for _, p := range lp.Participants {
-				if p.GetIdentity() != dbInv.InviterUserID {
+				id := p.GetIdentity()
+				if id == dbInv.InviterUserID {
+					inviterInRoom = true
+				}
+				if id != dbInv.InviterUserID {
 					joinedCount++
 				}
 			}
 		}
-		if joinedCount > 0 {
-			log.ZInfo(ctx, "lintao handleCancel: group call already has participants, skip cancel tear-down", "roomID", dbInv.RoomID, "joinedCount", joinedCount)
+		if joinedCount > 0 && inviterInRoom {
+			log.ZInfo(ctx, "lintao handleCancel: group call already has participants, skip cancel tear-down", "roomID", dbInv.RoomID, "joinedCount", joinedCount, "inviterInRoom", inviterInRoom)
 			return &rtc.SignalCancelResp{}, nil
 		}
 	}
