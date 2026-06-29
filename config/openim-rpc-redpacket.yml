@@ -12,7 +12,7 @@ prometheus:
 # Frontend should select one chainKey per environment, for example:
 #   eth-sepolia / bsc-testnet / tron-nile
 chains:
-  eth-sepolia:
+  ethereum@testnet:
     chainType: EVM
     chainID: 11155111
     isTestnet: true
@@ -21,7 +21,7 @@ chains:
     signerPrivateKey: "e9f6a5f3a3c3a97099ca31e7f44151e529c0a4f8a91d5d4232c7282f2b798df4"
     configAdminPrivateKey: "e9f6a5f3a3c3a97099ca31e7f44151e529c0a4f8a91d5d4232c7282f2b798df4"
 
-  bsc-testnet:
+  bsc@testnet:
     chainType: EVM
     chainID: 97
     isTestnet: true
@@ -30,7 +30,7 @@ chains:
     signerPrivateKey: "e9f6a5f3a3c3a97099ca31e7f44151e529c0a4f8a91d5d4232c7282f2b798df4"
     configAdminPrivateKey: "e9f6a5f3a3c3a97099ca31e7f44151e529c0a4f8a91d5d4232c7282f2b798df4"
 
-  tron-nile:
+  tron@testnet:
     chainType: TRON
     chainID: 3448148188
     isTestnet: true
