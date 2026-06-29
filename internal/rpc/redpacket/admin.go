@@ -57,12 +57,16 @@ func (s *redPacketServer) SetSigner(ctx context.Context, req *pbredpacket.SetSig
 	if req.SignerAddress == "" {
 		return nil, errs.ErrArgs.WrapMsg("signer_address is required")
 	}
-	if s.chainClient != nil {
+	runtime, err := s.resolveRuntime(req.GetChainKey(), "", 0)
+	if err != nil {
+		return nil, err
+	}
+	if runtime.EVMClient != nil {
 		log.ZInfo(ctx, "redpacket admin setSigner (eth mock)", "signerAddress", req.SignerAddress)
 		return &pbredpacket.SetSignerResp{Message: "signer address updated successfully"}, nil
 	}
-	if s.tronClient != nil {
-		if _, err := s.tronClient.SendAdminTransaction(ctx, "setSigner", req.SignerAddress); err != nil {
+	if runtime.TronClient != nil {
+		if _, err := runtime.TronClient.SendAdminTransaction(ctx, "setSigner", req.SignerAddress); err != nil {
 			return nil, errs.ErrInternalServer.WrapMsg("setSigner failed: " + err.Error())
 		}
 		return &pbredpacket.SetSignerResp{Message: "signer address updated successfully"}, nil
@@ -86,7 +90,11 @@ func (s *redPacketServer) SetToken(ctx context.Context, req *pbredpacket.SetToke
 		}
 	}
 
-	if s.chainClient != nil {
+	runtime, err := s.resolveRuntime(req.GetChainKey(), "", 0)
+	if err != nil {
+		return nil, err
+	}
+	if runtime.EVMClient != nil {
 		log.ZInfo(ctx, "redpacket admin setToken (eth mock)",
 			"tokenAddress", req.TokenAddress,
 			"allowed", req.Allowed,
@@ -94,8 +102,8 @@ func (s *redPacketServer) SetToken(ctx context.Context, req *pbredpacket.SetToke
 		)
 		return &pbredpacket.SetTokenResp{Message: "token configuration updated"}, nil
 	}
-	if s.tronClient != nil {
-		if _, err := s.tronClient.SendAdminTransaction(ctx, "setAllowedToken", req.TokenAddress, req.Allowed, minAmountBig); err != nil {
+	if runtime.TronClient != nil {
+		if _, err := runtime.TronClient.SendAdminTransaction(ctx, "setAllowedToken", req.TokenAddress, req.Allowed, minAmountBig); err != nil {
 			return nil, errs.ErrInternalServer.WrapMsg("setAllowedToken failed: " + err.Error())
 		}
 		return &pbredpacket.SetTokenResp{Message: "token configuration updated"}, nil
@@ -111,12 +119,16 @@ func (s *redPacketServer) SetExpiry(ctx context.Context, req *pbredpacket.SetExp
 	if req.ExpirySeconds <= 0 {
 		return nil, errs.ErrArgs.WrapMsg("expiry_seconds must be positive")
 	}
-	if s.chainClient != nil {
+	runtime, err := s.resolveRuntime(req.GetChainKey(), "", 0)
+	if err != nil {
+		return nil, err
+	}
+	if runtime.EVMClient != nil {
 		log.ZInfo(ctx, "redpacket admin setExpiry (eth mock)", "expirySeconds", req.ExpirySeconds)
 		return &pbredpacket.SetExpiryResp{Message: "expiry duration updated"}, nil
 	}
-	if s.tronClient != nil {
-		if _, err := s.tronClient.SendAdminTransaction(ctx, "setDefaultExpiryDuration", req.ExpirySeconds); err != nil {
+	if runtime.TronClient != nil {
+		if _, err := runtime.TronClient.SendAdminTransaction(ctx, "setDefaultExpiryDuration", req.ExpirySeconds); err != nil {
 			return nil, errs.ErrInternalServer.WrapMsg("setDefaultExpiryDuration failed: " + err.Error())
 		}
 		return &pbredpacket.SetExpiryResp{Message: "expiry duration updated"}, nil
@@ -129,12 +141,16 @@ func (s *redPacketServer) SetAllowAllTokens(ctx context.Context, req *pbredpacke
 	if err := s.checkAdminPermission(ctx); err != nil {
 		return nil, err
 	}
-	if s.chainClient != nil {
+	runtime, err := s.resolveRuntime(req.GetChainKey(), "", 0)
+	if err != nil {
+		return nil, err
+	}
+	if runtime.EVMClient != nil {
 		log.ZInfo(ctx, "redpacket admin setAllowAllTokens (eth mock)", "allowAll", req.AllowAll)
 		return &pbredpacket.SetAllowAllTokensResp{Message: "allow all tokens setting updated"}, nil
 	}
-	if s.tronClient != nil {
-		if _, err := s.tronClient.SendAdminTransaction(ctx, "setAllowAllTokens", req.AllowAll); err != nil {
+	if runtime.TronClient != nil {
+		if _, err := runtime.TronClient.SendAdminTransaction(ctx, "setAllowAllTokens", req.AllowAll); err != nil {
 			return nil, errs.ErrInternalServer.WrapMsg("setAllowAllTokens failed: " + err.Error())
 		}
 		return &pbredpacket.SetAllowAllTokensResp{Message: "allow all tokens setting updated"}, nil
@@ -147,12 +163,16 @@ func (s *redPacketServer) SetNativeTokenEnabled(ctx context.Context, req *pbredp
 	if err := s.checkAdminPermission(ctx); err != nil {
 		return nil, err
 	}
-	if s.chainClient != nil {
+	runtime, err := s.resolveRuntime(req.GetChainKey(), "", 0)
+	if err != nil {
+		return nil, err
+	}
+	if runtime.EVMClient != nil {
 		log.ZInfo(ctx, "redpacket admin setNativeTokenEnabled (eth mock)", "enabled", req.Enabled)
 		return &pbredpacket.SetNativeTokenEnabledResp{Message: "native token setting updated"}, nil
 	}
-	if s.tronClient != nil {
-		if _, err := s.tronClient.SendAdminTransaction(ctx, "setNativeTokenEnabled", req.Enabled); err != nil {
+	if runtime.TronClient != nil {
+		if _, err := runtime.TronClient.SendAdminTransaction(ctx, "setNativeTokenEnabled", req.Enabled); err != nil {
 			return nil, errs.ErrInternalServer.WrapMsg("setNativeTokenEnabled failed: " + err.Error())
 		}
 		return &pbredpacket.SetNativeTokenEnabledResp{Message: "native token setting updated"}, nil
@@ -169,57 +189,54 @@ func (s *redPacketServer) ParseTxEvents(ctx context.Context, req *pbredpacket.Pa
 		return nil, errs.ErrArgs.WrapMsg("tx_hash is required")
 	}
 
-	if req.Chain == "tron" {
-		if s.tronClient == nil {
-			return nil, errs.ErrInternalServer.WrapMsg("TRON client not configured")
-		}
-		success, events, err := s.tronClient.ParseTransactionReceiptWithStatus(ctx, req.TxHash)
+	if req.GetChainKey() != "" {
+		runtime, err := s.resolveRuntime(req.GetChainKey(), "", 0)
 		if err != nil {
-			return nil, errs.ErrInternalServer.WrapMsg("parse TRON tx receipt failed: " + err.Error())
+			return nil, err
 		}
-		out := make([]*pbredpacket.ParsedEvent, 0, len(events))
-		for _, e := range events {
-			data := make(map[string]string, len(e.Data))
-			for k, v := range e.Data {
-				data[k] = fmt.Sprintf("%v", v)
+		if runtime.TronClient != nil {
+			success, events, err := runtime.TronClient.ParseTransactionReceiptWithStatus(ctx, req.TxHash)
+			if err != nil {
+				return nil, errs.ErrInternalServer.WrapMsg("parse TRON tx receipt failed: " + err.Error())
 			}
-			out = append(out, &pbredpacket.ParsedEvent{Name: e.Name, Data: data})
+			out := make([]*pbredpacket.ParsedEvent, 0, len(events))
+			for _, e := range events {
+				data := make(map[string]string, len(e.Data))
+				for k, v := range e.Data {
+					data[k] = fmt.Sprintf("%v", v)
+				}
+				out = append(out, &pbredpacket.ParsedEvent{Name: e.Name, Data: data})
+			}
+			note := "tx_status=FAILED"
+			if success {
+				note = "tx_status=SUCCESS"
+			}
+			return &pbredpacket.ParseTxEventsResp{Chain: runtime.ChainKey, TxHash: req.TxHash, Events: out, Note: note}, nil
 		}
-		note := "tx_status=FAILED"
-		if success {
-			note = "tx_status=SUCCESS"
+		if runtime.EVMClient != nil {
+			txHashBytes := common.HexToHash(req.TxHash)
+			success, events, err := runtime.EVMClient.ParseTransactionReceiptWithStatus(ctx, txHashBytes)
+			if err != nil {
+				return nil, errs.ErrInternalServer.WrapMsg("parse tx receipt failed: " + err.Error())
+			}
+			out := make([]*pbredpacket.ParsedEvent, 0, len(events))
+			for _, e := range events {
+				data := make(map[string]string, len(e.Data))
+				for k, v := range e.Data {
+					data[k] = fmt.Sprintf("%v", v)
+				}
+				out = append(out, &pbredpacket.ParsedEvent{Name: e.Name, Data: data})
+			}
+			note := "tx_status=FAILED"
+			if success {
+				note = "tx_status=SUCCESS"
+			}
+			return &pbredpacket.ParseTxEventsResp{Chain: runtime.ChainKey, TxHash: req.TxHash, Events: out, Note: note}, nil
 		}
-		return &pbredpacket.ParseTxEventsResp{Chain: "tron", TxHash: req.TxHash, Events: out, Note: note}, nil
 	}
 
-	if s.chainClient != nil {
-		txHashBytes := common.HexToHash(req.TxHash)
-		success, events, err := s.chainClient.ParseTransactionReceiptWithStatus(ctx, txHashBytes)
-		if err != nil {
-			return nil, errs.ErrInternalServer.WrapMsg("parse tx receipt failed: " + err.Error())
-		}
-
-		out := make([]*pbredpacket.ParsedEvent, 0, len(events))
-		for _, e := range events {
-			data := make(map[string]string, len(e.Data))
-			for k, v := range e.Data {
-				data[k] = fmt.Sprintf("%v", v)
-			}
-			out = append(out, &pbredpacket.ParsedEvent{
-				Name: e.Name,
-				Data: data,
-			})
-		}
-		note := "tx_status=FAILED"
-		if success {
-			note = "tx_status=SUCCESS"
-		}
-		return &pbredpacket.ParseTxEventsResp{
-			Chain:  "eth",
-			TxHash: req.TxHash,
-			Events: out,
-			Note:   note,
-		}, nil
+	if req.Chain == "tron" {
+		return nil, errs.ErrInternalServer.WrapMsg("TRON client not configured")
 	}
 
 	return nil, errs.ErrInternalServer.WrapMsg("no client available for chain: " + req.Chain)

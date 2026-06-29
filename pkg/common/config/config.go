@@ -146,46 +146,46 @@ type NotificationConfig struct {
 }
 
 type Notification struct {
-	GroupCreated              NotificationConfig `mapstructure:"groupCreated"`
-	GroupInfoSet              NotificationConfig `mapstructure:"groupInfoSet"`
-	JoinGroupApplication      NotificationConfig `mapstructure:"joinGroupApplication"`
-	MemberQuit                NotificationConfig `mapstructure:"memberQuit"`
-	GroupApplicationAccepted  NotificationConfig `mapstructure:"groupApplicationAccepted"`
-	GroupApplicationRejected  NotificationConfig `mapstructure:"groupApplicationRejected"`
-	GroupOwnerTransferred     NotificationConfig `mapstructure:"groupOwnerTransferred"`
-	MemberKicked              NotificationConfig `mapstructure:"memberKicked"`
-	MemberInvited             NotificationConfig `mapstructure:"memberInvited"`
-	MemberEnter               NotificationConfig `mapstructure:"memberEnter"`
-	GroupDismissed            NotificationConfig `mapstructure:"groupDismissed"`
-	GroupMuted                NotificationConfig `mapstructure:"groupMuted"`
-	GroupCancelMuted          NotificationConfig `mapstructure:"groupCancelMuted"`
-	GroupMemberMuted          NotificationConfig `mapstructure:"groupMemberMuted"`
-	GroupMemberCancelMuted    NotificationConfig `mapstructure:"groupMemberCancelMuted"`
-	GroupMemberInfoSet        NotificationConfig `mapstructure:"groupMemberInfoSet"`
-	GroupMemberSetToAdmin     NotificationConfig `yaml:"groupMemberSetToAdmin"`
-	GroupMemberSetToOrdinary  NotificationConfig `yaml:"groupMemberSetToOrdinaryUser"`
-	GroupInfoSetAnnouncement  NotificationConfig `mapstructure:"groupInfoSetAnnouncement"`
-	GroupInfoSetName          NotificationConfig `mapstructure:"groupInfoSetName"`
-	GroupMessagePinned        NotificationConfig `mapstructure:"groupMessagePinned"`
-	GroupCallStarted                  NotificationConfig `mapstructure:"groupCallStarted"`
-	GroupCallEnded                    NotificationConfig `mapstructure:"groupCallEnded"`
-	GroupCallParticipantCountUpdated  NotificationConfig `mapstructure:"groupCallParticipantCountUpdated"`
-	GroupBurnDurationSet      NotificationConfig `mapstructure:"groupBurnDurationSet"`
-	GroupFaceURLSet           NotificationConfig `mapstructure:"groupFaceURLSet"`
-	GroupNeedVerificationSet  NotificationConfig `mapstructure:"groupNeedVerificationSet"`
-	FriendApplicationAdded    NotificationConfig `mapstructure:"friendApplicationAdded"`
-	FriendApplicationApproved NotificationConfig `mapstructure:"friendApplicationApproved"`
-	FriendApplicationRejected NotificationConfig `mapstructure:"friendApplicationRejected"`
-	FriendAdded               NotificationConfig `mapstructure:"friendAdded"`
-	FriendDeleted             NotificationConfig `mapstructure:"friendDeleted"`
-	FriendRemarkSet           NotificationConfig `mapstructure:"friendRemarkSet"`
-	BlackAdded                NotificationConfig `mapstructure:"blackAdded"`
-	BlackDeleted              NotificationConfig `mapstructure:"blackDeleted"`
-	FriendInfoUpdated         NotificationConfig `mapstructure:"friendInfoUpdated"`
-	UserInfoUpdated           NotificationConfig `mapstructure:"userInfoUpdated"`
-	UserStatusChanged         NotificationConfig `mapstructure:"userStatusChanged"`
-	ConversationChanged       NotificationConfig `mapstructure:"conversationChanged"`
-	ConversationSetPrivate    NotificationConfig `mapstructure:"conversationSetPrivate"`
+	GroupCreated                     NotificationConfig `mapstructure:"groupCreated"`
+	GroupInfoSet                     NotificationConfig `mapstructure:"groupInfoSet"`
+	JoinGroupApplication             NotificationConfig `mapstructure:"joinGroupApplication"`
+	MemberQuit                       NotificationConfig `mapstructure:"memberQuit"`
+	GroupApplicationAccepted         NotificationConfig `mapstructure:"groupApplicationAccepted"`
+	GroupApplicationRejected         NotificationConfig `mapstructure:"groupApplicationRejected"`
+	GroupOwnerTransferred            NotificationConfig `mapstructure:"groupOwnerTransferred"`
+	MemberKicked                     NotificationConfig `mapstructure:"memberKicked"`
+	MemberInvited                    NotificationConfig `mapstructure:"memberInvited"`
+	MemberEnter                      NotificationConfig `mapstructure:"memberEnter"`
+	GroupDismissed                   NotificationConfig `mapstructure:"groupDismissed"`
+	GroupMuted                       NotificationConfig `mapstructure:"groupMuted"`
+	GroupCancelMuted                 NotificationConfig `mapstructure:"groupCancelMuted"`
+	GroupMemberMuted                 NotificationConfig `mapstructure:"groupMemberMuted"`
+	GroupMemberCancelMuted           NotificationConfig `mapstructure:"groupMemberCancelMuted"`
+	GroupMemberInfoSet               NotificationConfig `mapstructure:"groupMemberInfoSet"`
+	GroupMemberSetToAdmin            NotificationConfig `yaml:"groupMemberSetToAdmin"`
+	GroupMemberSetToOrdinary         NotificationConfig `yaml:"groupMemberSetToOrdinaryUser"`
+	GroupInfoSetAnnouncement         NotificationConfig `mapstructure:"groupInfoSetAnnouncement"`
+	GroupInfoSetName                 NotificationConfig `mapstructure:"groupInfoSetName"`
+	GroupMessagePinned               NotificationConfig `mapstructure:"groupMessagePinned"`
+	GroupCallStarted                 NotificationConfig `mapstructure:"groupCallStarted"`
+	GroupCallEnded                   NotificationConfig `mapstructure:"groupCallEnded"`
+	GroupCallParticipantCountUpdated NotificationConfig `mapstructure:"groupCallParticipantCountUpdated"`
+	GroupBurnDurationSet             NotificationConfig `mapstructure:"groupBurnDurationSet"`
+	GroupFaceURLSet                  NotificationConfig `mapstructure:"groupFaceURLSet"`
+	GroupNeedVerificationSet         NotificationConfig `mapstructure:"groupNeedVerificationSet"`
+	FriendApplicationAdded           NotificationConfig `mapstructure:"friendApplicationAdded"`
+	FriendApplicationApproved        NotificationConfig `mapstructure:"friendApplicationApproved"`
+	FriendApplicationRejected        NotificationConfig `mapstructure:"friendApplicationRejected"`
+	FriendAdded                      NotificationConfig `mapstructure:"friendAdded"`
+	FriendDeleted                    NotificationConfig `mapstructure:"friendDeleted"`
+	FriendRemarkSet                  NotificationConfig `mapstructure:"friendRemarkSet"`
+	BlackAdded                       NotificationConfig `mapstructure:"blackAdded"`
+	BlackDeleted                     NotificationConfig `mapstructure:"blackDeleted"`
+	FriendInfoUpdated                NotificationConfig `mapstructure:"friendInfoUpdated"`
+	UserInfoUpdated                  NotificationConfig `mapstructure:"userInfoUpdated"`
+	UserStatusChanged                NotificationConfig `mapstructure:"userStatusChanged"`
+	ConversationChanged              NotificationConfig `mapstructure:"conversationChanged"`
+	ConversationSetPrivate           NotificationConfig `mapstructure:"conversationSetPrivate"`
 }
 
 type Prometheus struct {
@@ -631,10 +631,26 @@ type RedPacket struct {
 		AutoSetPorts bool   `mapstructure:"autoSetPorts"`
 		Ports        []int  `mapstructure:"ports"`
 	} `mapstructure:"rpc"`
-	Prometheus Prometheus       `mapstructure:"prometheus"`
-	Chain      RedPacketChain   `mapstructure:"chain"`
-	Tron       RedPacketTron    `mapstructure:"tron"`
-	Indexer    RedPacketIndexer `mapstructure:"indexer"`
+	Prometheus Prometheus                       `mapstructure:"prometheus"`
+	Chains     map[string]RedPacketChainRuntime `mapstructure:"chains"`
+	Chain      RedPacketChain                   `mapstructure:"chain"`
+	Tron       RedPacketTron                    `mapstructure:"tron"`
+	Indexer    RedPacketIndexer                 `mapstructure:"indexer"`
+}
+
+type RedPacketChainRuntime struct {
+	ChainType             string `mapstructure:"chainType"`
+	ChainID               int64  `mapstructure:"chainID"`
+	IsTestnet             bool   `mapstructure:"isTestnet"`
+	RPCURL                string `mapstructure:"rpcURL"`
+	ContractAddress       string `mapstructure:"contractAddress"`
+	SignerPrivateKey      string `mapstructure:"signerPrivateKey"`
+	ConfigAdminPrivateKey string `mapstructure:"configAdminPrivateKey"`
+	FullNodeURL           string `mapstructure:"fullNodeURL"`
+	ContractBase58        string `mapstructure:"contractBase58"`
+	OwnerBase58           string `mapstructure:"ownerBase58"`
+	PrivateKeyHex         string `mapstructure:"privateKeyHex"`
+	FeeLimit              int64  `mapstructure:"feeLimit"`
 }
 
 type RedPacketChain struct {
@@ -850,34 +866,34 @@ func (l *CacheConfig) Enable() bool {
 }
 
 var (
-	DiscoveryConfigFilename          = "discovery.yml"
-	KafkaConfigFileName              = "kafka.yml"
-	LocalCacheConfigFileName         = "local-cache.yml"
-	LogConfigFileName                = "log.yml"
-	MinioConfigFileName              = "minio.yml"
-	MongodbConfigFileName            = "mongodb.yml"
-	OpenIMAPICfgFileName             = "openim-api.yml"
-	OpenIMCronTaskCfgFileName        = "openim-crontask.yml"
-	OpenIMMsgGatewayCfgFileName      = "openim-msggateway.yml"
-	OpenIMMsgTransferCfgFileName     = "openim-msgtransfer.yml"
-	OpenIMPushCfgFileName            = "openim-push.yml"
-	OpenIMRPCAuthCfgFileName         = "openim-rpc-auth.yml"
-	OpenIMRPCCaptchaCfgFileName      = "openim-rpc-captcha.yml"
-	OpenIMRPCConversationCfgFileName = "openim-rpc-conversation.yml"
-	OpenIMRPCFriendCfgFileName       = "openim-rpc-friend.yml"
-	OpenIMRPCGroupCfgFileName        = "openim-rpc-group.yml"
-	OpenIMRPCMsgCfgFileName          = "openim-rpc-msg.yml"
-	OpenIMRPCThirdCfgFileName        = "openim-rpc-third.yml"
-	OpenIMRPCUserCfgFileName         = "openim-rpc-user.yml"
-	OpenIMRPCRtcCfgFileName          = "openim-rpc-rtc.yml"
-	OpenIMRPCCryptoCfgFileName       = "openim-rpc-crypto.yml"
-	OpenIMRPCRedPacketCfgFileName    = "openim-rpc-redpacket.yml"
+	DiscoveryConfigFilename            = "discovery.yml"
+	KafkaConfigFileName                = "kafka.yml"
+	LocalCacheConfigFileName           = "local-cache.yml"
+	LogConfigFileName                  = "log.yml"
+	MinioConfigFileName                = "minio.yml"
+	MongodbConfigFileName              = "mongodb.yml"
+	OpenIMAPICfgFileName               = "openim-api.yml"
+	OpenIMCronTaskCfgFileName          = "openim-crontask.yml"
+	OpenIMMsgGatewayCfgFileName        = "openim-msggateway.yml"
+	OpenIMMsgTransferCfgFileName       = "openim-msgtransfer.yml"
+	OpenIMPushCfgFileName              = "openim-push.yml"
+	OpenIMRPCAuthCfgFileName           = "openim-rpc-auth.yml"
+	OpenIMRPCCaptchaCfgFileName        = "openim-rpc-captcha.yml"
+	OpenIMRPCConversationCfgFileName   = "openim-rpc-conversation.yml"
+	OpenIMRPCFriendCfgFileName         = "openim-rpc-friend.yml"
+	OpenIMRPCGroupCfgFileName          = "openim-rpc-group.yml"
+	OpenIMRPCMsgCfgFileName            = "openim-rpc-msg.yml"
+	OpenIMRPCThirdCfgFileName          = "openim-rpc-third.yml"
+	OpenIMRPCUserCfgFileName           = "openim-rpc-user.yml"
+	OpenIMRPCRtcCfgFileName            = "openim-rpc-rtc.yml"
+	OpenIMRPCCryptoCfgFileName         = "openim-rpc-crypto.yml"
+	OpenIMRPCRedPacketCfgFileName      = "openim-rpc-redpacket.yml"
 	OpenIMRPCVirgilSecurityCfgFileName = "openim-rpc-virgilsecurity.yml"
 	OpenIMRPCOpenMLSCfgFileName        = "openim-rpc-openmls.yml"
 	OpenIMRPCTotpCfgFileName           = "openim-rpc-totp.yml"
 	RedisConfigFileName                = "redis.yml"
-	ShareFileName                    = "share.yml"
-	WebhooksConfigFileName           = "webhooks.yml"
+	ShareFileName                      = "share.yml"
+	WebhooksConfigFileName             = "webhooks.yml"
 )
 
 func (d *Discovery) GetConfigFileName() string {

@@ -8,6 +8,7 @@ import (
 
 type RedPacket struct {
 	BizID                string    `bson:"biz_id"`
+	ChainKey             string    `bson:"chain_key"`
 	ChainType            string    `bson:"chain_type"`
 	PacketID             string    `bson:"packet_id"`
 	ChainID              int64     `bson:"chain_id"`
@@ -33,6 +34,7 @@ type RedPacket struct {
 }
 
 type RedPacketClaim struct {
+	ChainKey      string    `bson:"chain_key"`
 	ChainType     string    `bson:"chain_type"`
 	PacketID      string    `bson:"packet_id"`
 	UserID        string    `bson:"user_id"`
@@ -47,6 +49,7 @@ type RedPacketClaim struct {
 }
 
 type RedPacketClaimAuth struct {
+	ChainKey   string    `bson:"chain_key"`
 	PacketID   string    `bson:"packet_id"`
 	Claimer    string    `bson:"claimer"`
 	AuthNonce  string    `bson:"auth_nonce"`
@@ -58,6 +61,7 @@ type RedPacketClaimAuth struct {
 }
 
 type RedPacketRefund struct {
+	ChainKey  string    `bson:"chain_key"`
 	ChainType string    `bson:"chain_type"`
 	PacketID  string    `bson:"packet_id"`
 	RefundTo  string    `bson:"refund_to"`
@@ -69,6 +73,7 @@ type RedPacketRefund struct {
 type WalletBindingChallenge struct {
 	ChallengeID   string     `bson:"challenge_id"`
 	UserID        string     `bson:"user_id"`
+	ChainKey      string     `bson:"chain_key"`
 	ChainType     string     `bson:"chain_type"`
 	ChainID       int64      `bson:"chain_id"`
 	WalletAddress string     `bson:"wallet_address"`
