@@ -242,11 +242,11 @@ func TestSingleChatInviteOfflinePushCopy(t *testing.T) {
 func TestCallPushActorNameFromUser(t *testing.T) {
 	fullNameUser := &sdkws.UserInfo{
 		UserID:    "u6293309c.3616",
-		FirstName: "Tom",
+		FirstName: "tommie",
 		LastName:  "Smith",
 		Nickname:  "nick",
 	}
-	if got := callPushActorNameFromUser(fullNameUser); got != "Tom Smith" {
+	if got := callPushActorNameFromUser(fullNameUser); got != "tommie Smith" {
 		t.Fatalf("full name: got %q", got)
 	}
 
