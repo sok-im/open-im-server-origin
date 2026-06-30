@@ -616,7 +616,7 @@ func (s *rtcServer) handleAccept(ctx context.Context, req *rtc.SignalAcceptReq, 
 		}
 		// The accepting user hasn't joined LiveKit yet but is about to; include them now.
 		participantUserIDs = append(participantUserIDs, req.UserID)
-		go s.sendGroupCallParticipantCountUpdatedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, participantUserIDs)
+		s.goSendGroupCallParticipantCountUpdated(ctx, dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, participantUserIDs)
 	}
 
 	// 接受邀请后不删除 invitation：通话仍在进行，双方应被标记为忙线（BusyLineUserIDList）。
@@ -709,6 +709,7 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 			// Remove only the rejecter's call-status entry; others stay connected.
 			log.ZInfo(ctx, "lintao handleReject: group call continues", "roomID", dbInv.RoomID, "joinedCount", joinedCount, "req", req, "dbInv", dbInv)
 			s.deleteCallStatusForUser(ctx, req.UserID, dbInv.RoomID)
+			s.goSendGroupCallParticipantCountUpdated(ctx, dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, liveKitParticipantUserIDs(lp.Participants))
 			return &rtc.SignalRejectResp{}, nil
 		}
 
@@ -725,6 +726,7 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 			// Some invitees are still being rung; remove only the rejecter.
 			log.ZInfo(ctx, "lintao handleReject: waiting for other invitees to respond", "roomID", dbInv.RoomID, "pendingInvitees", pending, "req", req)
 			s.deleteCallStatusForUser(ctx, req.UserID, dbInv.RoomID)
+			s.goSendGroupCallParticipantCountUpdated(ctx, dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, liveKitParticipantUserIDs(lp.Participants))
 			return &rtc.SignalRejectResp{}, nil
 		}
 
@@ -748,6 +750,7 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 		log.ZDebug(ctx, "lintao handleReject: sendGroupCallEndedNotification", "dbInv", dbInv, "claimed", claimed)
 
 		if claimed {
+			s.goSendGroupCallParticipantCountUpdated(ctx, dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, nil)
 			s.broadcastGroupCallStatusToNonInvited(ctx, dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
 
 			s.sendGroupCallEndedNotification(ctx, dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, groupCallDurationFromInvitation(dbInv), signalCallActionReject)
@@ -858,6 +861,7 @@ func (s *rtcServer) handleCancel(ctx context.Context, req *rtc.SignalCancelReq, 
 	// For group calls, notify non-invited members that the call was cancelled.
 	if dbInv.GroupID != "" {
 		go s.sendGroupCallParticipantDeclinedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, signalCallActionCancel, req.UserID)
+		s.goSendGroupCallParticipantCountUpdated(ctx, dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, nil)
 
 		log.ZDebug(ctx, "lintao handleCancel: sendGroupCallEndedNotification", "dbInv", dbInv, "groupCallEndedClaimed", groupCallEndedClaimed)
 
@@ -1021,7 +1025,7 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 			// Remove only this participant's call-status; others remain in-call.
 			s.deleteCallStatusForUser(ctx, req.UserID, dbInv.RoomID)
 			// Notify all members that the participant count and list have changed.
-			go s.sendGroupCallParticipantCountUpdatedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, participantUserIDs)
+			s.goSendGroupCallParticipantCountUpdated(ctx, dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, participantUserIDs)
 			return &rtc.SignalHungUpResp{}, nil
 		}
 		// remaining == 0: fall through to tear-down logic below.
@@ -1916,6 +1920,36 @@ func groupCallEndedDefaultTips(nickname, mediaType string, durationSecs int64) s
 	return base + " (" + dur + ")"
 }
 
+// liveKitParticipantUserIDs extracts non-empty participant identities from a
+// LiveKit ListParticipants response, optionally excluding specific user IDs.
+func liveKitParticipantUserIDs(participants []*livekit.ParticipantInfo, excludeUserIDs ...string) []string {
+	exclude := make(map[string]struct{}, len(excludeUserIDs))
+	for _, uid := range excludeUserIDs {
+		if uid != "" {
+			exclude[uid] = struct{}{}
+		}
+	}
+	ids := make([]string, 0, len(participants))
+	for _, p := range participants {
+		id := p.GetIdentity()
+		if id == "" {
+			continue
+		}
+		if _, skip := exclude[id]; skip {
+			continue
+		}
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+func (s *rtcServer) goSendGroupCallParticipantCountUpdated(ctx context.Context, groupID, roomID, mediaType string, participantUserIDs []string) {
+	if groupID == "" {
+		return
+	}
+	go s.sendGroupCallParticipantCountUpdatedNotification(context.WithoutCancel(ctx), groupID, roomID, mediaType, participantUserIDs)
+}
+
 // groupCallParticipantCountDefaultTips returns a display string for the current
 // number of participants in an ongoing group call, e.g. "3 people in the call".
 func groupCallParticipantCountDefaultTips(count int32) string {
@@ -2448,6 +2482,7 @@ func (s *rtcServer) handleTimeout(ctx context.Context, req *rtc.SignalTimeoutReq
 				}
 				s.deleteCallStatusForUser(ctx, inviteeID, dbInv.RoomID)
 			}
+			s.goSendGroupCallParticipantCountUpdated(ctx, dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, liveKitParticipantUserIDs(lp.Participants))
 			return &rtc.SignalTimeoutResp{}, nil
 		}
 
@@ -2466,6 +2501,7 @@ func (s *rtcServer) handleTimeout(ctx context.Context, req *rtc.SignalTimeoutReq
 		log.ZDebug(ctx, "lintao handleTimeout: sendGroupCallEndedNotification", "dbInv", dbInv, "claimed", claimed)
 
 		if claimed {
+			s.goSendGroupCallParticipantCountUpdated(ctx, dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, nil)
 			s.broadcastGroupCallStatusToNonInvited(ctx, dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
 
 			s.sendGroupCallEndedNotification(ctx, dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, groupCallDurationFromInvitation(dbInv), signalCallActionTimeout)
