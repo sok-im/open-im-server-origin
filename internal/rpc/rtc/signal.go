@@ -155,21 +155,15 @@ func (s *rtcServer) handleInvite(ctx context.Context, req *rtc.SignalInviteReq, 
 		break
 	}
 
-	// 单聊忙线检查：若被叫方当前处于通话中，立即发送"忙线"通话记录并终止本次呼叫。
-	// 仅对单聊生效（inv.GroupID == ""），群聊通话不做此校验。
+	// 单聊忙线检查：若被叫方当前处于振铃中（Connecting）或通话中（InCall），
+	// 立即发送"忙线"通话记录并终止本次呼叫。仅对单聊生效。
 	if inv.GroupID == "" {
 		for _, inviteeID := range inv.InviteeUserIDList {
 			if _, notAllow := notAllowSet[inviteeID]; notAllow {
 				continue
 			}
-			callSt, err := s.callStatusCache.GetCallStatus(ctx, inviteeID)
-			if err != nil {
-				// 查询失败（含 key 不存在）时不阻断呼叫，仅记录日志。
-				log.ZDebug(ctx, "handleInvite: GetCallStatus for invitee", err, "inviteeID", inviteeID)
-				continue
-			}
-			if callSt.Status == model.CallStatusInCall {
-				log.ZInfo(ctx, "handleInvite: invitee is in call, sending busy record", "inviteeID", inviteeID, "roomID", inv.RoomID)
+			if _, busy := s.getCalleeActiveCallStatus(ctx, inviteeID); busy {
+				log.ZInfo(ctx, "handleInvite: invitee is busy, sending busy record", "inviteeID", inviteeID, "roomID", inv.RoomID)
 				// 构造最小化的邀请模型用于发送通话记录消息（不写 DB、不创建 LiveKit 房间）。
 				busyInv := &model.SignalInvitation{
 					RoomID:            inv.RoomID,
@@ -179,7 +173,7 @@ func (s *rtcServer) handleInvite(ctx context.Context, req *rtc.SignalInviteReq, 
 					GroupID:           inv.GroupID,
 				}
 				s.sendCallRecordChatMsg(ctx, busyInv, callStatusBusy, 0)
-				return nil, servererrs.ErrAllUserBusy.WrapMsg("invitee is already in a call", "inviteeID", inviteeID)
+				return nil, servererrs.ErrAllUserBusy.WrapMsg("invitee is already on a call", "inviteeID", inviteeID)
 			}
 		}
 	}
@@ -294,7 +288,7 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 		return nil, err
 	}
 
-	// 群聊忙线过滤：将当前处于通话中（CallStatusInCall）的被叫方加入 notAllowSet，
+	// 群聊忙线过滤：将当前处于振铃中（Connecting）或通话中（InCall）的被叫方加入 notAllowSet，
 	// 使其在后续通知循环与 setCallStatusConnecting 中被自动跳过。
 	// 若过滤后所有被叫均不可达，返回 ErrAllUserBusy。
 	var busyUserIDs []string
@@ -303,13 +297,7 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 			log.ZDebug(ctx, "lintao handleInviteInGroup: skip not-allowed invitee", "inviteeID", inviteeID)
 			continue
 		}
-		callSt, err := s.callStatusCache.GetCallStatus(ctx, inviteeID)
-		if err != nil {
-			// key 不存在或查询失败均视为"不忙"，继续正常邀请流程。
-			log.ZError(ctx, "lintao handleInviteInGroup: GetCallStatus for invitee failed", err, "inviteeID", inviteeID)
-			continue
-		}
-		if callSt.Status == model.CallStatusInCall {
+		if _, busy := s.getCalleeActiveCallStatus(ctx, inviteeID); busy {
 			busyUserIDs = append(busyUserIDs, inviteeID)
 			notAllowSet[inviteeID] = struct{}{}
 		}
@@ -2598,6 +2586,26 @@ func pendingReachableInvitees(inviteeUserIDList, busyLineUserIDList []string) []
 // These helpers translate invitation data into UserCallStatus entries and write
 // them to Redis.  All errors are non-fatal: a failure to update the call-status
 // cache must never break the signalling flow itself, so callers log and continue.
+
+// isUserOnActiveCall reports whether the user is ringing or already in a call.
+func isUserOnActiveCall(status int32) bool {
+	return status == model.CallStatusConnecting || status == model.CallStatusInCall
+}
+
+// getCalleeActiveCallStatus returns the callee's call status when they are busy
+// (Connecting or InCall). The second return value is true only when the callee
+// should reject a new invitation.
+func (s *rtcServer) getCalleeActiveCallStatus(ctx context.Context, userID string) (*model.UserCallStatus, bool) {
+	callSt, err := s.callStatusCache.GetCallStatus(ctx, userID)
+	if err != nil {
+		log.ZDebug(ctx, "getCalleeActiveCallStatus: no active call status", err, "userID", userID)
+		return nil, false
+	}
+	if !isUserOnActiveCall(callSt.Status) {
+		return nil, false
+	}
+	return callSt, true
+}
 
 // setCallStatusConnecting marks the inviter and all (allowed) invitees as
 // "connecting" in Redis.  It is called immediately after an invitation is
