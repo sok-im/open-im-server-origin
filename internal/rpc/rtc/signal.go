@@ -119,13 +119,13 @@ func (s *rtcServer) handleInvite(ctx context.Context, req *rtc.SignalInviteReq, 
 	}
 
 	if err := s.verifyInviterGlobalStatus(ctx, req.UserID); err != nil {
-		log.ZError(ctx, "handleInvite", err, "verifyInviterGlobalStatus failed", "req", req)
+		log.ZError(ctx, "handleInvite: verifyInviterGlobalStatus failed", err, "req", req)
 		return nil, err
 	}
 
 	notAllowUserIDs, notAllowSet, blacklistedSet, globalBlockedSet, missingUserSet, err := s.filterNotAllowedInvitees(ctx, req.UserID, inv.InviteeUserIDList, false)
 	if err != nil {
-		log.ZError(ctx, "handleInvite", err, "filterNotAllowedInvitees failed", "req", req)
+		log.ZError(ctx, "handleInvite: filterNotAllowedInvitees failed", err, "req", req)
 		return nil, err
 	}
 	inv.NotAllowUserIDList = notAllowUserIDs
@@ -179,7 +179,7 @@ func (s *rtcServer) handleInvite(ctx context.Context, req *rtc.SignalInviteReq, 
 	}
 
 	if _, err := s.roomClient.CreateRoom(ctx, &livekit.CreateRoomRequest{Name: inv.RoomID}); err != nil {
-		log.ZError(ctx, "handleInvite", err, "LiveKit CreateRoom failed", "roomID", inv.RoomID, "req", req)
+		log.ZError(ctx, "handleInvite: LiveKit CreateRoom failed", err, "roomID", inv.RoomID, "req", req)
 		return nil, errs.WrapMsg(err, "LiveKit CreateRoom failed", "roomID", inv.RoomID)
 	}
 
@@ -188,7 +188,7 @@ func (s *rtcServer) handleInvite(ctx context.Context, req *rtc.SignalInviteReq, 
 		if _, delErr := s.roomClient.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: inv.RoomID}); delErr != nil {
 			log.ZWarn(ctx, "handleInvite: rollback DeleteRoom failed", delErr, "roomID", inv.RoomID)
 		}
-		log.ZError(ctx, "handleInvite", err, "genToken failed", "roomID", inv.RoomID, "req", req)
+		log.ZError(ctx, "handleInvite: genToken failed", err, "roomID", inv.RoomID, "req", req)
 		return nil, err
 	}
 
@@ -218,7 +218,7 @@ func (s *rtcServer) handleInvite(ctx context.Context, req *rtc.SignalInviteReq, 
 
 	content, err := marshalSignalReq(signalReq)
 	if err != nil {
-		log.ZError(ctx, "handleInvite", err, "marshalSignalReq failed", "roomID", inv.RoomID, "req", req)
+		log.ZError(ctx, "handleInvite: marshalSignalReq failed", err, "roomID", inv.RoomID, "req", req)
 		return nil, err
 	}
 
@@ -271,20 +271,20 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 	log.ZDebug(ctx, "lintao handleInviteInGroup: start", "req", req)
 
 	if err := s.verifyInviterGlobalStatus(ctx, req.UserID); err != nil {
-		log.ZError(ctx, "lintao handleInviteInGroup", err, "verifyInviterGlobalStatus failed", "req", req)
+		log.ZError(ctx, "lintao handleInviteInGroup: verifyInviterGlobalStatus failed", err, "req", req)
 		return nil, err
 	}
 
 	notAllowUserIDs, notAllowSet, blacklistedSet, globalBlockedSet, missingUserSet, err := s.filterNotAllowedInvitees(ctx, req.UserID, inv.InviteeUserIDList, true)
 	if err != nil {
-		log.ZError(ctx, "lintao handleInviteInGroup", err, "filterNotAllowedInvitees failed", "req", req)
+		log.ZError(ctx, "lintao handleInviteInGroup: filterNotAllowedInvitees failed", err, "req", req)
 		return nil, err
 	}
 	inv.NotAllowUserIDList = notAllowUserIDs
 
 	if len(notAllowUserIDs) == len(inv.InviteeUserIDList) {
 		err := callInviteAllNotAllowedErr(blacklistedSet, globalBlockedSet, missingUserSet, inv.InviteeUserIDList)
-		log.ZError(ctx, "lintao handleInviteInGroup", err, "all invitees not allowed", "inviteeUserIDList", inv.InviteeUserIDList, "req", req)
+		log.ZError(ctx, "lintao handleInviteInGroup: all invitees not allowed", err, "inviteeUserIDList", inv.InviteeUserIDList, "req", req)
 		return nil, err
 	}
 
@@ -314,7 +314,7 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 			}
 		}
 		if reachable == 0 {
-			log.ZError(ctx, "lintao handleInviteInGroup", servererrs.ErrAllUserBusy, "all invitees are in a call", "inviteeUserIDList", inv.InviteeUserIDList)
+			log.ZError(ctx, "lintao handleInviteInGroup: all invitees are in a call", servererrs.ErrAllUserBusy, "inviteeUserIDList", inv.InviteeUserIDList)
 			return nil, servererrs.ErrAllUserBusy.WrapMsg("all invitees are already in a call", "inviteeUserIDList", inv.InviteeUserIDList)
 		}
 	}
@@ -337,7 +337,7 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 	}
 
 	if _, err := s.roomClient.CreateRoom(ctx, &livekit.CreateRoomRequest{Name: inv.RoomID}); err != nil {
-		log.ZError(ctx, "lintao handleInviteInGroup", err, "LiveKit CreateRoom failed", "roomID", inv.RoomID, "req", req)
+		log.ZError(ctx, "lintao handleInviteInGroup: LiveKit CreateRoom failed", err, "roomID", inv.RoomID, "req", req)
 		return nil, errs.WrapMsg(err, "LiveKit CreateRoom failed", "roomID", inv.RoomID)
 	}
 
@@ -346,7 +346,7 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 		if _, delErr := s.roomClient.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: inv.RoomID}); delErr != nil {
 			log.ZWarn(ctx, "lintao handleInviteInGroup: rollback DeleteRoom failed", delErr, "roomID", inv.RoomID)
 		}
-		log.ZError(ctx, "lintao handleInviteInGroup", err, "genToken failed", "roomID", inv.RoomID, "req", req)
+		log.ZError(ctx, "lintao handleInviteInGroup: genToken failed", err, "roomID", inv.RoomID, "req", req)
 		return nil, err
 	}
 
@@ -378,7 +378,7 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 
 	content, err := marshalSignalReq(signalReq)
 	if err != nil {
-		log.ZError(ctx, "lintao handleInviteInGroup", err, "marshalSignalReq failed", "roomID", inv.RoomID, "req", req)
+		log.ZError(ctx, "lintao handleInviteInGroup: marshalSignalReq failed", err, "roomID", inv.RoomID, "req", req)
 		return nil, err
 	}
 	for _, inviteeID := range inv.InviteeUserIDList {
