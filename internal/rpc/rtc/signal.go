@@ -314,7 +314,13 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 			}
 		}
 		if reachable == 0 {
+
+			s.sendGroupCallStartedNotification(ctx, inv.GroupID, inv.InviterUserID, inv.MediaType)
+
+			s.sendGroupCallEndedNotification(ctx, inv.GroupID, inv.InviterUserID, inv.MediaType, 0, signalCallActionTimeout)
+
 			log.ZError(ctx, "lintao handleInviteInGroup: all invitees are in a call", servererrs.ErrAllUserBusy, "inviteeUserIDList", inv.InviteeUserIDList)
+
 			return nil, servererrs.ErrAllUserBusy.WrapMsg("all invitees are already in a call", "inviteeUserIDList", inv.InviteeUserIDList)
 		}
 	}
