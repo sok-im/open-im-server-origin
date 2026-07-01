@@ -1783,10 +1783,9 @@ func (s *rtcServer) groupCallNotificationMsgOptions(contentType int32) map[strin
 
 func offlinePushInfoFromConfig(cfg config.NotificationConfig) *sdkws.OfflinePushInfo {
 	return &sdkws.OfflinePushInfo{
-		Title:         cfg.OfflinePush.Title,
-		Desc:          cfg.OfflinePush.Desc,
-		Ex:            cfg.OfflinePush.Ext,
-		IOSBadgeCount: false,
+		Title: cfg.OfflinePush.Title,
+		Desc:  cfg.OfflinePush.Desc,
+		Ex:    cfg.OfflinePush.Ext,
 	}
 }
 
@@ -2274,18 +2273,6 @@ const (
 	callStatusBusy         = "busy"
 )
 
-// callRecordShouldCountUnread reports whether a persisted 1v1 call-record bubble should
-// increment the si_ conversation unread count. Only callee-missed outcomes count:
-// timeout / caller hang-up before answer (not_connected) and caller cancel before answer.
-func callRecordShouldCountUnread(status string) bool {
-	switch status {
-	case callStatusNotConnected, callStatusCancelled:
-		return true
-	default:
-		return false
-	}
-}
-
 // callRecordData is the JSON payload embedded in a Custom (110) chat message
 // representing a completed call event in the conversation timeline.
 // Clients render this as a call bubble, e.g. "[语音通话] 2分05秒".
@@ -2307,14 +2294,14 @@ type callRecordData struct {
 // hang-up/cancel call records would trigger a generic [NEWMSG] banner even when the
 // callee disabled AV notifications and never received the invite push.
 //
-// Only callee-missed outcomes increment unread: answered / rejected / busy calls must not
-// show a new badge in the conversation list when the call-record bubble is written.
+// Answered calls do not increment unread count: both parties were on the call and
+// should not see a new unread badge when the hang-up record is written.
 func callRecordMsgOptions(status string) map[string]bool {
 	opts := make(map[string]bool, 8)
 	datautil.SetSwitchFromOptions(opts, constant.IsNotNotification, true)                     // → si_/sg_ chat conversation
 	datautil.SetSwitchFromOptions(opts, constant.IsHistory, true)                             // → write to history
 	datautil.SetSwitchFromOptions(opts, constant.IsPersistent, true)                          // → persist to storage
-	datautil.SetSwitchFromOptions(opts, constant.IsUnreadCount, callRecordShouldCountUnread(status))
+	datautil.SetSwitchFromOptions(opts, constant.IsUnreadCount, status != callStatusAnswered) // → unread only for missed/unanswered calls
 	datautil.SetSwitchFromOptions(opts, constant.IsConversationUpdate, true)                  // → update conv last message
 	datautil.SetSwitchFromOptions(opts, constant.IsSenderConversationUpdate, true)            // → update inviter's conv too
 	datautil.SetSwitchFromOptions(opts, constant.IsSenderSync, true)                          // → sync to inviter's other devices
