@@ -119,6 +119,15 @@ type ServiceNotificationContent struct {
 	SubType    int32  `json:"subType,omitempty"`           // 可选分类：1安全 2账号 3系统 4版本更新
 }
 
+// WalletActionNotificationContent 红包/转账动作通知（领取、接收、过期等文案提示）。
+type WalletActionNotificationContent struct {
+	Text           string `json:"text" validate:"required"`
+	BizID          string `json:"bizID,omitempty"`
+	DetailURL      string `json:"detailURL,omitempty"`
+	SenderUserID   string `json:"senderUserID,omitempty"`
+	ReceiverUserID string `json:"receiverUserID,omitempty"`
+}
+
 // PaymentNotificationContent SOK 钱包通知卡片内容。
 // UI：标题、金额（大号）、类型/时间/币种明细行，底部「查看详情」及可选次要操作。
 type PaymentNotificationContent struct {

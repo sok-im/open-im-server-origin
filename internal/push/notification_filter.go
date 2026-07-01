@@ -32,7 +32,11 @@ func userNotificationEnabled(user *sdkws.UserInfo, contentType int32) bool {
 	}
 	var switchVal int32
 	switch contentType {
-	case constant.PaymentNotification:
+	case constant.PaymentNotification,
+		constant.RedPacketClaimNotification,
+		constant.TransferReceiveNotification,
+		constant.RedPacketExpiredNotification,
+		constant.TransferExpiredNotification:
 		switchVal = user.SokimPaymentNotification
 	case constant.ServiceNotification:
 		switchVal = user.SokimServiceNotification
