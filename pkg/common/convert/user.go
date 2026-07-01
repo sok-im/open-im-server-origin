@@ -61,8 +61,8 @@ func BuildFullName(firstName, lastName string) string {
 	return strings.TrimSpace(firstName + " " + lastName)
 }
 
-// MemberDisplayNickname 无好友备注时的展示名：firstName+lastName，否则 nickname。
-// 完整规则（含 remark）请使用 DisplayNickname。
+// MemberDisplayNickname 无好友别名时的展示名：firstName+lastName，否则 nickname。
+// 完整规则（含 remark 与好友备注名）请使用 DisplayNicknameForFriend。
 func MemberDisplayNickname(u *sdkws.UserInfo) string {
 	if u == nil {
 		return ""

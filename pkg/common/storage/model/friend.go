@@ -15,22 +15,25 @@
 package model
 
 import (
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"time"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 // Friend represents the data structure for a friend relationship in MongoDB.
 type Friend struct {
-	ID             primitive.ObjectID `bson:"_id"`
-	OwnerUserID    string             `bson:"owner_user_id"`
-	FriendUserID   string             `bson:"friend_user_id"`
-	Remark         string             `bson:"remark"`
-	CreateTime     time.Time          `bson:"create_time"`
-	AddSource      int32              `bson:"add_source"`
-	OperatorUserID string             `bson:"operator_user_id"`
-	Ex             string             `bson:"ex"`
-	IsPinned       bool               `bson:"is_pinned"`
-	IsMuted        bool               `bson:"is_muted"`
-	MuteDuration   int64              `bson:"mute_duration"` // 单位：秒
-	MuteEndTime    int64              `bson:"mute_end_time"` // Unix 毫秒时间戳，0 表示永久
+	ID              primitive.ObjectID `bson:"_id"`
+	OwnerUserID     string             `bson:"owner_user_id"`
+	FriendUserID    string             `bson:"friend_user_id"`
+	Remark          string             `bson:"remark"`
+	FriendFirstName string             `bson:"friend_first_name"`
+	FriendLastName  string             `bson:"friend_last_name"`
+	CreateTime      time.Time          `bson:"create_time"`
+	AddSource       int32              `bson:"add_source"`
+	OperatorUserID  string             `bson:"operator_user_id"`
+	Ex              string             `bson:"ex"`
+	IsPinned        bool               `bson:"is_pinned"`
+	IsMuted         bool               `bson:"is_muted"`
+	MuteDuration    int64              `bson:"mute_duration"` // 单位：秒
+	MuteEndTime     int64              `bson:"mute_end_time"` // Unix 毫秒时间戳，0 表示永久
 }

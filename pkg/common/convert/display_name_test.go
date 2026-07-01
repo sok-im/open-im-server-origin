@@ -19,3 +19,16 @@ func TestDisplayNickname(t *testing.T) {
 		t.Fatalf("nickname: got %q", got)
 	}
 }
+
+func TestDisplayNicknameForFriend(t *testing.T) {
+	u := &sdkws.UserInfo{Nickname: "nick", FirstName: "A", LastName: "B"}
+	if got := DisplayNicknameForFriend("备注", "C", "D", u); got != "备注" {
+		t.Fatalf("remark: got %q", got)
+	}
+	if got := DisplayNicknameForFriend("", "C", "D", u); got != "C D" {
+		t.Fatalf("friend alias: got %q", got)
+	}
+	if got := DisplayNicknameForFriend("", "", "", u); got != "A B" {
+		t.Fatalf("profile name: got %q", got)
+	}
+}

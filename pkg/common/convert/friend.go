@@ -49,7 +49,7 @@ func FriendDB2Pb(ctx context.Context, friendDB *model.Friend, getUsers func(ctx 
 	}
 
 	displayUser := *user
-	displayUser.Nickname = DisplayNickname(friendDB.Remark, user)
+	displayUser.Nickname = DisplayNicknameForFriend(friendDB.Remark, friendDB.FriendFirstName, friendDB.FriendLastName, user)
 	return &sdkws.FriendInfo{
 		FriendUser: &displayUser,
 		CreateTime: friendDB.CreateTime.Unix(),
@@ -82,11 +82,13 @@ func FriendsDB2Pb(ctx context.Context, friendsDB []*model.Friend, getUsers func(
 			continue
 		}
 		friendPb.FriendUser.UserID = u.UserID
-		friendPb.FriendUser.Nickname = DisplayNickname(friend.Remark, u)
+		friendPb.FriendUser.Nickname = DisplayNicknameForFriend(friend.Remark, friend.FriendFirstName, friend.FriendLastName, u)
 		friendPb.FriendUser.FaceURL = u.FaceURL
 		friendPb.FriendUser.Ex = u.Ex
 		friendPb.FriendUser.FirstName = u.FirstName
 		friendPb.FriendUser.LastName = u.LastName
+		friendPb.FriendFirstName = friend.FriendFirstName
+		friendPb.FriendLastName = friend.FriendLastName
 		friendPb.CreateTime = friend.CreateTime.Unix()
 		friendPb.IsPinned = friend.IsPinned
 		friendPb.IsMute = friend.IsMuted
@@ -111,10 +113,8 @@ func FriendOnlyDB2PbOnly(friendsDB []*model.Friend, users map[string]*sdkws.User
 			IsMute:         f.IsMuted,
 			MuteDuration:   f.MuteDuration,
 			MuteEndTime:    f.MuteEndTime,
-		}
-		if u, ok := users[f.FriendUserID]; ok {
-			info.FirstName = u.FirstName
-			info.LastName = u.LastName
+			FirstName:      f.FriendFirstName,
+			LastName:       f.FriendLastName,
 		}
 		return info
 	})

@@ -350,6 +350,34 @@ func (s *friendServer) SetFriendRemark(ctx context.Context, req *relation.SetFri
 	return &relation.SetFriendRemarkResp{}, nil
 }
 
+func (s *friendServer) SetFriendName(ctx context.Context, req *relation.SetFriendNameReq) (resp *relation.SetFriendNameResp, err error) {
+	if err := authverify.CheckAccessV3(ctx, req.OwnerUserID, s.config.Share.IMAdminUserID); err != nil {
+		return nil, err
+	}
+
+	_, err = s.db.FindFriendsWithError(ctx, req.OwnerUserID, []string{req.FriendUserID})
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.db.UpdateFriendName(ctx, req.OwnerUserID, req.FriendUserID, req.FirstName, req.LastName); err != nil {
+		return nil, err
+	}
+
+	s.notificationSender.FriendRemarkSetNotification(ctx, req.OwnerUserID, req.FriendUserID)
+	go func() {
+		noCancelCtx := context.WithoutCancel(ctx)
+		if _, err := s.groupClient.NotificationFriendRemarkUpdate(noCancelCtx, &pbgroup.NotificationFriendRemarkUpdateReq{
+			OwnerUserID:  req.OwnerUserID,
+			FriendUserID: req.FriendUserID,
+		}); err != nil {
+			log.ZError(noCancelCtx, "NotificationFriendRemarkUpdate", err, "ownerUserID", req.OwnerUserID, "friendUserID", req.FriendUserID)
+		}
+	}()
+
+	return &relation.SetFriendNameResp{}, nil
+}
+
 func (s *friendServer) GetFriendInfo(ctx context.Context, req *relation.GetFriendInfoReq) (*relation.GetFriendInfoResp, error) {
 	if err := authverify.CheckAccessV3(ctx, req.OwnerUserID, s.config.Share.IMAdminUserID); err != nil {
 		return nil, err

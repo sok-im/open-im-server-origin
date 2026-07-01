@@ -55,6 +55,9 @@ type FriendDatabase interface {
 	// UpdateRemark updates the remark for a friend
 	UpdateRemark(ctx context.Context, ownerUserID, friendUserID, remark string) (err error)
 
+	// UpdateFriendName updates the owner-set firstName/lastName for a friend
+	UpdateFriendName(ctx context.Context, ownerUserID, friendUserID, firstName, lastName string) (err error)
+
 	// PageOwnerFriends retrieves the friend list of ownerUserID with pagination
 	PageOwnerFriends(ctx context.Context, ownerUserID string, pagination pagination.Pagination) (total int64, friends []*model.Friend, err error)
 
@@ -325,6 +328,14 @@ func (f *friendDatabase) Delete(ctx context.Context, ownerUserID string, friendU
 // UpdateRemark updates the remark for a friend. Zero value for remark is also supported.
 func (f *friendDatabase) UpdateRemark(ctx context.Context, ownerUserID, friendUserID, remark string) (err error) {
 	if err := f.friend.UpdateRemark(ctx, ownerUserID, friendUserID, remark); err != nil {
+		return err
+	}
+	return f.cache.DelFriend(ownerUserID, friendUserID).DelMaxFriendVersion(ownerUserID).ChainExecDel(ctx)
+}
+
+// UpdateFriendName updates the owner-set firstName/lastName for a friend. Empty strings clear the alias.
+func (f *friendDatabase) UpdateFriendName(ctx context.Context, ownerUserID, friendUserID, firstName, lastName string) (err error) {
+	if err := f.friend.UpdateFriendName(ctx, ownerUserID, friendUserID, firstName, lastName); err != nil {
 		return err
 	}
 	return f.cache.DelFriend(ownerUserID, friendUserID).DelMaxFriendVersion(ownerUserID).ChainExecDel(ctx)

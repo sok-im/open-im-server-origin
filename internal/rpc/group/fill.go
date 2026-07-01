@@ -39,7 +39,7 @@ func (s *groupServer) membersToPbWithDisplayNicknames(ctx context.Context, membe
 }
 
 // applyMemberDisplayNicknames 按当前用户视角重设群成员 Nickname：
-// 好友用 remark；非好友用 firstName+lastName，为空则 fallback 到 nickname。
+// remark > 好友备注名 firstName+lastName > 用户资料 firstName+lastName > nickname。
 func (s *groupServer) applyMemberDisplayNicknames(ctx context.Context, members []*sdkws.GroupMemberFullInfo) error {
 	if len(members) == 0 {
 		return nil
@@ -57,39 +57,36 @@ func (s *groupServer) applyMemberDisplayNicknames(ctx context.Context, members [
 	if err != nil {
 		return err
 	}
-	remarkMap := make(map[string]string, len(friendInfos))
-	for _, f := range friendInfos {
-		if f != nil {
-			remarkMap[f.FriendUserID] = f.Remark
-		}
-	}
+	aliasMap := convert.FriendAliasMapFromFriendInfos(friendInfos)
 	for _, m := range members {
-		m.Nickname = convert.DisplayNickname(remarkMap[m.UserID], users[m.UserID])
+		alias := aliasMap[m.UserID]
+		m.Nickname = convert.DisplayNicknameForFriend(alias.Remark, alias.FriendFirstName, alias.FriendLastName, users[m.UserID])
 	}
 	return nil
 }
 
-// remarkMapForUser 返回 viewerUserID 对 userIDs 的好友备注映射（非好友无条目）。
-func (s *groupServer) remarkMapForUser(ctx context.Context, viewerUserID string, userIDs []string) (map[string]string, error) {
+// friendAliasMapForUser 返回 viewerUserID 对 userIDs 的好友别名映射（非好友无条目）。
+func (s *groupServer) friendAliasMapForUser(ctx context.Context, viewerUserID string, userIDs []string) (map[string]convert.FriendAliasInfo, error) {
 	if viewerUserID == "" || len(userIDs) == 0 {
-		return map[string]string{}, nil
+		return map[string]convert.FriendAliasInfo{}, nil
 	}
 	friendInfos, err := s.relationClient.GetFriendsInfo(ctx, viewerUserID, userIDs)
 	if err != nil {
 		return nil, err
 	}
-	return convert.RemarkMapFromFriendInfos(friendInfos), nil
+	return convert.FriendAliasMapFromFriendInfos(friendInfos), nil
 }
 
-// userInfoWithDisplayNickname 复制用户信息并将 Nickname 设为 remark > firstName+lastName > nickname。
-func userInfoWithDisplayNickname(user *sdkws.UserInfo, remarkMap map[string]string) *sdkws.UserInfo {
+// userInfoWithDisplayNickname 复制用户信息并将 Nickname 设为 remark > 好友备注名 > 用户资料名 > nickname。
+func userInfoWithDisplayNickname(user *sdkws.UserInfo, aliasMap map[string]convert.FriendAliasInfo) *sdkws.UserInfo {
 	if user == nil {
 		return nil
 	}
-	if remarkMap == nil {
-		remarkMap = map[string]string{}
+	if aliasMap == nil {
+		aliasMap = map[string]convert.FriendAliasInfo{}
 	}
 	cp := *user
-	cp.Nickname = convert.DisplayNickname(remarkMap[user.UserID], user)
+	alias := aliasMap[user.UserID]
+	cp.Nickname = convert.DisplayNicknameForFriend(alias.Remark, alias.FriendFirstName, alias.FriendLastName, user)
 	return &cp
 }

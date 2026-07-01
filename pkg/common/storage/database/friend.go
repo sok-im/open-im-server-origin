@@ -31,6 +31,8 @@ type Friend interface {
 	UpdateByMap(ctx context.Context, ownerUserID string, friendUserID string, args map[string]any) (err error)
 	// UpdateRemark modify remarks.
 	UpdateRemark(ctx context.Context, ownerUserID, friendUserID, remark string) (err error)
+	// UpdateFriendName updates the owner-set firstName/lastName for a friend.
+	UpdateFriendName(ctx context.Context, ownerUserID, friendUserID, firstName, lastName string) (err error)
 	// Take retrieves a single friend document. Returns an error if not found.
 	Take(ctx context.Context, ownerUserID, friendUserID string) (friend *model.Friend, err error)
 	// FindUserState finds the friendship status between two users.

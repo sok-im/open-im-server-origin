@@ -53,18 +53,22 @@ const (
 
 func NewNotificationSender(db controller.GroupDatabase, config *Config, userClient *rpcli.UserClient, relationClient *rpcli.RelationClient, msgClient *rpcli.MsgClient, conversationClient *rpcli.ConversationClient) *NotificationSender {
 	resolveDisplayNickname := func(ctx context.Context, viewerUserID, targetUserID string) (string, error) {
-		var remark string
+		var alias convert.FriendAliasInfo
 		if relationClient != nil && viewerUserID != "" {
 			friends, err := relationClient.GetFriendsInfo(ctx, viewerUserID, []string{targetUserID})
-			if err == nil && len(friends) > 0 {
-				remark = friends[0].GetRemark()
+			if err == nil && len(friends) > 0 && friends[0] != nil {
+				alias = convert.FriendAliasInfo{
+					Remark:          friends[0].GetRemark(),
+					FriendFirstName: friends[0].GetFirstName(),
+					FriendLastName:  friends[0].GetLastName(),
+				}
 			}
 		}
 		u, err := userClient.GetUserInfo(ctx, targetUserID)
 		if err != nil {
 			return "", err
 		}
-		return convert.DisplayNickname(remark, u), nil
+		return convert.DisplayNicknameForFriend(alias.Remark, alias.FriendFirstName, alias.FriendLastName, u), nil
 	}
 	return &NotificationSender{
 		NotificationSender: notification.NewNotificationSender(&config.NotificationConfig,
@@ -125,19 +129,20 @@ func (g *NotificationSender) applyPbMemberDisplayNicknames(ctx context.Context, 
 	if err != nil {
 		return err
 	}
-	remarkMap := make(map[string]string)
+	remarkMap := make(map[string]convert.FriendAliasInfo)
 	if g.relationClient != nil {
 		friendInfos, err := g.relationClient.GetFriendsInfo(ctx, viewerID, userIDs)
 		if err != nil {
 			return err
 		}
-		remarkMap = convert.RemarkMapFromFriendInfos(friendInfos)
+		remarkMap = convert.FriendAliasMapFromFriendInfos(friendInfos)
 	}
 	for _, m := range members {
 		if m == nil {
 			continue
 		}
-		m.Nickname = convert.DisplayNickname(remarkMap[m.UserID], users[m.UserID])
+		alias := remarkMap[m.UserID]
+		m.Nickname = convert.DisplayNicknameForFriend(alias.Remark, alias.FriendFirstName, alias.FriendLastName, users[m.UserID])
 	}
 	return nil
 }

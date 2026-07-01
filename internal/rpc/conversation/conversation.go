@@ -705,7 +705,7 @@ func (c *conversationServer) getConversationInfo(
 		}
 	}
 	peerIDs := datautil.Distinct(sendIDs)
-	var remarkMap map[string]string
+	var aliasMap map[string]convert.FriendAliasInfo
 	if len(peerIDs) != 0 {
 		sendInfos, err := c.userClient.GetUsersInfo(ctx, peerIDs)
 		if err != nil {
@@ -719,7 +719,7 @@ func (c *conversationServer) getConversationInfo(
 			if err != nil {
 				return nil, err
 			}
-			remarkMap = convert.RemarkMapFromFriendInfos(friendInfos)
+			aliasMap = convert.FriendAliasMapFromFriendInfos(friendInfos)
 		}
 	}
 	if len(groupIDs) != 0 {
@@ -742,13 +742,13 @@ func (c *conversationServer) getConversationInfo(
 			if chatLog.SendID == userID {
 				if recv, ok := sendMap[chatLog.RecvID]; ok {
 					msgInfo.FaceURL = recv.FaceURL
-					msgInfo.SenderName = convert.DisplayNickname(remarkMap[recv.UserID], recv)
+					msgInfo.SenderName = convert.DisplayNicknameForUser(recv.UserID, sendMap, aliasMap)
 				}
 				break
 			}
 			if send, ok := sendMap[chatLog.SendID]; ok {
 				msgInfo.FaceURL = send.FaceURL
-				msgInfo.SenderName = convert.DisplayNickname(remarkMap[send.UserID], send)
+				msgInfo.SenderName = convert.DisplayNicknameForUser(send.UserID, sendMap, aliasMap)
 			}
 		case constant.WriteGroupChatType, constant.ReadGroupChatType:
 			msgInfo.GroupID = chatLog.GroupID
@@ -759,7 +759,7 @@ func (c *conversationServer) getConversationInfo(
 				msgInfo.GroupType = group.GroupType
 			}
 			if send, ok := sendMap[chatLog.SendID]; ok {
-				msgInfo.SenderName = convert.DisplayNickname(remarkMap[send.UserID], send)
+				msgInfo.SenderName = convert.DisplayNicknameForUser(send.UserID, sendMap, aliasMap)
 			}
 		}
 		pbchatLog.ConversationID = conversationID

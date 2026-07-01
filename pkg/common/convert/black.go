@@ -22,20 +22,20 @@ import (
 	sdk "github.com/openimsdk/protocol/sdkws"
 )
 
-// BlackUserPublicInfo builds BlackUserInfo with Nickname: remark > firstName+lastName > nickname.
-func BlackUserPublicInfo(user *sdkws.UserInfo, remark string) *sdkws.PublicUserInfo {
+// BlackUserPublicInfo builds BlackUserInfo with Nickname: remark > friend firstName+lastName > profile firstName+lastName > nickname.
+func BlackUserPublicInfo(user *sdkws.UserInfo, alias FriendAliasInfo) *sdkws.PublicUserInfo {
 	if user == nil {
 		return nil
 	}
 	return &sdkws.PublicUserInfo{
 		UserID:   user.UserID,
-		Nickname: DisplayNickname(remark, user),
+		Nickname: DisplayNicknameForFriend(alias.Remark, alias.FriendFirstName, alias.FriendLastName, user),
 		FaceURL:  user.FaceURL,
 		Ex:       user.Ex,
 	}
 }
 
-func BlackDB2Pb(ctx context.Context, blackDBs []*model.Black, remarkMap map[string]string, f func(ctx context.Context, userIDs []string) (map[string]*sdkws.UserInfo, error)) (blackPbs []*sdk.BlackInfo, err error) {
+func BlackDB2Pb(ctx context.Context, blackDBs []*model.Black, aliasMap map[string]FriendAliasInfo, f func(ctx context.Context, userIDs []string) (map[string]*sdkws.UserInfo, error)) (blackPbs []*sdk.BlackInfo, err error) {
 	if len(blackDBs) == 0 {
 		return nil, nil
 	}
@@ -55,7 +55,7 @@ func BlackDB2Pb(ctx context.Context, blackDBs []*model.Black, remarkMap map[stri
 			Ex:             blackDB.Ex,
 			OperatorUserID: blackDB.OperatorUserID,
 		}
-		blackPb.BlackUserInfo = BlackUserPublicInfo(userInfos[blackDB.BlockUserID], remarkMap[blackDB.BlockUserID])
+		blackPb.BlackUserInfo = BlackUserPublicInfo(userInfos[blackDB.BlockUserID], aliasMap[blackDB.BlockUserID])
 		blackPbs = append(blackPbs, blackPb)
 	}
 	return blackPbs, nil

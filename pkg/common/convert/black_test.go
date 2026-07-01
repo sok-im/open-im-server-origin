@@ -49,12 +49,20 @@ func TestBlackDB2Pb_displayNickname(t *testing.T) {
 		}, nil
 	}
 
-	got, err := BlackDB2Pb(ctx, blackDBs, map[string]string{"blocked": "备注"}, getUsers)
+	got, err := BlackDB2Pb(ctx, blackDBs, map[string]FriendAliasInfo{"blocked": {Remark: "备注"}}, getUsers)
 	if err != nil {
 		t.Fatalf("BlackDB2Pb: %v", err)
 	}
 	if got[0].BlackUserInfo.Nickname != "备注" {
 		t.Fatalf("remark: got %q", got[0].BlackUserInfo.Nickname)
+	}
+
+	got, err = BlackDB2Pb(ctx, blackDBs, map[string]FriendAliasInfo{"blocked": {FriendFirstName: "C", FriendLastName: "D"}}, getUsers)
+	if err != nil {
+		t.Fatalf("BlackDB2Pb: %v", err)
+	}
+	if got[0].BlackUserInfo.Nickname != "C D" {
+		t.Fatalf("friend alias: got %q", got[0].BlackUserInfo.Nickname)
 	}
 
 	got, err = BlackDB2Pb(ctx, blackDBs, nil, getUsers)

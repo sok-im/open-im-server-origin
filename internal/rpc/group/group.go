@@ -193,18 +193,22 @@ func (s *groupServer) NotificationFriendRemarkUpdate(ctx context.Context, req *p
 }
 
 // resolveFriendDisplayName returns the display name for friendUserID as seen by ownerUserID:
-// remark > firstName+lastName > nickname.
+// remark > friend firstName+lastName > profile firstName+lastName > nickname.
 func (s *groupServer) resolveFriendDisplayName(ctx context.Context, ownerUserID, friendUserID string) (string, error) {
-	var remark string
+	var alias convert.FriendAliasInfo
 	friendInfos, err := s.relationClient.GetFriendsInfo(ctx, ownerUserID, []string{friendUserID})
-	if err == nil && len(friendInfos) > 0 {
-		remark = friendInfos[0].GetRemark()
+	if err == nil && len(friendInfos) > 0 && friendInfos[0] != nil {
+		alias = convert.FriendAliasInfo{
+			Remark:          friendInfos[0].GetRemark(),
+			FriendFirstName: friendInfos[0].GetFirstName(),
+			FriendLastName:  friendInfos[0].GetLastName(),
+		}
 	}
 	users, err := s.userClient.GetUsersInfo(ctx, []string{friendUserID})
 	if err != nil || len(users) == 0 {
 		return "", err
 	}
-	return convert.DisplayNickname(remark, users[0]), nil
+	return convert.DisplayNicknameForFriend(alias.Remark, alias.FriendFirstName, alias.FriendLastName, users[0]), nil
 }
 
 func (s *groupServer) NotificationUserInfoUpdate(ctx context.Context, req *pbgroup.NotificationUserInfoUpdateReq) (*pbgroup.NotificationUserInfoUpdateResp, error) {
@@ -993,7 +997,7 @@ func (s *groupServer) GetGroupApplicationList(ctx context.Context, req *pbgroup.
 	ownerMap := datautil.SliceToMap(owners, func(e *model.GroupMember) string {
 		return e.GroupID
 	})
-	remarkMap, err := s.remarkMapForUser(ctx, req.FromUserID, userIDs)
+	aliasMap, err := s.friendAliasMapForUser(ctx, req.FromUserID, userIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -1002,7 +1006,7 @@ func (s *groupServer) GetGroupApplicationList(ctx context.Context, req *pbgroup.
 		if owner, ok := ownerMap[e.GroupID]; ok {
 			ownerUserID = owner.UserID
 		}
-		return convert.Db2PbGroupRequest(e, userInfoWithDisplayNickname(userMap[e.UserID], remarkMap), convert.Db2PbGroupInfo(groupMap[e.GroupID], ownerUserID, groupMemberNumMap[e.GroupID]))
+		return convert.Db2PbGroupRequest(e, userInfoWithDisplayNickname(userMap[e.UserID], aliasMap), convert.Db2PbGroupInfo(groupMap[e.GroupID], ownerUserID, groupMemberNumMap[e.GroupID]))
 	})
 	return resp, nil
 }

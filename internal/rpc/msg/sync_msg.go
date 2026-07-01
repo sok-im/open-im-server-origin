@@ -184,7 +184,7 @@ func (m *msgServer) SearchMessage(ctx context.Context, req *msg.SearchMessageReq
 		sendMap   = make(map[string]*sdkws.UserInfo)
 		recvMap   = make(map[string]*sdkws.UserInfo)
 		groupMap  = make(map[string]*sdkws.GroupInfo)
-		remarkMap map[string]string
+		aliasMap  map[string]convert.FriendAliasInfo
 	)
 
 	for _, chatLog := range chatLogs {
@@ -215,7 +215,7 @@ func (m *msgServer) SearchMessage(ctx context.Context, req *msg.SearchMessageReq
 			if err != nil {
 				return nil, err
 			}
-			remarkMap = convert.RemarkMapFromFriendInfos(friendInfos)
+			aliasMap = convert.FriendAliasMapFromFriendInfos(friendInfos)
 		}
 	}
 
@@ -242,11 +242,11 @@ func (m *msgServer) SearchMessage(ctx context.Context, req *msg.SearchMessageReq
 		pbchatLog.SendTime = chatLog.MsgData.SendTime
 		pbchatLog.CreateTime = chatLog.MsgData.CreateTime
 		if chatLog.MsgData.SenderNickname == "" {
-			pbchatLog.SenderNickname = convert.DisplayNicknameForUser(chatLog.MsgData.SendID, sendMap, remarkMap)
+			pbchatLog.SenderNickname = convert.DisplayNicknameForUser(chatLog.MsgData.SendID, sendMap, aliasMap)
 		}
 		switch chatLog.MsgData.SessionType {
 		case constant.SingleChatType, constant.NotificationChatType:
-			pbchatLog.RecvNickname = convert.DisplayNicknameForUser(chatLog.MsgData.RecvID, recvMap, remarkMap)
+			pbchatLog.RecvNickname = convert.DisplayNicknameForUser(chatLog.MsgData.RecvID, recvMap, aliasMap)
 		case constant.ReadGroupChatType:
 			groupInfo := groupMap[chatLog.MsgData.GroupID]
 			pbchatLog.SenderFaceURL = groupInfo.FaceURL

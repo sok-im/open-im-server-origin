@@ -136,6 +136,14 @@ func (f *FriendMgo) UpdateRemark(ctx context.Context, ownerUserID, friendUserID,
 	return f.UpdateByMap(ctx, ownerUserID, friendUserID, map[string]any{"remark": remark})
 }
 
+// UpdateFriendName updates the owner-set firstName/lastName for a specific friend.
+func (f *FriendMgo) UpdateFriendName(ctx context.Context, ownerUserID, friendUserID, firstName, lastName string) error {
+	return f.UpdateByMap(ctx, ownerUserID, friendUserID, map[string]any{
+		"friend_first_name": firstName,
+		"friend_last_name":  lastName,
+	})
+}
+
 func (f *FriendMgo) fillTime(friends ...*model.Friend) {
 	for i, friend := range friends {
 		if friend.CreateTime.IsZero() {

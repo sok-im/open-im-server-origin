@@ -43,7 +43,7 @@ func (s *friendServer) GetPaginationBlacks(ctx context.Context, req *relation.Ge
 	if err != nil {
 		return nil, err
 	}
-	remarkMap := convert.RemarkMapFromFriendModels(friends)
+	remarkMap := convert.FriendAliasMapFromFriendModels(friends)
 	resp = &relation.GetPaginationBlacksResp{}
 	resp.Blacks, err = convert.BlackDB2Pb(ctx, blacks, remarkMap, s.userClient.GetUsersInfoMap)
 	if err != nil {
@@ -132,7 +132,7 @@ func (s *friendServer) GetSpecifiedBlacks(ctx context.Context, req *relation.Get
 	if err != nil {
 		return nil, err
 	}
-	remarkMap := convert.RemarkMapFromFriendModels(friends)
+	aliasMap := convert.FriendAliasMapFromFriendModels(friends)
 
 	blackMap := datautil.SliceToMap(blacks, func(e *model.Black) string {
 		return e.BlockUserID
@@ -143,7 +143,7 @@ func (s *friendServer) GetSpecifiedBlacks(ctx context.Context, req *relation.Get
 	}
 
 	toPublicUser := func(userID string) *sdkws.PublicUserInfo {
-		return convert.BlackUserPublicInfo(userMap[userID], remarkMap[userID])
+		return convert.BlackUserPublicInfo(userMap[userID], aliasMap[userID])
 	}
 
 	for _, userID := range req.UserIDList {

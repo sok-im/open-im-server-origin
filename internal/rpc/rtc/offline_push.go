@@ -256,27 +256,31 @@ func (s *rtcServer) resolveSingleChatCallDisplayName(ctx context.Context, callee
 			log.ZDebug(ctx, "resolveSingleChatCallDisplayName: GetUserInfo failed", "callerUserID", callerUserID, "err", err)
 		}
 	}
-	remark := s.resolveFriendRemark(ctx, calleeUserID, callerUserID)
-	return callPushDisplayName(remark, user, callerUserID)
+	alias := s.resolveFriendAlias(ctx, calleeUserID, callerUserID)
+	return callPushDisplayName(alias, user, callerUserID)
 }
 
-func (s *rtcServer) resolveFriendRemark(ctx context.Context, ownerUserID, friendUserID string) string {
+func (s *rtcServer) resolveFriendAlias(ctx context.Context, ownerUserID, friendUserID string) convert.FriendAliasInfo {
 	if ownerUserID == "" || friendUserID == "" || s.relationClient == nil {
-		return ""
+		return convert.FriendAliasInfo{}
 	}
 	friends, err := s.relationClient.GetFriendsInfo(ctx, ownerUserID, []string{friendUserID})
 	if err != nil {
-		log.ZDebug(ctx, "resolveFriendRemark: GetFriendsInfo failed", "ownerUserID", ownerUserID, "friendUserID", friendUserID, "err", err)
-		return ""
+		log.ZDebug(ctx, "resolveFriendAlias: GetFriendsInfo failed", "ownerUserID", ownerUserID, "friendUserID", friendUserID, "err", err)
+		return convert.FriendAliasInfo{}
 	}
 	if len(friends) == 0 || friends[0] == nil {
-		return ""
+		return convert.FriendAliasInfo{}
 	}
-	return friends[0].Remark
+	return convert.FriendAliasInfo{
+		Remark:          friends[0].Remark,
+		FriendFirstName: friends[0].FirstName,
+		FriendLastName:  friends[0].LastName,
+	}
 }
 
-func callPushDisplayName(remark string, user *sdkws.UserInfo, userIDFallback string) string {
-	if name := convert.DisplayNickname(remark, user); name != "" {
+func callPushDisplayName(alias convert.FriendAliasInfo, user *sdkws.UserInfo, userIDFallback string) string {
+	if name := convert.DisplayNicknameForFriend(alias.Remark, alias.FriendFirstName, alias.FriendLastName, user); name != "" {
 		return name
 	}
 	if userIDFallback != "" {

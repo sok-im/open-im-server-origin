@@ -69,6 +69,10 @@ func (o *FriendApi) SetFriendRemark(c *gin.Context) {
 	a2r.Call(c, relation.FriendClient.SetFriendRemark, o.Client)
 }
 
+func (o *FriendApi) SetFriendName(c *gin.Context) {
+	a2r.Call(c, relation.FriendClient.SetFriendName, o.Client)
+}
+
 func (o *FriendApi) AddBlack(c *gin.Context) {
 	a2r.Call(c, relation.FriendClient.AddBlack, o.Client)
 }
