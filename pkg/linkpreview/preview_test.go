@@ -3,6 +3,9 @@ package linkpreview
 import (
 	"net/url"
 	"testing"
+	"time"
+
+	"github.com/openimsdk/open-im-server/v3/pkg/apistruct"
 )
 
 func TestParseHTML_OpenGraph(t *testing.T) {
@@ -69,6 +72,7 @@ func TestParseHTML_RelativeImageURL(t *testing.T) {
 }
 
 func TestValidateTargetURLString(t *testing.T) {
+	svc := NewService(Config{})
 	cases := []struct {
 		url       string
 		shouldErr bool
@@ -78,16 +82,78 @@ func TestValidateTargetURLString(t *testing.T) {
 		{"ftp://example.com", true},
 		{"http://127.0.0.1", true},
 		{"http://localhost", true},
+		{"http://user:pass@example.com", true},
+		{"http://example.com:8080", true},
+		{"http://metadata.google.internal", true},
 		{"", true},
 	}
 
 	for _, tc := range cases {
-		_, err := validateTargetURLString(tc.url)
+		_, err := svc.validateTargetURLString(tc.url)
 		if tc.shouldErr && err == nil {
 			t.Fatalf("expected error for %q", tc.url)
 		}
 		if !tc.shouldErr && err != nil {
 			t.Fatalf("unexpected error for %q: %v", tc.url, err)
 		}
+	}
+}
+
+func TestDomainWhitelist(t *testing.T) {
+	svc := NewService(Config{AllowedDomains: []string{"baidu.com", "example.org"}})
+
+	allowed := []string{
+		"https://baidu.com",
+		"https://www.baidu.com/path",
+		"https://news.example.org",
+	}
+	for _, raw := range allowed {
+		if _, err := svc.validateTargetURLString(raw); err != nil {
+			t.Fatalf("expected allowed %q, got %v", raw, err)
+		}
+	}
+
+	blocked := []string{
+		"https://google.com",
+		"https://evilbaidu.com",
+	}
+	for _, raw := range blocked {
+		if _, err := svc.validateTargetURLString(raw); err == nil {
+			t.Fatalf("expected blocked %q", raw)
+		}
+	}
+}
+
+func TestNormalizeCacheKey(t *testing.T) {
+	u1, _ := url.Parse("https://Example.com/path/?a=1#frag")
+	u2, _ := url.Parse("https://example.com/path?a=1")
+	if normalizeCacheKey(u1) != normalizeCacheKey(u2) {
+		t.Fatalf("cache keys should match: %q vs %q", normalizeCacheKey(u1), normalizeCacheKey(u2))
+	}
+}
+
+func TestMatchAllowedDomain(t *testing.T) {
+	allowed := normalizeDomains([]string{".baidu.com"})
+	if !matchAllowedDomain("www.baidu.com", allowed) {
+		t.Fatal("subdomain should match")
+	}
+	if matchAllowedDomain("notbaidu.com", allowed) {
+		t.Fatal("unrelated domain should not match")
+	}
+}
+
+func TestCacheStoresResult(t *testing.T) {
+	svc := NewService(Config{
+		CacheTTL:         time.Minute,
+		NegativeCacheTTL: 0,
+		CacheSize:        16,
+	})
+	key := "https://example.com/article"
+	want := &apistruct.LinkPreviewResp{Title: "Cached Title", SiteName: "example.com"}
+	svc.cache.Add(key, &cacheEntry{resp: cloneResp(want)})
+
+	entry, ok := svc.cache.Get(key)
+	if !ok || entry.resp.Title != want.Title {
+		t.Fatalf("cache miss or wrong value: %+v", entry)
 	}
 }

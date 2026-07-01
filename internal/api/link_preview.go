@@ -9,10 +9,12 @@ import (
 	"github.com/openimsdk/tools/log"
 )
 
-type LinkPreviewApi struct{}
+type LinkPreviewApi struct {
+	svc *linkpreview.Service
+}
 
-func NewLinkPreviewApi() *LinkPreviewApi {
-	return &LinkPreviewApi{}
+func NewLinkPreviewApi(svc *linkpreview.Service) *LinkPreviewApi {
+	return &LinkPreviewApi{svc: svc}
 }
 
 func (l *LinkPreviewApi) Preview(c *gin.Context) {
@@ -22,7 +24,7 @@ func (l *LinkPreviewApi) Preview(c *gin.Context) {
 		return
 	}
 
-	resp, err := linkpreview.Fetch(c.Request.Context(), req.URL)
+	resp, err := l.svc.Fetch(c.Request.Context(), req.URL)
 	if err != nil {
 		log.ZWarn(c, "link preview fetch failed", err, "url", req.URL)
 		apiresp.GinError(c, err)

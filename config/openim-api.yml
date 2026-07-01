@@ -17,3 +17,15 @@ prometheus:
   ports: [ 12002 ]
   # This address can be accessed via a browser
   grafanaURL: http://127.0.0.1:13000/
+
+# Link preview for /link/preview
+linkPreview:
+  # Domain whitelist; empty means all public domains are allowed (SSRF rules still apply).
+  # Supports exact match and subdomain match, e.g. baidu.com also allows www.baidu.com.
+  allowedDomains: []
+  # Success cache TTL in seconds; 0 = default 3600, -1 = disabled
+  cacheTTL: 3600
+  # Failure cache TTL in seconds; 0 = default 300, -1 = disabled
+  negativeCacheTTL: 300
+  # Max in-memory cache entries per API instance
+  cacheSize: 4096

@@ -22,6 +22,7 @@ import (
 	pbvirgil "github.com/openimsdk/protocol/virgilsecurity"
 
 	"github.com/openimsdk/open-im-server/v3/internal/api/jssdk"
+	"github.com/openimsdk/open-im-server/v3/pkg/linkpreview"
 
 	"github.com/gin-contrib/gzip"
 
@@ -435,7 +436,12 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 	}
 
 	{
-		lp := NewLinkPreviewApi()
+		lp := NewLinkPreviewApi(linkpreview.NewService(linkpreview.ConfigFromSeconds(
+			config.API.LinkPreview.AllowedDomains,
+			config.API.LinkPreview.CacheTTL,
+			config.API.LinkPreview.NegativeCacheTTL,
+			config.API.LinkPreview.CacheSize,
+		)))
 		linkGroup := r.Group("/link")
 		linkGroup.POST("/preview", lp.Preview)
 	}

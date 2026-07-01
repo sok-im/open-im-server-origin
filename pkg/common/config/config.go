@@ -112,6 +112,19 @@ type API struct {
 		Ports        []int  `mapstructure:"ports"`
 		GrafanaURL   string `mapstructure:"grafanaURL"`
 	} `mapstructure:"prometheus"`
+	LinkPreview LinkPreviewConfig `mapstructure:"linkPreview"`
+}
+
+// LinkPreviewConfig configures /link/preview SSRF checks, domain whitelist and cache.
+type LinkPreviewConfig struct {
+	// AllowedDomains 域名白名单；为空时不限制域名（仍受 SSRF 规则约束）。
+	AllowedDomains []string `mapstructure:"allowedDomains"`
+	// CacheTTL 成功结果缓存秒数；0 使用默认 3600；-1 表示禁用。
+	CacheTTL int `mapstructure:"cacheTTL"`
+	// NegativeCacheTTL 抓取失败缓存秒数；0 使用默认 300；-1 表示禁用。
+	NegativeCacheTTL int `mapstructure:"negativeCacheTTL"`
+	// CacheSize 内存缓存条目上限；<=0 使用默认 4096。
+	CacheSize int `mapstructure:"cacheSize"`
 }
 
 type CronTask struct {
