@@ -434,6 +434,12 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 		captchaGroup.POST("/click_verify", cp.VerifyClickCaptcha)
 	}
 
+	{
+		lp := NewLinkPreviewApi()
+		linkGroup := r.Group("/link")
+		linkGroup.POST("/preview", lp.Preview)
+	}
+
 	// TOTP / MFA
 	{
 		tp := NewTotpApi(pbtotp.NewTotpClient(totpConn))
