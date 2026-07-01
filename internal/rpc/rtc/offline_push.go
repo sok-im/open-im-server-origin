@@ -15,7 +15,7 @@ import (
 
 const (
 	callWakePushSchemaVersion = 1
-	callWakePushType = "call"
+	callWakePushType          = "call"
 	callIOSPushSound          = "call.caf"
 	callOfflinePushMissedDesc = "未接通话"
 
@@ -84,6 +84,7 @@ func (s *rtcServer) resolveSignalingOfflinePushInfo(ctx context.Context, inv *rt
 			s.applyGroupChatInviteOfflinePushCopy(ctx, push, inv, calleeUserID)
 		}
 		push.Ex = syncCallWakePushEx(inv, sessionType, push.Ex, callWakePushType)
+		applySignalingOfflinePushBadgePolicy(push, action, sessionType)
 		log.ZInfo(ctx, "resolveSignalingOfflinePushInfo: using client offlinePushInfo only (config disabled)",
 			"action", action,
 			"roomID", inv.RoomID,
@@ -131,6 +132,7 @@ func (s *rtcServer) resolveSignalingOfflinePushInfo(ctx context.Context, inv *rt
 		push.Ex = cfg.OfflinePush.Ext
 	}
 	push.Ex = syncCallWakePushEx(inv, sessionType, push.Ex, callWakePushType)
+	applySignalingOfflinePushBadgePolicy(push, action, sessionType)
 	log.ZInfo(ctx, "resolveSignalingOfflinePushInfo done",
 		"action", action,
 		"roomID", inv.RoomID,
@@ -147,6 +149,25 @@ func (s *rtcServer) resolveSignalingOfflinePushInfo(ctx context.Context, inv *rt
 		"exFromClient", push.Ex != "" && clientExLen > 0 && len(push.Ex) == clientExLen,
 	)
 	return push
+}
+
+// applySignalingOfflinePushBadgePolicy controls whether an offline push bumps the app icon badge.
+// Invite signaling must never increment the badge; only 1v1 missed-call wake pushes (cancel/timeout,
+// including caller hang-up before answer) should. Group-call signaling and active rejections stay silent.
+func applySignalingOfflinePushBadgePolicy(push *sdkws.OfflinePushInfo, action string, sessionType int32) {
+	if push == nil {
+		return
+	}
+	if sessionType != int32(constant.SingleChatType) {
+		push.IOSBadgeCount = false
+		return
+	}
+	switch action {
+	case signalCallActionCancel, signalCallActionTimeout:
+		push.IOSBadgeCount = true
+	default:
+		push.IOSBadgeCount = false
+	}
 }
 
 func invitationSessionType(inv *rtc.InvitationInfo) int32 {

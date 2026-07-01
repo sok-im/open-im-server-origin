@@ -252,15 +252,15 @@ func (s *rtcServer) handleInvite(ctx context.Context, req *rtc.SignalInviteReq, 
 // handleInviteInGroup processes a group call invitation.
 func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInviteInGroupReq, signalReq *rtc.SignalReq) (*rtc.SignalInviteInGroupResp, error) {
 
-	log.ZDebug(ctx, "lintao handleInviteInGroup: start", "req", req)
+	log.ZDebug(ctx, "handleInviteInGroup: start", "req", req)
 
 	inv := req.Invitation
 	if inv == nil {
-		log.ZError(ctx, "lintao handleInviteInGroup", errs.ErrArgs, "r", "invitation is nil", "req", req)
+		log.ZError(ctx, "handleInviteInGroup", errs.ErrArgs, "r", "invitation is nil", "req", req)
 		return nil, errs.ErrArgs.WrapMsg("invitation is nil")
 	}
 	if inv.GroupID == "" {
-		log.ZError(ctx, "lintao handleInviteInGroup", errs.ErrArgs, "r", "groupID is empty", "req", req)
+		log.ZError(ctx, "handleInviteInGroup", errs.ErrArgs, "r", "groupID is empty", "req", req)
 		return nil, errs.ErrArgs.WrapMsg("groupID is empty")
 	}
 
@@ -268,23 +268,23 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 	inv.InviterUserID = req.UserID
 	inv.InitiateTime = time.Now().UnixMilli()
 
-	log.ZDebug(ctx, "lintao handleInviteInGroup: start", "req", req)
+	log.ZDebug(ctx, "handleInviteInGroup: start", "req", req)
 
 	if err := s.verifyInviterGlobalStatus(ctx, req.UserID); err != nil {
-		log.ZError(ctx, "lintao handleInviteInGroup: verifyInviterGlobalStatus failed", err, "req", req)
+		log.ZError(ctx, "handleInviteInGroup: verifyInviterGlobalStatus failed", err, "req", req)
 		return nil, err
 	}
 
 	notAllowUserIDs, notAllowSet, blacklistedSet, globalBlockedSet, missingUserSet, err := s.filterNotAllowedInvitees(ctx, req.UserID, inv.InviteeUserIDList, true)
 	if err != nil {
-		log.ZError(ctx, "lintao handleInviteInGroup: filterNotAllowedInvitees failed", err, "req", req)
+		log.ZError(ctx, "handleInviteInGroup: filterNotAllowedInvitees failed", err, "req", req)
 		return nil, err
 	}
 	inv.NotAllowUserIDList = notAllowUserIDs
 
 	if len(notAllowUserIDs) == len(inv.InviteeUserIDList) {
 		err := callInviteAllNotAllowedErr(blacklistedSet, globalBlockedSet, missingUserSet, inv.InviteeUserIDList)
-		log.ZError(ctx, "lintao handleInviteInGroup: all invitees not allowed", err, "inviteeUserIDList", inv.InviteeUserIDList, "req", req)
+		log.ZError(ctx, "handleInviteInGroup: all invitees not allowed", err, "inviteeUserIDList", inv.InviteeUserIDList, "req", req)
 		return nil, err
 	}
 
@@ -294,7 +294,7 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 	var busyUserIDs []string
 	for _, inviteeID := range inv.InviteeUserIDList {
 		if _, notAllow := notAllowSet[inviteeID]; notAllow {
-			log.ZDebug(ctx, "lintao handleInviteInGroup: skip not-allowed invitee", "inviteeID", inviteeID)
+			log.ZDebug(ctx, "handleInviteInGroup: skip not-allowed invitee", "inviteeID", inviteeID)
 			continue
 		}
 		if s.isCalleeOnActiveCall(ctx, inviteeID) {
@@ -305,7 +305,7 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 	if len(busyUserIDs) > 0 {
 		notAllowUserIDs = append(notAllowUserIDs, busyUserIDs...)
 		inv.NotAllowUserIDList = notAllowUserIDs
-		log.ZDebug(ctx, "lintao handleInviteInGroup: filtered busy invitees", "busyUserIDs", busyUserIDs, "roomID", inv.RoomID)
+		log.ZDebug(ctx, "handleInviteInGroup: filtered busy invitees", "busyUserIDs", busyUserIDs, "roomID", inv.RoomID)
 		// 如果所有被叫都忙线，终止呼叫。
 		reachable := 0
 		for _, uid := range inv.InviteeUserIDList {
@@ -319,7 +319,7 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 
 			s.sendGroupCallEndedNotification(ctx, inv.GroupID, inv.InviterUserID, inv.MediaType, 0, signalCallActionTimeout)
 
-			log.ZError(ctx, "lintao handleInviteInGroup: all invitees are in a call", servererrs.ErrAllUserBusy, "inviteeUserIDList", inv.InviteeUserIDList)
+			log.ZError(ctx, "handleInviteInGroup: all invitees are in a call", servererrs.ErrAllUserBusy, "inviteeUserIDList", inv.InviteeUserIDList)
 
 			return nil, servererrs.ErrAllUserBusy.WrapMsg("all invitees are already in a call", "inviteeUserIDList", inv.InviteeUserIDList)
 		}
@@ -343,16 +343,16 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 	}
 
 	if _, err := s.roomClient.CreateRoom(ctx, &livekit.CreateRoomRequest{Name: inv.RoomID}); err != nil {
-		log.ZError(ctx, "lintao handleInviteInGroup: LiveKit CreateRoom failed", err, "roomID", inv.RoomID, "req", req)
+		log.ZError(ctx, "handleInviteInGroup: LiveKit CreateRoom failed", err, "roomID", inv.RoomID, "req", req)
 		return nil, errs.WrapMsg(err, "LiveKit CreateRoom failed", "roomID", inv.RoomID)
 	}
 
 	token, err := s.genToken(inv.RoomID, req.UserID)
 	if err != nil {
 		if _, delErr := s.roomClient.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: inv.RoomID}); delErr != nil {
-			log.ZWarn(ctx, "lintao handleInviteInGroup: rollback DeleteRoom failed", delErr, "roomID", inv.RoomID)
+			log.ZWarn(ctx, "handleInviteInGroup: rollback DeleteRoom failed", delErr, "roomID", inv.RoomID)
 		}
-		log.ZError(ctx, "lintao handleInviteInGroup: genToken failed", err, "roomID", inv.RoomID, "req", req)
+		log.ZError(ctx, "handleInviteInGroup: genToken failed", err, "roomID", inv.RoomID, "req", req)
 		return nil, err
 	}
 
@@ -366,38 +366,38 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 
 	inviteOfflinePush := s.resolveInviteOfflinePushInfo(ctx, inv, req.OfflinePushInfo, storeCalleeID)
 	if inviteOfflinePush == nil {
-		log.ZWarn(ctx, "lintao handleInviteInGroup: invite offline push info is nil, callee may not receive offline call push",
+		log.ZWarn(ctx, "handleInviteInGroup: invite offline push info is nil, callee may not receive offline call push",
 			nil, "roomID", inv.RoomID, "groupID", inv.GroupID, "inviterUserID", req.UserID, "inviteeUserIDList", inv.InviteeUserIDList)
 	}
 
 	if err := s.db.CreateInvitation(ctx, invitationToModel(inv, inviteOfflinePush)); err != nil {
 		if !mongo.IsDuplicateKeyError(err) {
 			if _, delErr := s.roomClient.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: inv.RoomID}); delErr != nil {
-				log.ZWarn(ctx, "lintao handleInviteInGroup: rollback DeleteRoom failed", delErr, "roomID", inv.RoomID)
+				log.ZWarn(ctx, "handleInviteInGroup: rollback DeleteRoom failed", delErr, "roomID", inv.RoomID)
 			} else {
-				log.ZWarn(ctx, "lintao handleInviteInGroup: DeleteRoom failed", delErr, "roomID", inv.RoomID)
+				log.ZWarn(ctx, "handleInviteInGroup: DeleteRoom failed", delErr, "roomID", inv.RoomID)
 			}
 			return nil, errs.WrapMsg(err, "CreateInvitation failed", "roomID", inv.RoomID)
 		}
-		log.ZWarn(ctx, "lintao handleInviteInGroup: duplicate invitation (idempotent retry)", err, "roomID", inv.RoomID)
+		log.ZWarn(ctx, "handleInviteInGroup: duplicate invitation (idempotent retry)", err, "roomID", inv.RoomID)
 	}
 
 	content, err := marshalSignalReq(signalReq)
 	if err != nil {
-		log.ZError(ctx, "lintao handleInviteInGroup: marshalSignalReq failed", err, "roomID", inv.RoomID, "req", req)
+		log.ZError(ctx, "handleInviteInGroup: marshalSignalReq failed", err, "roomID", inv.RoomID, "req", req)
 		return nil, err
 	}
 	for _, inviteeID := range inv.InviteeUserIDList {
 		if _, notAllow := notAllowSet[inviteeID]; notAllow {
-			log.ZInfo(ctx, "lintao handleInviteInGroup: skipping invitee (call setting blocked)", "inviteeID", inviteeID)
+			log.ZInfo(ctx, "handleInviteInGroup: skipping invitee (call setting blocked)", "inviteeID", inviteeID)
 			continue
 		}
 
-		log.ZInfo(ctx, "lintao handleInviteInGroup: sending signaling notification to invitee", "req", req, "inviteOfflinePush", inviteOfflinePush)
+		log.ZInfo(ctx, "handleInviteInGroup: sending signaling notification to invitee", "req", req, "inviteOfflinePush", inviteOfflinePush)
 
 		inviteeOfflinePush := s.resolveInviteOfflinePushInfo(ctx, inv, req.OfflinePushInfo, inviteeID)
 		if err := s.sendSignalingNotification(ctx, req.UserID, inviteeID, int32(constant.ReadGroupChatType), inv.GroupID, inviteeOfflinePush, content); err != nil {
-			log.ZWarn(ctx, "lintao handleInviteInGroup to group invitee failed", err, "inviteeID", inviteeID)
+			log.ZWarn(ctx, "handleInviteInGroup to group invitee failed", err, "inviteeID", inviteeID)
 			return nil, errs.WrapMsg(err, "failed to notify invitee", "inviteeID", inviteeID)
 		}
 	}
@@ -409,7 +409,7 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 	// render the "call in progress" banner and optionally join.
 	// Run in a goroutine so large groups don't block the caller's response.
 
-	log.ZDebug(ctx, "lintao handleInviteInGroup: broadcastGroupCallStatusToNonInvited", "inv", inv)
+	log.ZDebug(ctx, "handleInviteInGroup: broadcastGroupCallStatusToNonInvited", "inv", inv)
 
 	s.broadcastGroupCallStatusToNonInvited(ctx, inv.GroupID, inv.RoomID, inv.MediaType, inv.InviterUserID, inv.InviteeUserIDList, GroupCallStatusOngoing)
 
@@ -424,7 +424,7 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 		CalleeRingtoneURL:  calleeRingtoneURL,
 	}
 
-	log.ZDebug(ctx, "lintao handleInviteInGroup", "req", req, "resp", resp)
+	log.ZDebug(ctx, "handleInviteInGroup", "req", req, "resp", resp)
 
 	return resp, nil
 }
@@ -553,22 +553,22 @@ func (s *rtcServer) handleAccept(ctx context.Context, req *rtc.SignalAcceptReq, 
 		return nil, errs.ErrArgs.WrapMsg("invitation is nil")
 	}
 
-	log.ZDebug(ctx, "lintao handleAccept: start", "req", req)
+	log.ZDebug(ctx, "handleAccept: start", "req", req)
 
 	// 从 DB 获取权威邀请数据，验证邀请存在且 userID 在被邀请人列表中
 	dbInv, err := s.db.GetInvitationByRoomID(ctx, req.Invitation.RoomID)
 	if err != nil {
-		log.ZWarn(ctx, "lintao handleAccept: GetInvitationByRoomID failed", err, "req", req)
+		log.ZWarn(ctx, "handleAccept: GetInvitationByRoomID failed", err, "req", req)
 		return nil, errs.WrapMsg(err, "invitation not found or expired", "roomID", req.Invitation.RoomID)
 	}
 	if !datautil.Contain(req.UserID, dbInv.InviteeUserIDList...) {
-		log.ZWarn(ctx, "lintao handleAccept: user not in invitee list", errs.ErrNoPermission.WrapMsg("user not in invitee list"), "req", req)
+		log.ZWarn(ctx, "handleAccept: user not in invitee list", errs.ErrNoPermission.WrapMsg("user not in invitee list"), "req", req)
 		return nil, errs.ErrNoPermission.WrapMsg("user not in invitee list", "userID", req.UserID)
 	}
 
 	token, err := s.genToken(dbInv.RoomID, req.UserID)
 	if err != nil {
-		log.ZWarn(ctx, "lintao handleAccept: genToken failed", err, "req", req)
+		log.ZWarn(ctx, "handleAccept: genToken failed", err, "req", req)
 		return nil, err
 	}
 
@@ -579,16 +579,16 @@ func (s *rtcServer) handleAccept(ctx context.Context, req *rtc.SignalAcceptReq, 
 
 	content, err := marshalSignalReq(signalReq)
 	if err != nil {
-		log.ZWarn(ctx, "lintao handleAccept: marshalSignalReq failed", err, "req", req)
+		log.ZWarn(ctx, "handleAccept: marshalSignalReq failed", err, "req", req)
 		return nil, err
 	}
 
 	if err := s.sendSignalingNotification(ctx, req.UserID, dbInv.InviterUserID, sessionType, dbInv.GroupID, req.OfflinePushInfo, content); err != nil {
-		log.ZWarn(ctx, "lintao handleAccept: sendSignalingNotification accept to inviter failed", err, "inviterID", dbInv.InviterUserID)
+		log.ZWarn(ctx, "handleAccept: sendSignalingNotification accept to inviter failed", err, "inviterID", dbInv.InviterUserID)
 	}
 
 	if err := s.db.SetAcceptTime(ctx, dbInv.RoomID, time.Now().UnixMilli()); err != nil {
-		log.ZWarn(ctx, "lintao handleAccept: SetAcceptTime failed", err, "roomID", dbInv.RoomID)
+		log.ZWarn(ctx, "handleAccept: SetAcceptTime failed", err, "roomID", dbInv.RoomID)
 	}
 
 	// Transition inviter and acceptor to "in-call".
@@ -604,14 +604,14 @@ func (s *rtcServer) handleAccept(ctx context.Context, req *rtc.SignalAcceptReq, 
 				participantUserIDs = append(participantUserIDs, p.GetIdentity())
 			}
 		} else {
-			log.ZWarn(ctx, "lintao handleAccept: ListParticipants failed (falling back to inviter only)", listErr, "roomID", dbInv.RoomID)
+			log.ZWarn(ctx, "handleAccept: ListParticipants failed (falling back to inviter only)", listErr, "roomID", dbInv.RoomID)
 			// Fallback: at minimum the inviter is in the call.
 			participantUserIDs = append(participantUserIDs, dbInv.InviterUserID)
 		}
 		// The accepting user hasn't joined LiveKit yet but is about to; include them now.
 		participantUserIDs = append(participantUserIDs, req.UserID)
 		s.goSendGroupCallParticipantCountUpdated(ctx, dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, participantUserIDs)
-		log.ZDebug(ctx, "tommie handleAccept: goSendGroupCallParticipantCountUpdated", "groupID", dbInv.GroupID, "roomID", dbInv.RoomID, "mediaType", dbInv.MediaType, "participantUserIDs", participantUserIDs)
+		log.ZDebug(ctx, "handleAccept: goSendGroupCallParticipantCountUpdated", "groupID", dbInv.GroupID, "roomID", dbInv.RoomID, "mediaType", dbInv.MediaType, "participantUserIDs", participantUserIDs)
 	}
 
 	// 接受邀请后不删除 invitation：通话仍在进行，双方应被标记为忙线（BusyLineUserIDList）。
@@ -621,7 +621,7 @@ func (s *rtcServer) handleAccept(ctx context.Context, req *rtc.SignalAcceptReq, 
 	//   - 被叫拒绝：handleReject → TryDeleteInvitation
 	//   - 超时未接：handleTimeout → TryDeleteInvitation
 
-	log.ZDebug(ctx, "lintao handleAccept: end", "req", req)
+	log.ZDebug(ctx, "handleAccept: end", "req", req)
 
 	return &rtc.SignalAcceptResp{
 		Token:   token,
@@ -633,21 +633,21 @@ func (s *rtcServer) handleAccept(ctx context.Context, req *rtc.SignalAcceptReq, 
 // handleReject processes a call rejection.
 func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, signalReq *rtc.SignalReq) (*rtc.SignalRejectResp, error) {
 
-	log.ZDebug(ctx, "lintao handleReject: start", "req", req)
+	log.ZDebug(ctx, "handleReject: start", "req", req)
 
 	if req.Invitation == nil {
-		log.ZWarn(ctx, "lintao handleReject", errs.ErrArgs.WrapMsg("invitation is nil"), "req", req)
+		log.ZWarn(ctx, "handleReject", errs.ErrArgs.WrapMsg("invitation is nil"), "req", req)
 		return nil, errs.ErrArgs.WrapMsg("invitation is nil")
 	}
 
 	dbInv, err := s.db.GetInvitationByRoomID(ctx, req.Invitation.RoomID)
 	if err != nil {
-		log.ZWarn(ctx, "lintao handleReject", err, "get invitation by roomID failed", "req", req)
+		log.ZWarn(ctx, "handleReject", err, "get invitation by roomID failed", "req", req)
 		return nil, errs.WrapMsg(err, "invitation not found or expired", "roomID", req.Invitation.RoomID)
 	}
 
 	if !datautil.Contain(req.UserID, dbInv.InviteeUserIDList...) {
-		log.ZWarn(ctx, "lintao handleReject", errs.ErrNoPermission.WrapMsg("user not in invitee list"), "req", req, "dbInv", dbInv)
+		log.ZWarn(ctx, "handleReject", errs.ErrNoPermission.WrapMsg("user not in invitee list"), "req", req, "dbInv", dbInv)
 		return nil, errs.ErrNoPermission.WrapMsg("user not in invitee list", "userID", req.UserID)
 	}
 
@@ -657,7 +657,7 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 	}
 	content, err := marshalSignalReq(signalReq)
 	if err != nil {
-		log.ZWarn(ctx, "lintao handleReject", err, "marshal signal req failed", "req", req)
+		log.ZWarn(ctx, "handleReject", err, "marshal signal req failed", "req", req)
 		return nil, err
 	}
 	invInfo := modelToInvitationInfo(dbInv)
@@ -667,7 +667,7 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 	}
 	rejectOfflinePush := s.resolveSignalingOfflinePushInfo(ctx, invInfo, clientPush, signalCallActionReject, req.UserID, dbInv.InviterUserID)
 	if err := s.sendSignalingNotification(ctx, req.UserID, dbInv.InviterUserID, sessionType, dbInv.GroupID, rejectOfflinePush, content); err != nil {
-		log.ZWarn(ctx, "lintao handleReject: sendSignalingNotification reject to inviter failed", err, "inviterID", dbInv.InviterUserID, "req", req, "dbInv", dbInv)
+		log.ZWarn(ctx, "handleReject: sendSignalingNotification reject to inviter failed", err, "inviterID", dbInv.InviterUserID, "req", req, "dbInv", dbInv)
 	}
 
 	if dbInv.GroupID != "" {
@@ -676,7 +676,7 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 		// below must be able to claim the record to send the group-call-ended
 		// notification exactly once.
 		if err := s.db.PullInvitee(ctx, dbInv.RoomID, req.UserID); err != nil {
-			log.ZWarn(ctx, "lintao handleReject: PullInvitee failed", err, "roomID", dbInv.RoomID, "userID", req.UserID, "req", req, "dbInv", dbInv)
+			log.ZWarn(ctx, "handleReject: PullInvitee failed", err, "roomID", dbInv.RoomID, "userID", req.UserID, "req", req, "dbInv", dbInv)
 		}
 
 		go s.sendGroupCallParticipantDeclinedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, signalCallActionReject, req.UserID)
@@ -690,7 +690,7 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 		lp, listErr := s.roomClient.ListParticipants(ctx, &livekit.ListParticipantsRequest{Room: dbInv.RoomID})
 		joinedCount := 0
 		if listErr != nil {
-			log.ZWarn(ctx, "lintao handleReject: ListParticipants failed", listErr, "roomID", dbInv.RoomID, "req", req, "dbInv", dbInv)
+			log.ZWarn(ctx, "handleReject: ListParticipants failed", listErr, "roomID", dbInv.RoomID, "req", req, "dbInv", dbInv)
 		} else {
 			for _, p := range lp.Participants {
 				if p.GetIdentity() != dbInv.InviterUserID {
@@ -702,28 +702,28 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 		if joinedCount > 0 {
 			// At least one invitee has already joined; the call continues.
 			// Remove only the rejecter's call-status entry; others stay connected.
-			log.ZInfo(ctx, "lintao handleReject: group call continues", "roomID", dbInv.RoomID, "joinedCount", joinedCount, "req", req, "dbInv", dbInv)
+			log.ZInfo(ctx, "handleReject: group call continues", "roomID", dbInv.RoomID, "joinedCount", joinedCount, "req", req, "dbInv", dbInv)
 			s.deleteCallStatusForUser(ctx, req.UserID, dbInv.RoomID)
 			s.goSendGroupCallParticipantCountUpdated(ctx, dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, liveKitParticipantUserIDs(lp.Participants))
-			log.ZDebug(ctx, "tommie handleReject: goSendGroupCallParticipantCountUpdated", "groupID", dbInv.GroupID, "roomID", dbInv.RoomID, "mediaType", dbInv.MediaType, "participantUserIDs", liveKitParticipantUserIDs(lp.Participants))
+			log.ZDebug(ctx, "handleReject: goSendGroupCallParticipantCountUpdated", "groupID", dbInv.GroupID, "roomID", dbInv.RoomID, "mediaType", dbInv.MediaType, "participantUserIDs", liveKitParticipantUserIDs(lp.Participants))
 			return &rtc.SignalRejectResp{}, nil
 		}
 
 		remainingInv, remainErr := s.db.GetInvitationByRoomID(ctx, dbInv.RoomID)
 		if remainErr != nil {
 			if errs.ErrRecordNotFound.Is(remainErr) {
-				log.ZInfo(ctx, "lintao handleReject: invitation already ended", "roomID", dbInv.RoomID, "req", req)
+				log.ZInfo(ctx, "handleReject: invitation already ended", "roomID", dbInv.RoomID, "req", req)
 				return &rtc.SignalRejectResp{}, nil
 			}
-			log.ZWarn(ctx, "lintao handleReject: GetInvitationByRoomID after PullInvitee failed", remainErr, "roomID", dbInv.RoomID, "req", req)
+			log.ZWarn(ctx, "handleReject: GetInvitationByRoomID after PullInvitee failed", remainErr, "roomID", dbInv.RoomID, "req", req)
 			return &rtc.SignalRejectResp{}, nil
 		}
 		if pending := pendingReachableInvitees(remainingInv.InviteeUserIDList, remainingInv.BusyLineUserIDList); len(pending) > 0 {
 			// Some invitees are still being rung; remove only the rejecter.
-			log.ZInfo(ctx, "lintao handleReject: waiting for other invitees to respond", "roomID", dbInv.RoomID, "pendingInvitees", pending, "req", req)
+			log.ZInfo(ctx, "handleReject: waiting for other invitees to respond", "roomID", dbInv.RoomID, "pendingInvitees", pending, "req", req)
 			s.deleteCallStatusForUser(ctx, req.UserID, dbInv.RoomID)
 			s.goSendGroupCallParticipantCountUpdated(ctx, dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, liveKitParticipantUserIDs(lp.Participants))
-			log.ZDebug(ctx, "tommie handleReject: goSendGroupCallParticipantCountUpdated", "groupID", dbInv.GroupID, "roomID", dbInv.RoomID, "mediaType", dbInv.MediaType, "participantUserIDs", liveKitParticipantUserIDs(lp.Participants))
+			log.ZDebug(ctx, "handleReject: goSendGroupCallParticipantCountUpdated", "groupID", dbInv.GroupID, "roomID", dbInv.RoomID, "mediaType", dbInv.MediaType, "participantUserIDs", liveKitParticipantUserIDs(lp.Participants))
 			return &rtc.SignalRejectResp{}, nil
 		}
 
@@ -731,24 +731,24 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 		// Terminate the call so the "in progress" banner is dismissed for
 		// non-invited members.
 		if _, err := s.roomClient.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: dbInv.RoomID}); err != nil {
-			log.ZWarn(ctx, "lintao handleReject: DeleteRoom failed", err, "roomID", dbInv.RoomID, "req", req, "dbInv", dbInv)
+			log.ZWarn(ctx, "handleReject: DeleteRoom failed", err, "roomID", dbInv.RoomID, "req", req, "dbInv", dbInv)
 		}
 
 		claimed, claimErr := s.db.TryDeleteInvitation(ctx, dbInv.RoomID)
 		if claimErr != nil {
-			log.ZWarn(ctx, "lintao handleReject: TryDeleteInvitation failed", claimErr, "roomID", dbInv.RoomID, "req", req, "dbInv", dbInv)
+			log.ZWarn(ctx, "handleReject: TryDeleteInvitation failed", claimErr, "roomID", dbInv.RoomID, "req", req, "dbInv", dbInv)
 		}
 
-		log.ZInfo(ctx, "lintao handleReject", "req", req, "dbInv", dbInv)
+		log.ZInfo(ctx, "handleReject", "req", req, "dbInv", dbInv)
 
 		// All invitees rejected — delete call-status for all participants.
 		s.deleteCallStatusForInvitation(ctx, dbInv)
 
-		log.ZDebug(ctx, "lintao handleReject: sendGroupCallEndedNotification", "dbInv", dbInv, "claimed", claimed)
+		log.ZDebug(ctx, "handleReject: sendGroupCallEndedNotification", "dbInv", dbInv, "claimed", claimed)
 
 		if claimed {
 			s.goSendGroupCallParticipantCountUpdated(ctx, dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, nil)
-			log.ZDebug(ctx, "tommie handleReject: goSendGroupCallParticipantCountUpdated", "groupID", dbInv.GroupID, "roomID", dbInv.RoomID, "mediaType", dbInv.MediaType, "participantUserIDs", nil)
+			log.ZDebug(ctx, "handleReject: goSendGroupCallParticipantCountUpdated", "groupID", dbInv.GroupID, "roomID", dbInv.RoomID, "mediaType", dbInv.MediaType, "participantUserIDs", nil)
 
 			s.broadcastGroupCallStatusToNonInvited(ctx, dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
 
@@ -757,10 +757,10 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 
 	} else {
 		if _, err := s.roomClient.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: dbInv.RoomID}); err != nil {
-			log.ZWarn(ctx, "lintao handleReject: DeleteRoom failed", err, "roomID", dbInv.RoomID)
+			log.ZWarn(ctx, "handleReject: DeleteRoom failed", err, "roomID", dbInv.RoomID)
 		}
 		if err := s.db.DeleteInvitation(ctx, dbInv.RoomID); err != nil {
-			log.ZWarn(ctx, "lintao handleReject: DeleteInvitation failed", err, "roomID", dbInv.RoomID)
+			log.ZWarn(ctx, "handleReject: DeleteInvitation failed", err, "roomID", dbInv.RoomID)
 		}
 
 		// Single chat rejected — remove both parties' status.
@@ -770,27 +770,27 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 
 	}
 
-	log.ZDebug(ctx, "lintao handleReject: end", "req", req)
+	log.ZDebug(ctx, "handleReject: end", "req", req)
 
 	return &rtc.SignalRejectResp{}, nil
 }
 
 // handleCancel processes a call cancellation.
 func (s *rtcServer) handleCancel(ctx context.Context, req *rtc.SignalCancelReq, signalReq *rtc.SignalReq) (*rtc.SignalCancelResp, error) {
-	log.ZDebug(ctx, "lintao handleCancel: start", "req", req)
+	log.ZDebug(ctx, "handleCancel: start", "req", req)
 
 	if req.Invitation == nil {
-		log.ZWarn(ctx, "lintao handleCancel", errs.ErrArgs.WrapMsg("invitation is nil"), "req", req)
+		log.ZWarn(ctx, "handleCancel", errs.ErrArgs.WrapMsg("invitation is nil"), "req", req)
 		return nil, errs.ErrArgs.WrapMsg("invitation is nil")
 	}
 
 	dbInv, err := s.db.GetInvitationByRoomID(ctx, req.Invitation.RoomID)
 	if err != nil {
-		log.ZWarn(ctx, "lintao handleCancel", err, "get invitation by roomID failed", "req", req)
+		log.ZWarn(ctx, "handleCancel", err, "get invitation by roomID failed", "req", req)
 		return nil, errs.WrapMsg(err, "invitation not found or expired", "roomID", req.Invitation.RoomID)
 	}
 	if req.UserID != dbInv.InviterUserID {
-		log.ZWarn(ctx, "lintao handleCancel", errs.ErrNoPermission.WrapMsg("only the inviter can cancel"), "req", req, "dbInv", dbInv)
+		log.ZWarn(ctx, "handleCancel", errs.ErrNoPermission.WrapMsg("only the inviter can cancel"), "req", req, "dbInv", dbInv)
 		return nil, errs.ErrNoPermission.WrapMsg("only the inviter can cancel", "userID", req.UserID, "inviterUserID", dbInv.InviterUserID)
 	}
 
@@ -804,7 +804,7 @@ func (s *rtcServer) handleCancel(ctx context.Context, req *rtc.SignalCancelReq, 
 		joinedCount := 0
 		inviterInRoom := false
 		if listErr != nil {
-			log.ZWarn(ctx, "lintao handleCancel: ListParticipants failed", listErr, "roomID", dbInv.RoomID)
+			log.ZWarn(ctx, "handleCancel: ListParticipants failed", listErr, "roomID", dbInv.RoomID)
 		} else {
 			for _, p := range lp.Participants {
 				id := p.GetIdentity()
@@ -817,7 +817,7 @@ func (s *rtcServer) handleCancel(ctx context.Context, req *rtc.SignalCancelReq, 
 			}
 		}
 		if joinedCount > 0 && inviterInRoom {
-			log.ZInfo(ctx, "lintao handleCancel: group call already has participants, skip cancel tear-down", "roomID", dbInv.RoomID, "joinedCount", joinedCount, "inviterInRoom", inviterInRoom)
+			log.ZInfo(ctx, "handleCancel: group call already has participants, skip cancel tear-down", "roomID", dbInv.RoomID, "joinedCount", joinedCount, "inviterInRoom", inviterInRoom)
 			return &rtc.SignalCancelResp{}, nil
 		}
 	}
@@ -828,19 +828,19 @@ func (s *rtcServer) handleCancel(ctx context.Context, req *rtc.SignalCancelReq, 
 	}
 	content, err := marshalSignalReq(signalReq)
 	if err != nil {
-		log.ZWarn(ctx, "lintao handleCancel", err, "marshal signal req failed", "req", req, "dbInv", dbInv, "signalReq", signalReq)
+		log.ZWarn(ctx, "handleCancel", err, "marshal signal req failed", "req", req, "dbInv", dbInv, "signalReq", signalReq)
 		return nil, err
 	}
 	invInfo := modelToInvitationInfo(dbInv)
 	for _, inviteeID := range dbInv.InviteeUserIDList {
 		cancelOfflinePush := s.resolveSignalingOfflinePushInfo(ctx, invInfo, offlinePushInfoFromInvitationModel(dbInv), signalCallActionCancel, req.UserID, inviteeID)
 		if err := s.sendSignalingNotification(ctx, req.UserID, inviteeID, sessionType, dbInv.GroupID, cancelOfflinePush, content); err != nil {
-			log.ZWarn(ctx, "lintao handleCancel: sendSignalingNotification cancel to invitee failed", err, "inviteeID", inviteeID)
+			log.ZWarn(ctx, "handleCancel: sendSignalingNotification cancel to invitee failed", err, "inviteeID", inviteeID)
 		}
 	}
 
 	if _, err := s.roomClient.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: dbInv.RoomID}); err != nil {
-		log.ZWarn(ctx, "lintao handleCancel: DeleteRoom failed", err, "roomID", dbInv.RoomID)
+		log.ZWarn(ctx, "handleCancel: DeleteRoom failed", err, "roomID", dbInv.RoomID)
 	}
 
 	var groupCallEndedClaimed bool
@@ -848,10 +848,10 @@ func (s *rtcServer) handleCancel(ctx context.Context, req *rtc.SignalCancelReq, 
 		var claimErr error
 		groupCallEndedClaimed, claimErr = s.db.TryDeleteInvitation(ctx, dbInv.RoomID)
 		if claimErr != nil {
-			log.ZWarn(ctx, "lintao handleCancel: TryDeleteInvitation failed", claimErr, "roomID", dbInv.RoomID)
+			log.ZWarn(ctx, "handleCancel: TryDeleteInvitation failed", claimErr, "roomID", dbInv.RoomID)
 		}
 	} else if err := s.db.DeleteInvitation(ctx, dbInv.RoomID); err != nil {
-		log.ZWarn(ctx, "lintao handleCancel: DeleteInvitation failed", err, "roomID", dbInv.RoomID)
+		log.ZWarn(ctx, "handleCancel: DeleteInvitation failed", err, "roomID", dbInv.RoomID)
 	}
 
 	// Cancel always terminates the call — remove status for all participants.
@@ -861,7 +861,7 @@ func (s *rtcServer) handleCancel(ctx context.Context, req *rtc.SignalCancelReq, 
 	if dbInv.GroupID != "" {
 		go s.sendGroupCallParticipantDeclinedNotification(context.WithoutCancel(ctx), dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, signalCallActionCancel, req.UserID)
 		s.goSendGroupCallParticipantCountUpdated(ctx, dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, nil)
-		log.ZDebug(ctx, "tommie handleCancel: goSendGroupCallParticipantCountUpdated", "groupID", dbInv.GroupID, "roomID", dbInv.RoomID, "mediaType", dbInv.MediaType, "participantUserIDs", nil)
+		log.ZDebug(ctx, "handleCancel: goSendGroupCallParticipantCountUpdated", "groupID", dbInv.GroupID, "roomID", dbInv.RoomID, "mediaType", dbInv.MediaType, "participantUserIDs", nil)
 
 		if groupCallEndedClaimed {
 
@@ -869,14 +869,14 @@ func (s *rtcServer) handleCancel(ctx context.Context, req *rtc.SignalCancelReq, 
 
 			s.sendGroupCallEndedNotification(ctx, dbInv.GroupID, dbInv.InviterUserID, dbInv.MediaType, groupCallDurationFromInvitation(dbInv), signalCallActionCancel)
 
-			log.ZDebug(ctx, "lintao handleCancel: sendGroupCallEndedNotification", "dbInv", dbInv, "groupCallEndedClaimed", groupCallEndedClaimed)
+			log.ZDebug(ctx, "handleCancel: sendGroupCallEndedNotification", "dbInv", dbInv, "groupCallEndedClaimed", groupCallEndedClaimed)
 
 		}
 	} else {
 		s.sendCallRecordChatMsg(ctx, dbInv, callStatusCancelled, 0)
 	}
 
-	log.ZDebug(ctx, "lintao handleCancel: end", "req", req)
+	log.ZDebug(ctx, "handleCancel: end", "req", req)
 
 	return &rtc.SignalCancelResp{}, nil
 }
@@ -890,17 +890,17 @@ func (s *rtcServer) handleCancel(ctx context.Context, req *rtc.SignalCancelReq, 
 // leaving the room alive.
 func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, signalReq *rtc.SignalReq) (*rtc.SignalHungUpResp, error) {
 	if req.Invitation == nil {
-		log.ZWarn(ctx, "lintao handleHungUp", errs.ErrArgs.WrapMsg("invitation is nil"), "req", req)
+		log.ZWarn(ctx, "handleHungUp", errs.ErrArgs.WrapMsg("invitation is nil"), "req", req)
 		return nil, errs.ErrArgs.WrapMsg("invitation is nil")
 	}
 
 	dbInv, err := s.db.GetInvitationByRoomID(ctx, req.Invitation.RoomID)
 	if err != nil {
-		log.ZWarn(ctx, "lintao handleHungUp", err, "get invitation by roomID failed", "req", req)
+		log.ZWarn(ctx, "handleHungUp", err, "get invitation by roomID failed", "req", req)
 		return nil, errs.WrapMsg(err, "invitation not found or expired", "roomID", req.Invitation.RoomID)
 	}
 	if req.UserID != dbInv.InviterUserID && !datautil.Contain(req.UserID, dbInv.InviteeUserIDList...) {
-		log.ZWarn(ctx, "lintao handleHungUp", errs.ErrNoPermission.WrapMsg("user is not a participant of this call"), "req", req, "dbInv", dbInv)
+		log.ZWarn(ctx, "handleHungUp", errs.ErrNoPermission.WrapMsg("user is not a participant of this call"), "req", req, "dbInv", dbInv)
 		return nil, errs.ErrNoPermission.WrapMsg("user is not a participant of this call", "userID", req.UserID)
 	}
 
@@ -928,7 +928,7 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 
 	content, err := marshalSignalReq(signalReq)
 	if err != nil {
-		log.ZWarn(ctx, "lintao handleHungUp", err, "marshal signal req failed", "req", req, "dbInv", dbInv, "signalReq", signalReq)
+		log.ZWarn(ctx, "handleHungUp", err, "marshal signal req failed", "req", req, "dbInv", dbInv, "signalReq", signalReq)
 		return nil, err
 	}
 	// Unanswered 1v1 hang-up: wake offline callees with a missed-call push so they sync state.
@@ -936,7 +936,7 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 	peerIDs := hungUpPeerIDsFromDB(dbInv, req.UserID)
 	is1v1Unanswered := dbInv.GroupID == "" && dbInv.AcceptTime <= 0
 
-	log.ZDebug(ctx, "lintao handleHungUp: missed-call offline push decision",
+	log.ZDebug(ctx, "handleHungUp: missed-call offline push decision",
 		"roomID", dbInv.RoomID,
 		"hangUpUserID", req.UserID,
 		"inviterUserID", dbInv.InviterUserID,
@@ -958,7 +958,7 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 		missedCallPushDesc = hungUpOfflinePush.Desc
 	}
 
-	log.ZDebug(ctx, "lintao handleHungUp: sending hungUp signaling to peers",
+	log.ZDebug(ctx, "handleHungUp: sending hungUp signaling to peers",
 		"roomID", dbInv.RoomID,
 		"peerCount", len(peerIDs),
 		"peerIDs", peerIDs,
@@ -973,7 +973,7 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 			peerOfflinePush = s.resolveSignalingOfflinePushInfo(ctx, invInfo, offlinePushInfoFromInvitationModel(dbInv), signalCallActionTimeout, req.UserID, peerID)
 		}
 		if err := s.sendSignalingNotification(ctx, req.UserID, peerID, sessionType, dbInv.GroupID, peerOfflinePush, content); err != nil {
-			log.ZWarn(ctx, "lintao handleHungUp: sendSignalingNotification hungUp to peer failed", err, "peerID", peerID)
+			log.ZWarn(ctx, "handleHungUp: sendSignalingNotification hungUp to peer failed", err, "peerID", peerID)
 		}
 	}
 
@@ -990,7 +990,7 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 			// than assuming the call ended.  Treating a transient error as
 			// remaining==0 would tear down an ongoing group call and fire a
 			// spurious end notification.
-			log.ZWarn(ctx, "lintao handleHungUp: ListParticipants failed, falling back to DB participant count", listErr, "roomID", dbInv.RoomID)
+			log.ZWarn(ctx, "handleHungUp: ListParticipants failed, falling back to DB participant count", listErr, "roomID", dbInv.RoomID)
 			for _, uid := range dbInv.InviteeUserIDList {
 				if uid != req.UserID {
 					participantUserIDs = append(participantUserIDs, uid)
@@ -1019,15 +1019,15 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 			// the record later to send sendGroupCallEndedNotification.
 			if datautil.Contain(req.UserID, dbInv.InviteeUserIDList...) {
 				if err := s.db.PullInvitee(ctx, dbInv.RoomID, req.UserID); err != nil {
-					log.ZWarn(ctx, "lintao handleHungUp: PullInvitee failed", err, "roomID", dbInv.RoomID, "userID", req.UserID)
+					log.ZWarn(ctx, "handleHungUp: PullInvitee failed", err, "roomID", dbInv.RoomID, "userID", req.UserID)
 				}
 			}
-			log.ZInfo(ctx, "lintao handleHungUp: group call continues", "roomID", dbInv.RoomID, "remaining", remaining)
+			log.ZInfo(ctx, "handleHungUp: group call continues", "roomID", dbInv.RoomID, "remaining", remaining)
 			// Remove only this participant's call-status; others remain in-call.
 			s.deleteCallStatusForUser(ctx, req.UserID, dbInv.RoomID)
 			// Notify all members that the participant count and list have changed.
 			s.goSendGroupCallParticipantCountUpdated(ctx, dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, participantUserIDs)
-			log.ZDebug(ctx, "tommie handleHungUp: goSendGroupCallParticipantCountUpdated", "groupID", dbInv.GroupID, "roomID", dbInv.RoomID, "mediaType", dbInv.MediaType, "participantUserIDs", participantUserIDs)
+			log.ZDebug(ctx, "handleHungUp: goSendGroupCallParticipantCountUpdated", "groupID", dbInv.GroupID, "roomID", dbInv.RoomID, "mediaType", dbInv.MediaType, "participantUserIDs", participantUserIDs)
 			return &rtc.SignalHungUpResp{}, nil
 		}
 		// remaining == 0: fall through to tear-down logic below.
@@ -1035,14 +1035,14 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 
 	// Terminate the LiveKit room (1:1 always; group only when last participant left).
 	if _, err := s.roomClient.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: dbInv.RoomID}); err != nil {
-		log.ZWarn(ctx, "lintao handleHungUp: DeleteRoom failed", err, "roomID", dbInv.RoomID)
+		log.ZWarn(ctx, "handleHungUp: DeleteRoom failed", err, "roomID", dbInv.RoomID)
 	}
 
 	// Group calls keep the invitation until SignalNotifyGroupCallEnded atomically
 	// claims it, so concurrent end notifications are deduplicated by roomID.
 	if dbInv.GroupID == "" {
 		if err := s.db.DeleteInvitation(ctx, dbInv.RoomID); err != nil {
-			log.ZWarn(ctx, "lintao handleHungUp: DeleteInvitation failed", err, "roomID", dbInv.RoomID)
+			log.ZWarn(ctx, "handleHungUp: DeleteInvitation failed", err, "roomID", dbInv.RoomID)
 		}
 	}
 
@@ -1062,11 +1062,11 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 		claimed, claimErr := s.db.TryDeleteInvitation(ctx, dbInv.RoomID)
 
 		if claimErr != nil {
-			log.ZWarn(ctx, "lintao handleHungUp: TryDeleteInvitation failed", claimErr, "roomID", dbInv.RoomID)
+			log.ZWarn(ctx, "handleHungUp: TryDeleteInvitation failed", claimErr, "roomID", dbInv.RoomID)
 			return &rtc.SignalHungUpResp{}, nil
 		}
 
-		log.ZDebug(ctx, "lintao handleHungUp: sendGroupCallEndedNotification", "dbInv", dbInv, "claimed", claimed)
+		log.ZDebug(ctx, "handleHungUp: sendGroupCallEndedNotification", "dbInv", dbInv, "claimed", claimed)
 
 		if claimed {
 			s.broadcastGroupCallStatusToNonInvited(ctx, dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
@@ -1075,7 +1075,7 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 		}
 	}
 
-	log.ZDebug(ctx, "lintao handleHungUp: end", "req", req)
+	log.ZDebug(ctx, "handleHungUp: end", "req", req)
 
 	return &rtc.SignalHungUpResp{}, nil
 }
@@ -1488,7 +1488,7 @@ func (s *rtcServer) SignalNotifyGroupCallEnded(ctx context.Context, req *rtc.Sig
 		endReason = signalCallActionHungUp
 	}
 
-	log.ZDebug(ctx, "lintao SignalNotifyGroupCallEnded: sendGroupCallEndedNotification", "req", req, "claimed", claimed, "claimErr", claimErr)
+	log.ZDebug(ctx, "SignalNotifyGroupCallEnded: sendGroupCallEndedNotification", "req", req, "claimed", claimed, "claimErr", claimErr)
 
 	s.sendGroupCallEndedNotification(ctx, req.GroupID, inviterUserID, mediaType, resolveGroupCallDurationSecs(inv, req.DurationSecs), endReason)
 
@@ -1723,7 +1723,7 @@ func (s *rtcServer) broadcastGroupCallStatusToNonInvited(ctx context.Context, gr
 		InviterUserID: inviterUserID,
 	})
 	if err != nil {
-		log.ZWarn(ctx, "lintao broadcastGroupCallStatusToNonInvited: marshal failed", err)
+		log.ZWarn(ctx, "broadcastGroupCallStatusToNonInvited: marshal failed", err)
 		return
 	}
 
@@ -1732,9 +1732,9 @@ func (s *rtcServer) broadcastGroupCallStatusToNonInvited(ctx context.Context, gr
 			continue
 		}
 		if err := s.sendCustomSignalNotification(ctx, inviterUserID, memberID, int32(constant.SingleChatType), content); err != nil {
-			log.ZWarn(ctx, "lintao broadcastGroupCallStatusToNonInvited: send failed", err, "memberID", memberID, "status", status)
+			log.ZWarn(ctx, "broadcastGroupCallStatusToNonInvited: send failed", err, "memberID", memberID, "status", status)
 		} else {
-			log.ZDebug(ctx, "lintao broadcastGroupCallStatusToNonInvited: send ok", "memberID", memberID, "status", status)
+			log.ZDebug(ctx, "broadcastGroupCallStatusToNonInvited: send ok", "memberID", memberID, "status", status)
 		}
 	}
 }
@@ -1783,9 +1783,10 @@ func (s *rtcServer) groupCallNotificationMsgOptions(contentType int32) map[strin
 
 func offlinePushInfoFromConfig(cfg config.NotificationConfig) *sdkws.OfflinePushInfo {
 	return &sdkws.OfflinePushInfo{
-		Title: cfg.OfflinePush.Title,
-		Desc:  cfg.OfflinePush.Desc,
-		Ex:    cfg.OfflinePush.Ext,
+		Title:         cfg.OfflinePush.Title,
+		Desc:          cfg.OfflinePush.Desc,
+		Ex:            cfg.OfflinePush.Ext,
+		IOSBadgeCount: false,
 	}
 }
 
@@ -2273,6 +2274,18 @@ const (
 	callStatusBusy         = "busy"
 )
 
+// callRecordShouldCountUnread reports whether a persisted 1v1 call-record bubble should
+// increment the si_ conversation unread count. Only callee-missed outcomes count:
+// timeout / caller hang-up before answer (not_connected) and caller cancel before answer.
+func callRecordShouldCountUnread(status string) bool {
+	switch status {
+	case callStatusNotConnected, callStatusCancelled:
+		return true
+	default:
+		return false
+	}
+}
+
 // callRecordData is the JSON payload embedded in a Custom (110) chat message
 // representing a completed call event in the conversation timeline.
 // Clients render this as a call bubble, e.g. "[语音通话] 2分05秒".
@@ -2294,14 +2307,14 @@ type callRecordData struct {
 // hang-up/cancel call records would trigger a generic [NEWMSG] banner even when the
 // callee disabled AV notifications and never received the invite push.
 //
-// Answered calls do not increment unread count: both parties were on the call and
-// should not see a new unread badge when the hang-up record is written.
+// Only callee-missed outcomes increment unread: answered / rejected / busy calls must not
+// show a new badge in the conversation list when the call-record bubble is written.
 func callRecordMsgOptions(status string) map[string]bool {
 	opts := make(map[string]bool, 8)
 	datautil.SetSwitchFromOptions(opts, constant.IsNotNotification, true)                     // → si_/sg_ chat conversation
 	datautil.SetSwitchFromOptions(opts, constant.IsHistory, true)                             // → write to history
 	datautil.SetSwitchFromOptions(opts, constant.IsPersistent, true)                          // → persist to storage
-	datautil.SetSwitchFromOptions(opts, constant.IsUnreadCount, status != callStatusAnswered) // → unread only for missed/unanswered calls
+	datautil.SetSwitchFromOptions(opts, constant.IsUnreadCount, callRecordShouldCountUnread(status))
 	datautil.SetSwitchFromOptions(opts, constant.IsConversationUpdate, true)                  // → update conv last message
 	datautil.SetSwitchFromOptions(opts, constant.IsSenderConversationUpdate, true)            // → update inviter's conv too
 	datautil.SetSwitchFromOptions(opts, constant.IsSenderSync, true)                          // → sync to inviter's other devices
@@ -2488,7 +2501,7 @@ func (s *rtcServer) handleTimeout(ctx context.Context, req *rtc.SignalTimeoutReq
 			}
 			s.goSendGroupCallParticipantCountUpdated(ctx, dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, liveKitParticipantUserIDs(lp.Participants))
 
-			log.ZDebug(ctx, "tommie handleTimeout: goSendGroupCallParticipantCountUpdated", "groupID", dbInv.GroupID, "roomID", dbInv.RoomID, "mediaType", dbInv.MediaType, "participantUserIDs", liveKitParticipantUserIDs(lp.Participants))
+			log.ZDebug(ctx, "handleTimeout: goSendGroupCallParticipantCountUpdated", "groupID", dbInv.GroupID, "roomID", dbInv.RoomID, "mediaType", dbInv.MediaType, "participantUserIDs", liveKitParticipantUserIDs(lp.Participants))
 
 			return &rtc.SignalTimeoutResp{}, nil
 		}
@@ -2505,12 +2518,12 @@ func (s *rtcServer) handleTimeout(ctx context.Context, req *rtc.SignalTimeoutReq
 		// Timeout ended the group call — remove all participants' statuses.
 		s.deleteCallStatusForInvitation(ctx, dbInv)
 
-		log.ZDebug(ctx, "lintao handleTimeout: sendGroupCallEndedNotification", "dbInv", dbInv, "claimed", claimed)
+		log.ZDebug(ctx, "handleTimeout: sendGroupCallEndedNotification", "dbInv", dbInv, "claimed", claimed)
 
 		if claimed {
 			s.goSendGroupCallParticipantCountUpdated(ctx, dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, nil)
 
-			log.ZDebug(ctx, "tommie handleTimeout: goSendGroupCallParticipantCountUpdated", "groupID", dbInv.GroupID, "roomID", dbInv.RoomID, "mediaType", dbInv.MediaType, "participantUserIDs", nil)
+			log.ZDebug(ctx, "handleTimeout: goSendGroupCallParticipantCountUpdated", "groupID", dbInv.GroupID, "roomID", dbInv.RoomID, "mediaType", dbInv.MediaType, "participantUserIDs", nil)
 
 			s.broadcastGroupCallStatusToNonInvited(ctx, dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, dbInv.InviterUserID, dbInv.InviteeUserIDList, GroupCallStatusEnded)
 
