@@ -90,6 +90,10 @@ func (s *rtcServer) SignalMessageAssemble(ctx context.Context, req *rtc.SignalMe
 		r, err := s.handleTimeout(ctx, payload.Timeout, req.SignalReq)
 		resp.Payload = &rtc.SignalResp_Timeout{Timeout: r}
 		respErr = err
+	case *rtc.SignalReq_Join:
+		r, err := s.handleJoin(ctx, payload.Join, req.SignalReq)
+		resp.Payload = &rtc.SignalResp_Join{Join: r}
+		respErr = err
 	default:
 		return nil, errs.ErrArgs.WrapMsg("unknown signal payload type")
 	}
@@ -624,6 +628,90 @@ func (s *rtcServer) handleAccept(ctx context.Context, req *rtc.SignalAcceptReq, 
 	log.ZDebug(ctx, "handleAccept: end", "req", req)
 
 	return &rtc.SignalAcceptResp{
+		Token:   token,
+		RoomID:  dbInv.RoomID,
+		LiveURL: s.config.RpcConfig.LiveKit.ExternalAddress,
+	}, nil
+}
+
+// handleJoin lets a group member join an ongoing group call without a prior invite.
+func (s *rtcServer) handleJoin(ctx context.Context, req *rtc.SignalJoinReq, signalReq *rtc.SignalReq) (*rtc.SignalJoinResp, error) {
+	if req.Invitation == nil || req.Invitation.RoomID == "" {
+		return nil, errs.ErrArgs.WrapMsg("invitation is nil or roomID is empty")
+	}
+	if req.UserID == "" {
+		return nil, errs.ErrArgs.WrapMsg("userID is empty")
+	}
+
+	log.ZDebug(ctx, "handleJoin: start", "req", req)
+
+	dbInv, err := s.db.GetInvitationByRoomID(ctx, req.Invitation.RoomID)
+	if err != nil {
+		return nil, errs.WrapMsg(err, "invitation not found or expired", "roomID", req.Invitation.RoomID)
+	}
+	if dbInv.GroupID == "" {
+		return nil, errs.ErrArgs.WrapMsg("join is only supported for group calls", "roomID", dbInv.RoomID)
+	}
+	if _, err := s.groupClient.GetGroupMemberCache(ctx, dbInv.GroupID, req.UserID); err != nil {
+		return nil, errs.ErrNoPermission.WrapMsg("user is not a group member", "userID", req.UserID, "groupID", dbInv.GroupID)
+	}
+	if !s.isInvitationPending(ctx, dbInv) {
+		s.finalizeStaleInvitation(ctx, dbInv)
+		return nil, errs.ErrRecordNotFound.WrapMsg("group call not active", "roomID", dbInv.RoomID)
+	}
+	if s.isCalleeBusyOnAnotherCall(ctx, req.UserID, dbInv.RoomID) {
+		return nil, servererrs.ErrAllUserBusy.WrapMsg("user is already on another call", "userID", req.UserID)
+	}
+	if err := s.ensureCallParticipant(ctx, dbInv, req.UserID); err != nil {
+		return nil, errs.WrapMsg(err, "ensureCallParticipant failed", "roomID", dbInv.RoomID, "userID", req.UserID)
+	}
+
+	token, err := s.genToken(dbInv.RoomID, req.UserID)
+	if err != nil {
+		return nil, err
+	}
+
+	if dbInv.AcceptTime <= 0 {
+		if err := s.db.SetAcceptTime(ctx, dbInv.RoomID, time.Now().UnixMilli()); err != nil {
+			log.ZWarn(ctx, "handleJoin: SetAcceptTime failed", err, "roomID", dbInv.RoomID)
+		}
+	}
+
+	s.setCallStatusInCall(ctx, dbInv, req.UserID)
+
+	content, err := marshalSignalReq(signalReq)
+	if err != nil {
+		return nil, err
+	}
+	notifyPeers := make(map[string]struct{}, len(dbInv.InviteeUserIDList)+1)
+	notifyPeers[dbInv.InviterUserID] = struct{}{}
+	for _, uid := range dbInv.InviteeUserIDList {
+		if uid != req.UserID {
+			notifyPeers[uid] = struct{}{}
+		}
+	}
+	for peerID := range notifyPeers {
+		if err := s.sendSignalingNotification(ctx, req.UserID, peerID, int32(constant.ReadGroupChatType), dbInv.GroupID, nil, content); err != nil {
+			log.ZWarn(ctx, "handleJoin: sendSignalingNotification failed", err, "peerID", peerID)
+		}
+	}
+
+	lp, listErr := s.roomClient.ListParticipants(ctx, &livekit.ListParticipantsRequest{Room: dbInv.RoomID})
+	participantUserIDs := []string{req.UserID}
+	if listErr == nil {
+		participantUserIDs = liveKitParticipantUserIDs(lp.Participants)
+		if !datautil.Contain(req.UserID, participantUserIDs...) {
+			participantUserIDs = append(participantUserIDs, req.UserID)
+		}
+	} else {
+		log.ZWarn(ctx, "handleJoin: ListParticipants failed", listErr, "roomID", dbInv.RoomID)
+		participantUserIDs = append(participantUserIDs, dbInv.InviterUserID)
+	}
+	s.goSendGroupCallParticipantCountUpdated(ctx, dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, participantUserIDs)
+
+	log.ZDebug(ctx, "handleJoin: end", "roomID", dbInv.RoomID, "userID", req.UserID)
+
+	return &rtc.SignalJoinResp{
 		Token:   token,
 		RoomID:  dbInv.RoomID,
 		LiveURL: s.config.RpcConfig.LiveKit.ExternalAddress,
@@ -2614,9 +2702,24 @@ func (s *rtcServer) getCalleeActiveCallStatus(ctx context.Context, userID string
 	return callSt, true
 }
 
+// isCalleeBusyOnAnotherCall reports whether userID is on a different active call than roomID.
+func (s *rtcServer) isCalleeBusyOnAnotherCall(ctx context.Context, userID, roomID string) bool {
+	if callSt, busy := s.getCalleeActiveCallStatus(ctx, userID); busy {
+		return callSt.RoomID != roomID
+	}
+	inv, err := s.db.GetInvitationByUserID(ctx, userID)
+	if err != nil {
+		return false
+	}
+	if inv == nil || inv.RoomID == roomID {
+		return false
+	}
+	return s.isInvitationPending(ctx, inv)
+}
+
 // isCalleeOnActiveCall reports whether userID should be treated as busy for a new invite.
 // It checks Redis first, then falls back to Mongo invitation + isInvitationPending
-// so long calls are not misclassified as idle after CallStatusExpire (5 minutes).
+// so long calls are not misclassified as idle after CallStatusExpire.
 func (s *rtcServer) isCalleeOnActiveCall(ctx context.Context, userID string) bool {
 	if _, busy := s.getCalleeActiveCallStatus(ctx, userID); busy {
 		return true

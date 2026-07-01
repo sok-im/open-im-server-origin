@@ -199,6 +199,8 @@ func SignalingPayloadTypeName(content []byte) string {
 		return "hungUp"
 	case *rtc.SignalReq_Accept:
 		return "accept"
+	case *rtc.SignalReq_Join:
+		return "join"
 	case *rtc.SignalReq_GetTokenByRoomID:
 		return "getTokenByRoomID"
 	default:
