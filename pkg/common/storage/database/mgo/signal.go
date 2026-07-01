@@ -89,6 +89,17 @@ func (s *signalMgo) GetInvitationByInviteeUserID(ctx context.Context, userID str
 	return mongoutil.FindOne[*model.SignalInvitation](ctx, s.invColl, bson.M{"invitee_user_id_list": userID}, opts)
 }
 
+func (s *signalMgo) GetInvitationByUserID(ctx context.Context, userID string) (*model.SignalInvitation, error) {
+	filter := bson.M{
+		"$or": bson.A{
+			bson.M{"inviter_user_id": userID},
+			bson.M{"invitee_user_id_list": userID},
+		},
+	}
+	opts := options.FindOne().SetSort(bson.M{"create_time": -1})
+	return mongoutil.FindOne[*model.SignalInvitation](ctx, s.invColl, filter, opts)
+}
+
 func (s *signalMgo) DeleteInvitation(ctx context.Context, roomID string) error {
 	return mongoutil.DeleteMany(ctx, s.invColl, bson.M{"room_id": roomID})
 }

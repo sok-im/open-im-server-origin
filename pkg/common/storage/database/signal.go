@@ -29,6 +29,9 @@ type SignalDatabase interface {
 	GetInvitationByRoomID(ctx context.Context, roomID string) (*model.SignalInvitation, error)
 	// GetInvitationByInviteeUserID retrieves the most recent pending invitation for a user.
 	GetInvitationByInviteeUserID(ctx context.Context, userID string) (*model.SignalInvitation, error)
+	// GetInvitationByUserID retrieves the most recent invitation where the user is
+	// the inviter or appears in invitee_user_id_list.
+	GetInvitationByUserID(ctx context.Context, userID string) (*model.SignalInvitation, error)
 	// DeleteInvitation removes an invitation record when the call ends.
 	DeleteInvitation(ctx context.Context, roomID string) error
 	// TryDeleteInvitation atomically removes one invitation by roomID.

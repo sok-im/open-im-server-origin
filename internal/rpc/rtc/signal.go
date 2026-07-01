@@ -162,7 +162,7 @@ func (s *rtcServer) handleInvite(ctx context.Context, req *rtc.SignalInviteReq, 
 			if _, notAllow := notAllowSet[inviteeID]; notAllow {
 				continue
 			}
-			if _, busy := s.getCalleeActiveCallStatus(ctx, inviteeID); busy {
+			if s.isCalleeOnActiveCall(ctx, inviteeID) {
 				log.ZInfo(ctx, "handleInvite: invitee is busy, sending busy record", "inviteeID", inviteeID, "roomID", inv.RoomID)
 				// 构造最小化的邀请模型用于发送通话记录消息（不写 DB、不创建 LiveKit 房间）。
 				busyInv := &model.SignalInvitation{
@@ -297,7 +297,7 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 			log.ZDebug(ctx, "lintao handleInviteInGroup: skip not-allowed invitee", "inviteeID", inviteeID)
 			continue
 		}
-		if _, busy := s.getCalleeActiveCallStatus(ctx, inviteeID); busy {
+		if s.isCalleeOnActiveCall(ctx, inviteeID) {
 			busyUserIDs = append(busyUserIDs, inviteeID)
 			notAllowSet[inviteeID] = struct{}{}
 		}
@@ -1206,8 +1206,10 @@ func (s *rtcServer) isInvitationPending(ctx context.Context, inv *model.SignalIn
 	inviterActive := inviterErr == nil && inviterSt.RoomID == inv.RoomID
 
 	if inv.AcceptTime > 0 {
-		log.ZDebug(ctx, "isInvitationPending: accept time > 0", "inv", inv)
-		return inviterActive || s.hasParticipantCallStatusForRoom(ctx, inv)
+		// Answered calls remain active until the invitation is explicitly deleted
+		// on hang-up / cancel / reject / timeout. Do not rely on Redis TTL alone.
+		log.ZDebug(ctx, "isInvitationPending: accepted call still active", "inv", inv)
+		return true
 	}
 
 	if !inviterActive {
@@ -2598,9 +2600,8 @@ func isUserOnActiveCall(status int32) bool {
 	return status == model.CallStatusConnecting || status == model.CallStatusInCall
 }
 
-// getCalleeActiveCallStatus returns the callee's call status when they are busy
-// (Connecting or InCall). The second return value is true only when the callee
-// should reject a new invitation.
+// getCalleeActiveCallStatus returns the callee's Redis call status when they are
+// ringing (Connecting) or in an active call (InCall).
 func (s *rtcServer) getCalleeActiveCallStatus(ctx context.Context, userID string) (*model.UserCallStatus, bool) {
 	callSt, err := s.callStatusCache.GetCallStatus(ctx, userID)
 	if err != nil {
@@ -2611,6 +2612,32 @@ func (s *rtcServer) getCalleeActiveCallStatus(ctx context.Context, userID string
 		return nil, false
 	}
 	return callSt, true
+}
+
+// isCalleeOnActiveCall reports whether userID should be treated as busy for a new invite.
+// It checks Redis first, then falls back to Mongo invitation + isInvitationPending
+// so long calls are not misclassified as idle after CallStatusExpire (5 minutes).
+func (s *rtcServer) isCalleeOnActiveCall(ctx context.Context, userID string) bool {
+	if _, busy := s.getCalleeActiveCallStatus(ctx, userID); busy {
+		return true
+	}
+
+	inv, err := s.db.GetInvitationByUserID(ctx, userID)
+	if err != nil {
+		if errs.ErrRecordNotFound.Is(err) {
+			return false
+		}
+		log.ZWarn(ctx, "isCalleeOnActiveCall: GetInvitationByUserID failed", err, "userID", userID)
+		return false
+	}
+	if inv == nil {
+		return false
+	}
+	if !s.isInvitationPending(ctx, inv) {
+		return false
+	}
+	log.ZInfo(ctx, "isCalleeOnActiveCall: busy via invitation fallback", "userID", userID, "roomID", inv.RoomID, "acceptTime", inv.AcceptTime)
+	return true
 }
 
 // setCallStatusConnecting marks the inviter and all (allowed) invitees as

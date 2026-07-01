@@ -27,6 +27,7 @@ type RtcDatabase interface {
 	CreateInvitation(ctx context.Context, inv *model.SignalInvitation) error
 	GetInvitationByRoomID(ctx context.Context, roomID string) (*model.SignalInvitation, error)
 	GetInvitationByInviteeUserID(ctx context.Context, userID string) (*model.SignalInvitation, error)
+	GetInvitationByUserID(ctx context.Context, userID string) (*model.SignalInvitation, error)
 	DeleteInvitation(ctx context.Context, roomID string) error
 	TryDeleteInvitation(ctx context.Context, roomID string) (bool, error)
 	RemoveInvitee(ctx context.Context, roomID string, userID string) error
@@ -61,6 +62,10 @@ func (r *rtcDatabase) GetInvitationByRoomID(ctx context.Context, roomID string) 
 
 func (r *rtcDatabase) GetInvitationByInviteeUserID(ctx context.Context, userID string) (*model.SignalInvitation, error) {
 	return r.db.GetInvitationByInviteeUserID(ctx, userID)
+}
+
+func (r *rtcDatabase) GetInvitationByUserID(ctx context.Context, userID string) (*model.SignalInvitation, error) {
+	return r.db.GetInvitationByUserID(ctx, userID)
 }
 
 func (r *rtcDatabase) DeleteInvitation(ctx context.Context, roomID string) error {
