@@ -138,6 +138,18 @@ func Start(ctx context.Context, conf *Config, registry discovery.SvcDiscoveryReg
 					runtime.ContractAddress = tronClient.ContractAddress()
 				}
 			}
+			signerHex := runtimeCfg.SignerPrivateKey
+			if signerHex == "" {
+				signerHex = runtimeCfg.PrivateKeyHex
+			}
+			if signerHex != "" {
+				sk, parseErr := crypto.HexToECDSA(strings.TrimPrefix(signerHex, "0x"))
+				if parseErr != nil {
+					log.ZWarn(ctx, "redpacket tron signer private key parse failed", parseErr, "chainKey", chainKey)
+				} else {
+					runtime.SignerKey = sk
+				}
+			}
 		}
 		runtimes[chainKey] = runtime
 	}
