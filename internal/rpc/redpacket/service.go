@@ -991,6 +991,31 @@ func normalizeScopeType(scopeType string) string {
 	}
 }
 
+// normalizeTransactionType normalizes the business-level transaction type used to
+// distinguish a personal transfer from a personal red packet in DIRECT scope.
+// Empty (or whitespace) defaults to RED_PACKET. It returns an error for any value
+// other than "", RED_PACKET, or TRANSFER (case-insensitive).
+func normalizeTransactionType(v string) (string, error) {
+	switch strings.ToUpper(strings.TrimSpace(v)) {
+	case "", "RED_PACKET":
+		return "RED_PACKET", nil
+	case "TRANSFER":
+		return "TRANSFER", nil
+	default:
+		return "", errs.ErrArgs.WrapMsg("invalid transaction_type: " + v)
+	}
+}
+
+// resolveStoredTransactionType computes the transaction_type value to persist.
+// The field is only meaningful for DIRECT scope; for any other scope it is stored
+// as empty. For DIRECT scope, an empty input defaults to RED_PACKET.
+func resolveStoredTransactionType(scopeType, raw string) (string, error) {
+	if scopeType != "DIRECT" {
+		return "", nil
+	}
+	return normalizeTransactionType(raw)
+}
+
 func normalizeChainType(chainType string) (string, error) {
 	switch strings.ToUpper(strings.TrimSpace(chainType)) {
 	case "EVM":
