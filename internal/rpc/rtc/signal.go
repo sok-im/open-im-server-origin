@@ -94,6 +94,10 @@ func (s *rtcServer) SignalMessageAssemble(ctx context.Context, req *rtc.SignalMe
 		r, err := s.handleJoin(ctx, payload.Join, req.SignalReq)
 		resp.Payload = &rtc.SignalResp_Join{Join: r}
 		respErr = err
+	case *rtc.SignalReq_Heartbeat:
+		r, err := s.handleHeartbeat(ctx, payload.Heartbeat)
+		resp.Payload = &rtc.SignalResp_Heartbeat{Heartbeat: r}
+		respErr = err
 	default:
 		return nil, errs.ErrArgs.WrapMsg("unknown signal payload type")
 	}
@@ -2686,6 +2690,27 @@ func pendingReachableInvitees(inviteeUserIDList, busyLineUserIDList []string) []
 // isUserOnActiveCall reports whether the user is ringing or already in a call.
 func isUserOnActiveCall(status int32) bool {
 	return status == model.CallStatusConnecting || status == model.CallStatusInCall
+}
+
+// handleHeartbeat refreshes the caller's own call-status TTL in Redis so an
+// active call is not misclassified as idle once CallStatusExpire elapses.
+// Each client heartbeats for itself only; both parties must send heartbeats
+// during a call to keep their respective busy keys alive.
+func (s *rtcServer) handleHeartbeat(ctx context.Context, req *rtc.SignalHeartbeatReq) (*rtc.SignalHeartbeatResp, error) {
+	if req == nil {
+		return nil, errs.ErrArgs.WrapMsg("heartbeat req is nil")
+	}
+	userID := strings.TrimSpace(req.UserID)
+	if userID == "" {
+		return nil, errs.ErrArgs.WrapMsg("heartbeat userID is empty")
+	}
+
+	if err := s.callStatusCache.RefreshCallStatusTTL(ctx, userID); err != nil {
+		log.ZWarn(ctx, "handleHeartbeat: RefreshCallStatusTTL failed", err, "userID", userID, "roomID", req.RoomID)
+	} else {
+		log.ZDebug(ctx, "handleHeartbeat: refreshed call status TTL", "userID", userID, "roomID", req.RoomID)
+	}
+	return &rtc.SignalHeartbeatResp{}, nil
 }
 
 // getCalleeActiveCallStatus returns the callee's Redis call status when they are

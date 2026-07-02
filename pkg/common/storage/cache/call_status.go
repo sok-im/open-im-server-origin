@@ -36,6 +36,12 @@ type CallStatusCache interface {
 	// Returns errs.ErrRecordNotFound if no entry exists.
 	GetCallStatus(ctx context.Context, userID string) (*model.UserCallStatus, error)
 
+	// RefreshCallStatusTTL extends the TTL of existing call-status entries back to
+	// cachekey.CallStatusExpire. It is driven by client heartbeats during an
+	// active call so a long call is not misclassified as idle when the TTL lapses.
+	// Missing keys (already expired / never set) are silently ignored.
+	RefreshCallStatusTTL(ctx context.Context, userIDs ...string) error
+
 	// DeleteCallStatus removes call-status entries for one or more users.
 	// Missing keys are silently ignored.
 	DeleteCallStatus(ctx context.Context, userIDs ...string) error

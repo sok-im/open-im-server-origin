@@ -65,6 +65,22 @@ func (c *callStatusCache) GetCallStatus(ctx context.Context, userID string) (*mo
 	return &status, nil
 }
 
+func (c *callStatusCache) RefreshCallStatusTTL(ctx context.Context, userIDs ...string) error {
+	if len(userIDs) == 0 {
+		return nil
+	}
+	pipe := c.rdb.Pipeline()
+	for _, uid := range userIDs {
+		// EXPIRE only affects keys that still exist; already-expired entries are
+		// left untouched (self-heal is handled by the Mongo invitation fallback).
+		pipe.Expire(ctx, cachekey.GetCallStatusKey(uid), c.expire)
+	}
+	if _, err := pipe.Exec(ctx); err != nil {
+		return errs.WrapMsg(err, "CallStatusCache.RefreshCallStatusTTL redis EXPIRE failed", "userIDs", userIDs)
+	}
+	return nil
+}
+
 func (c *callStatusCache) DeleteCallStatus(ctx context.Context, userIDs ...string) error {
 	if len(userIDs) == 0 {
 		return nil
