@@ -467,7 +467,7 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 		phoneGroup.POST("/set_sn_info", phoneSN.SetSNInfo)
 	}
 	{
-		rc := NewRtcApi(rtc.NewRtcServiceClient(rtcConn), config.RtcConfig.LiveKit)
+		rc := NewRtcApi(rtc.NewRtcServiceClient(rtcConn))
 		rtcGroup := r.Group("/rtc")
 		rtcGroup.POST("/signal_message_assemble", rc.SignalMessageAssemble)
 		rtcGroup.POST("/signal_get_room_by_group_id", rc.SignalGetRoomByGroupID)
@@ -479,10 +479,6 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 		rtcGroup.POST("/signal_notify_group_call_ended", rc.SignalNotifyGroupCallEnded)
 		rtcGroup.POST("/get_signal_invitation_records", rc.GetSignalInvitationRecords)
 		rtcGroup.POST("/delete_signal_records", rc.DeleteSignalRecords)
-		// livekit_webhook is an optional fast-path for the rtc call watchdog
-		// (config Rtc.Watchdog.WebhookEnabled); point the LiveKit server's
-		// webhook_url at this route to accelerate stale-call detection.
-		rtcGroup.POST("/livekit_webhook", rc.LiveKitWebhook)
 	}
 
 	// Crypto / E2EE

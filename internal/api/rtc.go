@@ -15,24 +15,17 @@
 package api
 
 import (
-	"net/http"
-
 	"github.com/gin-gonic/gin"
-	"github.com/livekit/protocol/auth"
-	"github.com/livekit/protocol/webhook"
-	"github.com/openimsdk/open-im-server/v3/pkg/common/config"
 	"github.com/openimsdk/protocol/rtc"
 	"github.com/openimsdk/tools/a2r"
-	"github.com/openimsdk/tools/log"
 )
 
 type RtcApi struct {
-	Client  rtc.RtcServiceClient
-	liveKit config.LiveKit
+	Client rtc.RtcServiceClient
 }
 
-func NewRtcApi(client rtc.RtcServiceClient, liveKit config.LiveKit) RtcApi {
-	return RtcApi{Client: client, liveKit: liveKit}
+func NewRtcApi(client rtc.RtcServiceClient) RtcApi {
+	return RtcApi{Client: client}
 }
 
 func (o *RtcApi) SignalMessageAssemble(c *gin.Context) {
@@ -73,34 +66,4 @@ func (o *RtcApi) GetSignalInvitationRecords(c *gin.Context) {
 
 func (o *RtcApi) DeleteSignalRecords(c *gin.Context) {
 	a2r.Call(c, rtc.RtcServiceClient.DeleteSignalRecords, o.Client)
-}
-
-// LiveKitWebhook receives LiveKit server webhook events (room_finished,
-// participant_left, etc.) and forwards room_id/event to the rtc RPC's
-// NotifyRoomEvent so the call watchdog can re-check that room immediately
-// instead of waiting for its next periodic scan tick. This is a raw HTTP
-// endpoint (not a2r.Call) because LiveKit signs the request body itself
-// rather than sending a proto request our standard request wrapper expects.
-// Enable it by pointing the LiveKit server's webhook_url at this route AND
-// setting rtc.watchdog.webhookEnabled: true (config/openim-rpc-rtc.yml).
-func (o *RtcApi) LiveKitWebhook(c *gin.Context) {
-	event, err := webhook.ReceiveWebhookEvent(c.Request, auth.NewSimpleKeyProvider(o.liveKit.APIKey, o.liveKit.APISecret))
-	if err != nil {
-		log.ZWarn(c.Request.Context(), "LiveKitWebhook: verify/parse failed", err)
-		c.Status(http.StatusUnauthorized)
-		return
-	}
-	roomID := ""
-	if event.GetRoom() != nil {
-		roomID = event.GetRoom().GetName()
-	}
-	if roomID != "" {
-		if _, err := o.Client.NotifyRoomEvent(c.Request.Context(), &rtc.NotifyRoomEventReq{
-			RoomID:    roomID,
-			EventType: event.GetEvent(),
-		}); err != nil {
-			log.ZWarn(c.Request.Context(), "LiveKitWebhook: NotifyRoomEvent failed", err, "roomID", roomID, "event", event.GetEvent())
-		}
-	}
-	c.Status(http.StatusOK)
 }

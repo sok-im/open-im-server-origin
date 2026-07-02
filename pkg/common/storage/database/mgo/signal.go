@@ -162,14 +162,6 @@ func (s *signalMgo) GetInvitationsByRoomIDs(ctx context.Context, roomIDs []strin
 	return mongoutil.Find[*model.SignalInvitation](ctx, s.invColl, bson.M{"room_id": bson.M{"$in": roomIDs}})
 }
 
-func (s *signalMgo) ListAllInvitations(ctx context.Context, limit int64) ([]*model.SignalInvitation, error) {
-	opts := options.Find()
-	if limit > 0 {
-		opts.SetLimit(limit)
-	}
-	return mongoutil.Find[*model.SignalInvitation](ctx, s.invColl, bson.M{}, opts)
-}
-
 func (s *signalMgo) GetBusyUserIDs(ctx context.Context, userIDs []string) ([]string, error) {
 	if len(userIDs) == 0 {
 		return nil, nil

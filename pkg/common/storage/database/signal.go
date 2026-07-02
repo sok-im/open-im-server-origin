@@ -53,10 +53,6 @@ type SignalDatabase interface {
 	GetInvitationByGroupID(ctx context.Context, groupID string) (*model.SignalInvitation, error)
 	// GetInvitationsByRoomIDs retrieves invitations for the given room IDs.
 	GetInvitationsByRoomIDs(ctx context.Context, roomIDs []string) ([]*model.SignalInvitation, error)
-	// ListAllInvitations returns every current invitation, bounded by limit, for
-	// the call-watchdog background scan. The active-invitation collection is
-	// expected to stay small relative to the online user count.
-	ListAllInvitations(ctx context.Context, limit int64) ([]*model.SignalInvitation, error)
 	// GetBusyUserIDs returns the subset of userIDs that are currently involved in an active call
 	// (either as inviter or as invitee in a pending invitation).
 	GetBusyUserIDs(ctx context.Context, userIDs []string) ([]string, error)
