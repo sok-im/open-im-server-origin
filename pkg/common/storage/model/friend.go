@@ -26,6 +26,8 @@ type Friend struct {
 	OwnerUserID     string             `bson:"owner_user_id"`
 	FriendUserID    string             `bson:"friend_user_id"`
 	Remark          string             `bson:"remark"`
+	Note            string             `bson:"note"` // owner 对好友的私有备注，独立于 Remark，不参与好友显示
+
 	FriendFirstName string             `bson:"friend_first_name"`
 	FriendLastName  string             `bson:"friend_last_name"`
 	CreateTime      time.Time          `bson:"create_time"`

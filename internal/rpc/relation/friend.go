@@ -378,6 +378,30 @@ func (s *friendServer) SetFriendName(ctx context.Context, req *relation.SetFrien
 	return &relation.SetFriendNameResp{}, nil
 }
 
+// SetFriendNote 设置 owner 对好友的私有备注（note）。
+// 与 SetFriendRemark 不同：note 独立存储，不参与会话名、群成员昵称等好友显示，
+// 因此不下发 FriendRemarkSetNotification，也不触发群成员昵称刷新（NotificationFriendRemarkUpdate）。
+func (s *friendServer) SetFriendNote(ctx context.Context, req *relation.SetFriendNoteReq) (*relation.SetFriendNoteResp, error) {
+	if err := authverify.CheckAccessV3(ctx, req.OwnerUserID, s.config.Share.IMAdminUserID); err != nil {
+		return nil, err
+	}
+
+	if _, err := s.db.FindFriendsWithError(ctx, req.OwnerUserID, []string{req.FriendUserID}); err != nil {
+		return nil, err
+	}
+
+	if err := s.db.UpdateNote(ctx, req.OwnerUserID, req.FriendUserID, req.Note); err != nil {
+		return nil, err
+	}
+
+	// Notify only the owner to trigger an incremental friend-list sync so the note
+	// propagates to the owner's other devices. This does NOT refresh group member
+	// nicknames or conversation names, so the friend's display is unaffected.
+	s.notificationSender.FriendsInfoUpdateNotification(ctx, req.OwnerUserID, []string{req.FriendUserID})
+
+	return &relation.SetFriendNoteResp{}, nil
+}
+
 func (s *friendServer) GetFriendInfo(ctx context.Context, req *relation.GetFriendInfoReq) (*relation.GetFriendInfoResp, error) {
 	if err := authverify.CheckAccessV3(ctx, req.OwnerUserID, s.config.Share.IMAdminUserID); err != nil {
 		return nil, err
@@ -653,6 +677,7 @@ func (s *friendServer) GetSpecifiedFriendsInfo(ctx context.Context, req *relatio
 			friendInfo = &sdkws.FriendInfo{
 				OwnerUserID:    friend.OwnerUserID,
 				Remark:         friend.Remark,
+				Note:           friend.Note,
 				CreateTime:     friend.CreateTime.UnixMilli(),
 				AddSource:      friend.AddSource,
 				OperatorUserID: friend.OperatorUserID,

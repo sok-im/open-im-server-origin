@@ -89,6 +89,7 @@ func FriendsDB2Pb(ctx context.Context, friendsDB []*model.Friend, getUsers func(
 		friendPb.FriendUser.LastName = u.LastName
 		friendPb.FriendFirstName = friend.FriendFirstName
 		friendPb.FriendLastName = friend.FriendLastName
+		friendPb.Note = friend.Note
 		friendPb.CreateTime = friend.CreateTime.Unix()
 		friendPb.IsPinned = friend.IsPinned
 		friendPb.IsMute = friend.IsMuted

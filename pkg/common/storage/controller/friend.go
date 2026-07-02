@@ -55,6 +55,9 @@ type FriendDatabase interface {
 	// UpdateRemark updates the remark for a friend
 	UpdateRemark(ctx context.Context, ownerUserID, friendUserID, remark string) (err error)
 
+	// UpdateNote updates the owner's private note for a friend
+	UpdateNote(ctx context.Context, ownerUserID, friendUserID, note string) (err error)
+
 	// UpdateFriendName updates the owner-set firstName/lastName for a friend
 	UpdateFriendName(ctx context.Context, ownerUserID, friendUserID, firstName, lastName string) (err error)
 
@@ -328,6 +331,14 @@ func (f *friendDatabase) Delete(ctx context.Context, ownerUserID string, friendU
 // UpdateRemark updates the remark for a friend. Zero value for remark is also supported.
 func (f *friendDatabase) UpdateRemark(ctx context.Context, ownerUserID, friendUserID, remark string) (err error) {
 	if err := f.friend.UpdateRemark(ctx, ownerUserID, friendUserID, remark); err != nil {
+		return err
+	}
+	return f.cache.DelFriend(ownerUserID, friendUserID).DelMaxFriendVersion(ownerUserID).ChainExecDel(ctx)
+}
+
+// UpdateNote updates the owner's private note for a friend. Zero value for note is also supported.
+func (f *friendDatabase) UpdateNote(ctx context.Context, ownerUserID, friendUserID, note string) (err error) {
+	if err := f.friend.UpdateNote(ctx, ownerUserID, friendUserID, note); err != nil {
 		return err
 	}
 	return f.cache.DelFriend(ownerUserID, friendUserID).DelMaxFriendVersion(ownerUserID).ChainExecDel(ctx)

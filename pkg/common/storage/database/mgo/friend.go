@@ -136,6 +136,11 @@ func (f *FriendMgo) UpdateRemark(ctx context.Context, ownerUserID, friendUserID,
 	return f.UpdateByMap(ctx, ownerUserID, friendUserID, map[string]any{"remark": remark})
 }
 
+// UpdateNote updates the owner's private note for a specific friend.
+func (f *FriendMgo) UpdateNote(ctx context.Context, ownerUserID, friendUserID, note string) error {
+	return f.UpdateByMap(ctx, ownerUserID, friendUserID, map[string]any{"note": note})
+}
+
 // UpdateFriendName updates the owner-set firstName/lastName for a specific friend.
 func (f *FriendMgo) UpdateFriendName(ctx context.Context, ownerUserID, friendUserID, firstName, lastName string) error {
 	return f.UpdateByMap(ctx, ownerUserID, friendUserID, map[string]any{

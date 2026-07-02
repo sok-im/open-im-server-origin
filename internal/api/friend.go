@@ -73,6 +73,10 @@ func (o *FriendApi) SetFriendName(c *gin.Context) {
 	a2r.Call(c, relation.FriendClient.SetFriendName, o.Client)
 }
 
+func (o *FriendApi) SetFriendNote(c *gin.Context) {
+	a2r.Call(c, relation.FriendClient.SetFriendNote, o.Client)
+}
+
 func (o *FriendApi) AddBlack(c *gin.Context) {
 	a2r.Call(c, relation.FriendClient.AddBlack, o.Client)
 }
