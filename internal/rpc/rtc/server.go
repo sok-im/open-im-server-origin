@@ -21,7 +21,6 @@ import (
 	lksdk "github.com/livekit/server-sdk-go/v2"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/config"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/cache"
-	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/cache/cachekey"
 	cacheredis "github.com/openimsdk/open-im-server/v3/pkg/common/storage/cache/redis"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/controller"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/database"
@@ -46,27 +45,17 @@ type Config struct {
 
 type rtcServer struct {
 	rtc.UnimplementedRtcServiceServer
-	config          *Config
-	db              controller.RtcDatabase
-	globalBlackDB   controller.UserGlobalBlackDatabase
-	userDB          database.User
-	roomClient      *lksdk.RoomServiceClient
-	msgClient       *rpcli.MsgClient
-	userClient      *rpcli.UserClient
-	groupClient     *rpcli.GroupClient
-	relationClient  *rpcli.RelationClient
-	tokenExpiry     time.Duration
-	callStatusCache cache.CallStatusCache
-	// watchdogLock elects a single leader among rtc replicas to run the
-	// background call-watchdog scan; nil disables the watchdog entirely.
-	watchdogLock cache.WatchdogLock
-	// watchdogSuspectState tracks answered calls suspected of being zombies,
-	// shared between the periodic scan and the NotifyRoomEvent fast-path.
-	// nil until startCallWatchdog runs (i.e. watchdog disabled).
-	watchdogSuspectState *watchdogSuspects
-	// watchdogZombieGrace is how long a suspected zombie call must be
-	// continuously observed before being force-ended.
-	watchdogZombieGrace time.Duration
+	config           *Config
+	db               controller.RtcDatabase
+	globalBlackDB    controller.UserGlobalBlackDatabase
+	userDB           database.User
+	roomClient       *lksdk.RoomServiceClient
+	msgClient        *rpcli.MsgClient
+	userClient       *rpcli.UserClient
+	groupClient      *rpcli.GroupClient
+	relationClient   *rpcli.RelationClient
+	tokenExpiry      time.Duration
+	callStatusCache  cache.CallStatusCache
 }
 
 // Start initialises the RTC gRPC service and registers it with the gRPC server.
@@ -135,10 +124,8 @@ func Start(ctx context.Context, cfg *Config, client discovery.SvcDiscoveryRegist
 		relationClient:  rpcli.NewRelationClient(friendConn),
 		tokenExpiry:     tokenExpiry,
 		callStatusCache: cacheredis.NewCallStatusCache(rdb),
-		watchdogLock:    cacheredis.NewWatchdogLock(rdb, cachekey.RtcCallWatchdogLockKey),
 	}
 
 	rtc.RegisterRtcServiceServer(server, s)
-	s.startCallWatchdog(ctx)
 	return nil
 }

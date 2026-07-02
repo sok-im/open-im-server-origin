@@ -36,10 +36,6 @@ type Config struct {
 	MongodbConfig    config.Mongo
 	RedisConfig      config.Redis
 	LocalCacheConfig config.LocalCache
-	// RtcConfig is only used to read LiveKit credentials for verifying the
-	// optional LiveKit webhook (see RtcApi.LiveKitWebhook); the api gateway
-	// does not otherwise talk to LiveKit directly.
-	RtcConfig config.Rtc
 }
 
 func Start(ctx context.Context, index int, cfg *Config) error {
