@@ -36,6 +36,9 @@ type RtcDatabase interface {
 	SetAcceptTime(ctx context.Context, roomID string, acceptTime int64) error
 	GetInvitationByGroupID(ctx context.Context, groupID string) (*model.SignalInvitation, error)
 	GetInvitationsByRoomIDs(ctx context.Context, roomIDs []string) ([]*model.SignalInvitation, error)
+	// ListAllInvitations returns every current invitation, bounded by limit, for
+	// the call-watchdog background scan.
+	ListAllInvitations(ctx context.Context, limit int64) ([]*model.SignalInvitation, error)
 	// GetBusyUserIDs returns the subset of userIDs that are currently in an active call.
 	GetBusyUserIDs(ctx context.Context, userIDs []string) ([]string, error)
 
@@ -98,6 +101,10 @@ func (r *rtcDatabase) GetInvitationByGroupID(ctx context.Context, groupID string
 
 func (r *rtcDatabase) GetInvitationsByRoomIDs(ctx context.Context, roomIDs []string) ([]*model.SignalInvitation, error) {
 	return r.db.GetInvitationsByRoomIDs(ctx, roomIDs)
+}
+
+func (r *rtcDatabase) ListAllInvitations(ctx context.Context, limit int64) ([]*model.SignalInvitation, error) {
+	return r.db.ListAllInvitations(ctx, limit)
 }
 
 func (r *rtcDatabase) GetBusyUserIDs(ctx context.Context, userIDs []string) ([]string, error) {

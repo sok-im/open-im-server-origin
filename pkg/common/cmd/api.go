@@ -40,6 +40,7 @@ func NewApiCmd() *ApiCmd {
 		MongodbConfigFileName:    &apiConfig.MongodbConfig,
 		RedisConfigFileName:      &apiConfig.RedisConfig,
 		LocalCacheConfigFileName: &apiConfig.LocalCacheConfig,
+		OpenIMRPCRtcCfgFileName:  &apiConfig.RtcConfig,
 	}
 	ret.RootCmd = NewRootCmd(program.GetProcessName(), WithConfigMap(ret.configMap))
 	ret.ctx = context.WithValue(context.Background(), "version", version.Version)

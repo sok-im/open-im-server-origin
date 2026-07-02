@@ -18,3 +18,13 @@ keys:
 
 logging:
   level: info
+
+# Optional: fast-path for the rtc call watchdog (see openim-rpc-rtc.yml
+# watchdog.webhookEnabled). Uncomment and point at the api gateway's
+# /rtc/livekit_webhook route (reachable from the LiveKit server) to let
+# room_finished/participant_left events trigger an immediate stale-call
+# re-check instead of waiting for the next periodic scan.
+# webhook:
+#   api_key: devkey
+#   urls:
+#     - http://openim-api:10002/rtc/livekit_webhook
