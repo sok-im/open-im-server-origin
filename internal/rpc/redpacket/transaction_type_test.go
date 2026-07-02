@@ -1,6 +1,11 @@
 package redpacket
 
-import "testing"
+import (
+	"context"
+	"testing"
+
+	pbredpacket "github.com/openimsdk/protocol/redpacket"
+)
 
 func TestNormalizeTransactionType(t *testing.T) {
 	cases := []struct {
@@ -65,5 +70,35 @@ func TestResolveStoredTransactionType(t *testing.T) {
 				t.Fatalf("resolveStoredTransactionType(%q,%q) = %q, want %q", tc.scopeType, tc.raw, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestValidateFixedPacketCreateRejectsTransactionType(t *testing.T) {
+	srv := &redPacketServer{}
+	req := &pbredpacket.CreateOrderReq{
+		CreatorWallet:   "0xabc",
+		TotalAmount:     "100",
+		TotalShares:     10,
+		ScopeType:       "GROUP",
+		GroupID:         "g1",
+		TransactionType: "TRANSFER",
+	}
+	if err := srv.validateFixedPacketCreate(context.Background(), req); err == nil {
+		t.Fatal("expected error when transaction_type is set on a GROUP fixed packet")
+	}
+}
+
+func TestValidateTransferPacketCreateRejectsInvalidTransactionType(t *testing.T) {
+	srv := &redPacketServer{}
+	req := &pbredpacket.CreateOrderReq{
+		CreatorWallet:   "0xabc",
+		TotalAmount:     "100",
+		TotalShares:     1,
+		ScopeType:       "DIRECT",
+		ReceiverUserID:  "u2",
+		TransactionType: "bogus",
+	}
+	if err := srv.validateTransferPacketCreate(context.Background(), req); err == nil {
+		t.Fatal("expected error for invalid transaction_type on transfer")
 	}
 }

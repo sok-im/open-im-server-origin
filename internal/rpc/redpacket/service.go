@@ -44,6 +44,11 @@ func (s *redPacketServer) CreateOrder(ctx context.Context, req *pbredpacket.Crea
 		return nil, err
 	}
 
+	transactionType, err := resolveStoredTransactionType(scopeType, req.TransactionType)
+	if err != nil {
+		return nil, err
+	}
+
 	chainID, contractAddress := applyRuntimeDefaults(runtime, req.ChainID, strings.TrimSpace(req.ContractAddress))
 
 	rp := &model.RedPacket{
@@ -59,6 +64,7 @@ func (s *redPacketServer) CreateOrder(ctx context.Context, req *pbredpacket.Crea
 		ReceiverUserID:  req.ReceiverUserID,
 		ReceiverUserIDs: append([]string(nil), req.ReceiverUserIDs...),
 		PacketType:      req.PacketType,
+		TransactionType: transactionType,
 		Token:           req.Token,
 		TotalAmount:     req.TotalAmount,
 		TotalShares:     req.TotalShares,
@@ -632,6 +638,9 @@ func (s *redPacketServer) validateFixedPacketCreate(ctx context.Context, req *pb
 	if err != nil {
 		return err
 	}
+	if strings.TrimSpace(req.TransactionType) != "" {
+		return errs.ErrArgs.WrapMsg("transaction_type is only valid for DIRECT scope")
+	}
 	if normalizeScopeType(req.ScopeType) != "GROUP" {
 		return errs.ErrArgs.WrapMsg("fixed packet must use scope_type=GROUP")
 	}
@@ -659,6 +668,9 @@ func (s *redPacketServer) validateRandomPacketCreate(ctx context.Context, req *p
 	total, err := validateCreateBaseFields(req)
 	if err != nil {
 		return err
+	}
+	if strings.TrimSpace(req.TransactionType) != "" {
+		return errs.ErrArgs.WrapMsg("transaction_type is only valid for DIRECT scope")
 	}
 	if normalizeScopeType(req.ScopeType) != "GROUP" {
 		return errs.ErrArgs.WrapMsg("random packet must use scope_type=GROUP")
@@ -690,6 +702,9 @@ func (s *redPacketServer) validateTransferPacketCreate(ctx context.Context, req 
 	}
 	if normalizeScopeType(req.ScopeType) != "DIRECT" {
 		return errs.ErrArgs.WrapMsg("transfer packet must use scope_type=DIRECT")
+	}
+	if _, err := normalizeTransactionType(req.TransactionType); err != nil {
+		return err
 	}
 	if req.TotalShares != 1 {
 		return errs.ErrArgs.WrapMsg("transfer packet must have total_shares == 1", "totalShares", req.TotalShares)
