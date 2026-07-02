@@ -20,6 +20,7 @@ type RedPacket struct {
 	ReceiverUserID       string    `bson:"receiver_user_id"`
 	ReceiverUserIDs      []string  `bson:"receiver_user_ids"`
 	PacketType           int32     `bson:"packet_type"`
+	TransactionType      string    `bson:"transaction_type"`
 	Token                string    `bson:"token"`
 	TotalAmount          string    `bson:"total_amount"`
 	TotalShares          int32     `bson:"total_shares"`
