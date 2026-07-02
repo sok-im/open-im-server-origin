@@ -563,6 +563,30 @@ type LiveKit struct {
 	TokenExpiry     int    `mapstructure:"tokenExpiry"`
 }
 
+// RtcWatchdog configures the server-side background scan that proactively tears
+// down stale/zombie calls the client-driven flow failed to end (e.g. a crashed
+// caller that never sent SignalTimeout, or both peers dropping mid-call without
+// sending SignalHungUp).
+type RtcWatchdog struct {
+	// Enabled turns the background scan on or off. Disabled by default so
+	// existing deployments are unaffected until explicitly opted in.
+	Enabled bool `mapstructure:"enabled"`
+	// ScanIntervalSeconds is how often each rtc replica attempts to acquire the
+	// leader lock and scan invitations.
+	ScanIntervalSeconds int `mapstructure:"scanIntervalSeconds"`
+	// LockTTLSeconds is the TTL of the distributed leader lock; should be
+	// greater than ScanIntervalSeconds so the leader can renew before expiry.
+	LockTTLSeconds int `mapstructure:"lockTTLSeconds"`
+	// ZombieGraceSeconds is how long an answered call's LiveKit room must be
+	// observed empty (with no participant call-status left in Redis) before it
+	// is force-ended, to avoid tearing down a call during a brief reconnect.
+	ZombieGraceSeconds int `mapstructure:"zombieGraceSeconds"`
+	// WebhookEnabled turns on the optional LiveKit webhook fast-path that
+	// triggers an immediate re-check for a specific room instead of waiting
+	// for the next scan tick.
+	WebhookEnabled bool `mapstructure:"webhookEnabled"`
+}
+
 type Rtc struct {
 	RPC struct {
 		RegisterIP   string `mapstructure:"registerIP"`
@@ -570,8 +594,9 @@ type Rtc struct {
 		AutoSetPorts bool   `mapstructure:"autoSetPorts"`
 		Ports        []int  `mapstructure:"ports"`
 	} `mapstructure:"rpc"`
-	Prometheus Prometheus `mapstructure:"prometheus"`
-	LiveKit    LiveKit    `mapstructure:"liveKit"`
+	Prometheus Prometheus  `mapstructure:"prometheus"`
+	LiveKit    LiveKit     `mapstructure:"liveKit"`
+	Watchdog   RtcWatchdog `mapstructure:"watchdog"`
 }
 
 type Crypto struct {

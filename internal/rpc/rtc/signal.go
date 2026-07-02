@@ -1572,6 +1572,12 @@ func (s *rtcServer) SignalNotifyGroupCallEnded(ctx context.Context, req *rtc.Sig
 		log.ZWarn(ctx, "SignalNotifyGroupCallEnded: DeleteRoom failed (non-fatal)", delErr, "roomID", req.RoomID)
 	}
 
+	// Call is fully over — remove status for all participants, matching the
+	// cleanup handleHungUp/handleTimeout perform on their own tear-down paths.
+	// Without this, busy state for departed participants could otherwise
+	// linger in Redis for up to CallStatusExpire.
+	s.deleteCallStatusForInvitation(ctx, inv)
+
 	// Notify non-invited members so they dismiss the "call in progress" banner.
 	// Mirror the same call made in handleHungUp's tear-down path.
 

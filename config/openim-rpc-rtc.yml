@@ -28,3 +28,17 @@ liveKit:
   apiSecret: openim-livekit-default-secret-32chars-min
   # Token expiry in seconds (default: 3600 = 1 hour)
   tokenExpiry: 3600
+
+watchdog:
+  # Enable the server-side background scan that ends stale/zombie calls the
+  # client-driven flow failed to clean up (crashed caller, dropped peers, etc).
+  enabled: false
+  # How often (seconds) each rtc replica attempts to run a scan.
+  scanIntervalSeconds: 15
+  # TTL (seconds) of the distributed leader lock; keep greater than scanIntervalSeconds.
+  lockTTLSeconds: 30
+  # How long (seconds) an answered call's LiveKit room must be observed empty
+  # before the watchdog force-ends it.
+  zombieGraceSeconds: 45
+  # Enable the optional LiveKit webhook fast-path for near-instant cleanup.
+  webhookEnabled: false

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/openimsdk/open-im-server/v3/pkg/common/config"
+	"github.com/openimsdk/open-im-server/v3/pkg/common/convert"
 	"github.com/openimsdk/protocol/constant"
 	"github.com/openimsdk/protocol/rtc"
 	"github.com/openimsdk/protocol/sdkws"
@@ -212,17 +213,17 @@ func TestCallPushDisplayName(t *testing.T) {
 		LastName:  "San",
 		Nickname:  "nick",
 	}
-	if got := callPushDisplayName("三哥", user, "u1"); got != "三哥" {
+	if got := callPushDisplayName(convert.FriendAliasInfo{Remark: "三哥"}, user, "u1"); got != "三哥" {
 		t.Fatalf("remark priority: got %q", got)
 	}
-	if got := callPushDisplayName("", user, "u1"); got != "Zhang San" {
+	if got := callPushDisplayName(convert.FriendAliasInfo{}, user, "u1"); got != "Zhang San" {
 		t.Fatalf("full name: got %q", got)
 	}
 	nicknameOnly := &sdkws.UserInfo{UserID: "u2", Nickname: "only-nick"}
-	if got := callPushDisplayName("", nicknameOnly, "u2"); got != "only-nick" {
+	if got := callPushDisplayName(convert.FriendAliasInfo{}, nicknameOnly, "u2"); got != "only-nick" {
 		t.Fatalf("nickname: got %q", got)
 	}
-	if got := callPushDisplayName("", nil, "u-empty"); got != "u-empty" {
+	if got := callPushDisplayName(convert.FriendAliasInfo{}, nil, "u-empty"); got != "u-empty" {
 		t.Fatalf("fallback: got %q", got)
 	}
 }
