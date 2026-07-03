@@ -347,6 +347,57 @@ func (m *MessageApi) buildNotificationChatSendMsgReq(
 	}, nil
 }
 
+func (m *MessageApi) buildGroupNotificationSendMsgReq(
+	sendUserID, groupID string,
+	contentType int32,
+	content any,
+	clientMsgID string,
+	offlinePushInfo *sdkws.OfflinePushInfo,
+) (*msg.SendMsgReq, error) {
+	if err := m.validate.Struct(content); err != nil {
+		return nil, errs.WrapMsg(err, "validation error")
+	}
+	notifCfg := config.NotificationConfig{
+		IsSendMsg:        true,
+		ReliabilityLevel: constant.ReliableNotificationNoMsg,
+	}
+	if offlinePushInfo != nil {
+		notifCfg.OfflinePush.Enable = true
+
+		offlinePushInfo.Ex = jsonutil.StructToJsonString(map[string]interface{}{
+			"navigateToChat": true,
+			"source":         "offline",
+			"conversationID": msgprocessor.GetConversationIDBySessionType(constant.ReadGroupChatType, groupID),
+			"sessionType":    constant.ReadGroupChatType,
+			"groupID":        groupID,
+			"clientMsgID":    clientMsgID,
+		})
+	}
+	opts := config.GetOptionsByNotification(notifCfg, nil)
+
+	if offlinePushInfo == nil {
+		offlinePushInfo = &sdkws.OfflinePushInfo{}
+	}
+
+	return &msg.SendMsgReq{
+		MsgData: &sdkws.MsgData{
+			SendID: sendUserID,
+			RecvID: groupID,
+			GroupID: groupID,
+			Content: []byte(jsonutil.StructToJsonString(&sdkws.NotificationElem{
+				Detail: jsonutil.StructToJsonString(content),
+			})),
+			MsgFrom:         constant.SysMsgType,
+			ContentType:     contentType,
+			SessionType:     constant.ReadGroupChatType,
+			CreateTime:      timeutil.GetCurrentTimestampByMill(),
+			ClientMsgID:     clientMsgID,
+			Options:         opts,
+			OfflinePushInfo: offlinePushInfo,
+		},
+	}, nil
+}
+
 func resolveServiceNotificationOfflinePush(content apistruct.ServiceNotificationContent, push *sdkws.OfflinePushInfo) *sdkws.OfflinePushInfo {
 	if push == nil {
 		//return &sdkws.OfflinePushInfo{

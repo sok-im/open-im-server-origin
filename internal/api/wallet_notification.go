@@ -20,6 +20,8 @@ type walletDualPartyNotifyReq struct {
 	ReceiverText   string `json:"receiverText" binding:"required"`
 	SenderText     string `json:"senderText" binding:"required"`
 	DetailURL      string `json:"detailURL"`
+	GroupID        string `json:"groupID"`
+	GroupText      string `json:"groupText"`
 }
 
 type walletExpiredNotifyReq struct {
@@ -27,6 +29,8 @@ type walletExpiredNotifyReq struct {
 	BizID        string `json:"bizID" binding:"required"`
 	Text         string `json:"text" binding:"required"`
 	DetailURL    string `json:"detailURL"`
+	GroupID      string `json:"groupID"`
+	GroupText    string `json:"groupText"`
 }
 
 func (m *MessageApi) requireWalletNotifyParticipant(c *gin.Context, senderUserID, receiverUserID string) error {
@@ -82,6 +86,33 @@ func (m *MessageApi) sendWalletActionNotification(
 	return nil
 }
 
+func (m *MessageApi) sendWalletGroupActionNotification(
+	c *gin.Context,
+	groupID string,
+	contentType int32,
+	content apistruct.WalletActionNotificationContent,
+) error {
+	sendUserID := mcontext.GetOpUserID(c)
+	if sendUserID == "" {
+		return errs.ErrNoPermission.WrapMsg("op user id is empty")
+	}
+	sendMsgReq, err := m.buildGroupNotificationSendMsgReq(
+		sendUserID,
+		groupID,
+		contentType,
+		content,
+		idutil.GetMsgIDByMD5(sendUserID+groupID+content.BizID+fmt.Sprint(contentType)),
+		&sdkws.OfflinePushInfo{Title: "SOK", Desc: content.Text},
+	)
+	if err != nil {
+		return err
+	}
+	if _, err := m.Client.SendMsg(c, sendMsgReq); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (m *MessageApi) NotifyRedPacketClaimed(c *gin.Context) {
 	var req walletDualPartyNotifyReq
 	if err := c.BindJSON(&req); err != nil {
@@ -90,6 +121,26 @@ func (m *MessageApi) NotifyRedPacketClaimed(c *gin.Context) {
 	}
 	if err := m.requireWalletNotifyParticipant(c, req.SenderUserID, req.ReceiverUserID); err != nil {
 		apiresp.GinError(c, err)
+		return
+	}
+	if req.GroupID != "" {
+		if req.GroupText == "" {
+			apiresp.GinError(c, errs.ErrArgs.WrapMsg("groupText is required when groupID is set"))
+			return
+		}
+		groupContent := apistruct.WalletActionNotificationContent{
+			Text:           req.GroupText,
+			BizID:          req.BizID,
+			DetailURL:      req.DetailURL,
+			SenderUserID:   req.SenderUserID,
+			ReceiverUserID: req.ReceiverUserID,
+			GroupID:        req.GroupID,
+		}
+		if err := m.sendWalletGroupActionNotification(c, req.GroupID, constant.RedPacketClaimNotification, groupContent); err != nil {
+			apiresp.GinError(c, err)
+			return
+		}
+		apiresp.GinSuccess(c, nil)
 		return
 	}
 	receiverContent := apistruct.WalletActionNotificationContent{
@@ -127,6 +178,26 @@ func (m *MessageApi) NotifyTransferReceived(c *gin.Context) {
 		apiresp.GinError(c, err)
 		return
 	}
+	if req.GroupID != "" {
+		if req.GroupText == "" {
+			apiresp.GinError(c, errs.ErrArgs.WrapMsg("groupText is required when groupID is set"))
+			return
+		}
+		groupContent := apistruct.WalletActionNotificationContent{
+			Text:           req.GroupText,
+			BizID:          req.BizID,
+			DetailURL:      req.DetailURL,
+			SenderUserID:   req.SenderUserID,
+			ReceiverUserID: req.ReceiverUserID,
+			GroupID:        req.GroupID,
+		}
+		if err := m.sendWalletGroupActionNotification(c, req.GroupID, constant.TransferReceiveNotification, groupContent); err != nil {
+			apiresp.GinError(c, err)
+			return
+		}
+		apiresp.GinSuccess(c, nil)
+		return
+	}
 	receiverContent := apistruct.WalletActionNotificationContent{
 		Text:           req.ReceiverText,
 		BizID:          req.BizID,
@@ -162,6 +233,25 @@ func (m *MessageApi) NotifyRedPacketExpired(c *gin.Context) {
 		apiresp.GinError(c, err)
 		return
 	}
+	if req.GroupID != "" {
+		if req.GroupText == "" {
+			apiresp.GinError(c, errs.ErrArgs.WrapMsg("groupText is required when groupID is set"))
+			return
+		}
+		groupContent := apistruct.WalletActionNotificationContent{
+			Text:         req.GroupText,
+			BizID:        req.BizID,
+			DetailURL:    req.DetailURL,
+			SenderUserID: req.SenderUserID,
+			GroupID:      req.GroupID,
+		}
+		if err := m.sendWalletGroupActionNotification(c, req.GroupID, constant.RedPacketExpiredNotification, groupContent); err != nil {
+			apiresp.GinError(c, err)
+			return
+		}
+		apiresp.GinSuccess(c, nil)
+		return
+	}
 	content := apistruct.WalletActionNotificationContent{
 		Text:         req.Text,
 		BizID:        req.BizID,
@@ -183,6 +273,25 @@ func (m *MessageApi) NotifyTransferExpired(c *gin.Context) {
 	}
 	if err := m.requireWalletNotifySender(c, req.SenderUserID); err != nil {
 		apiresp.GinError(c, err)
+		return
+	}
+	if req.GroupID != "" {
+		if req.GroupText == "" {
+			apiresp.GinError(c, errs.ErrArgs.WrapMsg("groupText is required when groupID is set"))
+			return
+		}
+		groupContent := apistruct.WalletActionNotificationContent{
+			Text:         req.GroupText,
+			BizID:        req.BizID,
+			DetailURL:    req.DetailURL,
+			SenderUserID: req.SenderUserID,
+			GroupID:      req.GroupID,
+		}
+		if err := m.sendWalletGroupActionNotification(c, req.GroupID, constant.TransferExpiredNotification, groupContent); err != nil {
+			apiresp.GinError(c, err)
+			return
+		}
+		apiresp.GinSuccess(c, nil)
 		return
 	}
 	content := apistruct.WalletActionNotificationContent{

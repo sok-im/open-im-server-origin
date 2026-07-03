@@ -120,12 +120,14 @@ type ServiceNotificationContent struct {
 }
 
 // WalletActionNotificationContent 红包/转账动作通知（领取、接收、过期等文案提示）。
+// GroupID 非空表示该动作发生在群聊场景，通知会作为群消息下发到群会话。
 type WalletActionNotificationContent struct {
 	Text           string `json:"text" validate:"required"`
 	BizID          string `json:"bizID,omitempty"`
 	DetailURL      string `json:"detailURL,omitempty"`
 	SenderUserID   string `json:"senderUserID,omitempty"`
 	ReceiverUserID string `json:"receiverUserID,omitempty"`
+	GroupID        string `json:"groupID,omitempty"`
 }
 
 // PaymentNotificationContent SOK 钱包通知卡片内容。
