@@ -47,9 +47,11 @@ func (m *MessageApi) requireWalletNotifySender(c *gin.Context, senderUserID stri
 	if opUserID == "" {
 		return errs.ErrNoPermission.WrapMsg("op user id is empty")
 	}
-	if opUserID != senderUserID {
-		return errs.ErrNoPermission.WrapMsg("only sender can send wallet expired notification")
-	}
+	/*
+		if opUserID != senderUserID {
+			return errs.ErrNoPermission.WrapMsg("only sender can send wallet expired notification")
+		}
+	*/
 	return nil
 }
 

@@ -256,7 +256,6 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 		friendRouterGroup.POST("/add_friend_response", f.RespondFriendApply)
 		friendRouterGroup.POST("/set_friend_remark", f.SetFriendRemark)
 		friendRouterGroup.POST("/set_friend_name", f.SetFriendName)
-		friendRouterGroup.POST("/set_note", f.SetFriendNote)
 		friendRouterGroup.POST("/add_black", f.AddBlack)
 		friendRouterGroup.POST("/get_black_list", f.GetPaginationBlacks)
 		friendRouterGroup.POST("/get_specified_blacks", f.GetSpecifiedBlacks)

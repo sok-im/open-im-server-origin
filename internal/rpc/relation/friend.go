@@ -355,32 +355,56 @@ func (s *friendServer) SetFriendName(ctx context.Context, req *relation.SetFrien
 		return nil, err
 	}
 
-	_, err = s.db.FindFriendsWithError(ctx, req.OwnerUserID, []string{req.FriendUserID})
+	friends, err := s.db.FindFriendsWithError(ctx, req.OwnerUserID, []string{req.FriendUserID})
 	if err != nil {
 		return nil, err
 	}
+	if len(friends) == 0 {
+		return nil, errs.ErrRecordNotFound.WrapMsg("friend not found", "ownerUserID", req.OwnerUserID, "friendUserID", req.FriendUserID)
+	}
+	old := friends[0]
 
-	if err := s.db.UpdateFriendName(ctx, req.OwnerUserID, req.FriendUserID, req.FirstName, req.LastName); err != nil {
-		return nil, err
+	newFirstName := old.FriendFirstName
+	if req.FirstName != nil {
+		newFirstName = req.GetFirstName()
+	}
+	newLastName := old.FriendLastName
+	if req.LastName != nil {
+		newLastName = req.GetLastName()
+	}
+	nameChanged := newFirstName != old.FriendFirstName || newLastName != old.FriendLastName
+	noteChanged := req.Note != nil && old.Note != req.GetNote()
+
+	if nameChanged {
+		if err := s.db.UpdateFriendName(ctx, req.OwnerUserID, req.FriendUserID, newFirstName, newLastName); err != nil {
+			return nil, err
+		}
+	}
+	if noteChanged {
+		if err := s.db.UpdateNote(ctx, req.OwnerUserID, req.FriendUserID, req.GetNote()); err != nil {
+			return nil, err
+		}
 	}
 
-	s.notificationSender.FriendRemarkSetNotification(ctx, req.OwnerUserID, req.FriendUserID)
-	go func() {
-		noCancelCtx := context.WithoutCancel(ctx)
-		if _, err := s.groupClient.NotificationFriendRemarkUpdate(noCancelCtx, &pbgroup.NotificationFriendRemarkUpdateReq{
-			OwnerUserID:  req.OwnerUserID,
-			FriendUserID: req.FriendUserID,
-		}); err != nil {
-			log.ZError(noCancelCtx, "NotificationFriendRemarkUpdate", err, "ownerUserID", req.OwnerUserID, "friendUserID", req.FriendUserID)
-		}
-	}()
+	if nameChanged {
+		s.notificationSender.FriendRemarkSetNotification(ctx, req.OwnerUserID, req.FriendUserID)
+		go func() {
+			noCancelCtx := context.WithoutCancel(ctx)
+			if _, err := s.groupClient.NotificationFriendRemarkUpdate(noCancelCtx, &pbgroup.NotificationFriendRemarkUpdateReq{
+				OwnerUserID:  req.OwnerUserID,
+				FriendUserID: req.FriendUserID,
+			}); err != nil {
+				log.ZError(noCancelCtx, "NotificationFriendRemarkUpdate", err, "ownerUserID", req.OwnerUserID, "friendUserID", req.FriendUserID)
+			}
+		}()
+	}
+	if noteChanged {
+		s.notificationSender.FriendsInfoUpdateNotification(ctx, req.OwnerUserID, []string{req.FriendUserID})
+	}
 
 	return &relation.SetFriendNameResp{}, nil
 }
 
-// SetFriendNote 设置 owner 对好友的私有备注（note）。
-// 与 SetFriendRemark 不同：note 独立存储，不参与会话名、群成员昵称等好友显示，
-// 因此不下发 FriendRemarkSetNotification，也不触发群成员昵称刷新（NotificationFriendRemarkUpdate）。
 func (s *friendServer) SetFriendNote(ctx context.Context, req *relation.SetFriendNoteReq) (*relation.SetFriendNoteResp, error) {
 	if err := authverify.CheckAccessV3(ctx, req.OwnerUserID, s.config.Share.IMAdminUserID); err != nil {
 		return nil, err
@@ -866,7 +890,7 @@ func (s *friendServer) AddOnewayFriend(ctx context.Context, req *relation.ApplyT
 	if in1 {
 		return nil, servererrs.ErrRelationshipAlready.WrapMsg("already in friend list")
 	}
-	if err := s.db.BecomeOnewayFriend(ctx, req.FromUserID, req.ToUserID, becomeFriendByOneway, req.Remark); err != nil {
+	if err := s.db.BecomeOnewayFriend(ctx, req.FromUserID, req.ToUserID, becomeFriendByOneway, req.Remark, req.GetFirstName(), req.GetLastName(), req.GetNote()); err != nil {
 		return nil, err
 	}
 

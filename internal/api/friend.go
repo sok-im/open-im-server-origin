@@ -73,10 +73,6 @@ func (o *FriendApi) SetFriendName(c *gin.Context) {
 	a2r.Call(c, relation.FriendClient.SetFriendName, o.Client)
 }
 
-func (o *FriendApi) SetFriendNote(c *gin.Context) {
-	a2r.Call(c, relation.FriendClient.SetFriendNote, o.Client)
-}
-
 func (o *FriendApi) AddBlack(c *gin.Context) {
 	a2r.Call(c, relation.FriendClient.AddBlack, o.Client)
 }
@@ -142,7 +138,6 @@ func (o *FriendApi) GetPinnedFriendIDs(c *gin.Context) {
 func (o *FriendApi) AddOnewayFriend(c *gin.Context) {
 	a2r.Call(c, relation.FriendClient.AddOnewayFriend, o.Client)
 }
-
 
 func (o *FriendApi) PinFriend(c *gin.Context) {
 	a2r.Call(c, relation.FriendClient.PinFriend, o.Client)
