@@ -2718,7 +2718,7 @@ func (s *rtcServer) handleHeartbeat(ctx context.Context, req *rtc.SignalHeartbea
 func (s *rtcServer) getCalleeActiveCallStatus(ctx context.Context, userID string) (*model.UserCallStatus, bool) {
 	callSt, err := s.callStatusCache.GetCallStatus(ctx, userID)
 	if err != nil {
-		log.ZDebug(ctx, "getCalleeActiveCallStatus: no active call status", err, "userID", userID)
+		log.ZWarn(ctx, "getCalleeActiveCallStatus: no active call status", err, "userID", userID)
 		return nil, false
 	}
 	if !isUserOnActiveCall(callSt.Status) {

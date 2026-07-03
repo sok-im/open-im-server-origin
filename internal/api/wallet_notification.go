@@ -34,9 +34,11 @@ func (m *MessageApi) requireWalletNotifyParticipant(c *gin.Context, senderUserID
 	if opUserID == "" {
 		return errs.ErrNoPermission.WrapMsg("op user id is empty")
 	}
-	if opUserID != senderUserID && opUserID != receiverUserID {
-		return errs.ErrNoPermission.WrapMsg("only sender or receiver can send wallet action notification")
-	}
+	/*
+		if opUserID != senderUserID && opUserID != receiverUserID {
+			return errs.ErrNoPermission.WrapMsg("only sender or receiver can send wallet action notification")
+		}
+	*/
 	return nil
 }
 
