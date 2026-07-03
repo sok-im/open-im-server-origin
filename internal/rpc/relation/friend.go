@@ -799,6 +799,21 @@ func (s *friendServer) UpdateFriends(
 	if req.MuteEndTime != nil {
 		val["mute_end_time"] = req.MuteEndTime.Value
 	}
+	// friendFirstName/friendLastName are owner-set display names. When present they
+	// change the friend's display (conversation show_name, group member nickname),
+	// so we must additionally fire the display-name refresh notification below.
+	nameChanged := req.FriendFirstName != nil || req.FriendLastName != nil
+	if req.FriendFirstName != nil {
+		val["friend_first_name"] = req.FriendFirstName.Value
+	}
+	if req.FriendLastName != nil {
+		val["friend_last_name"] = req.FriendLastName.Value
+	}
+	// note is the owner's private remark, independent of remark and not part of the
+	// friend's display, so it does not trigger the display-name refresh notification.
+	if req.Note != nil {
+		val["note"] = req.Note.Value
+	}
 	if err = s.db.UpdateFriends(ctx, req.OwnerUserID, req.FriendUserIDs, val); err != nil {
 		return nil, err
 	}
@@ -840,6 +855,26 @@ func (s *friendServer) UpdateFriends(
 	}
 
 	resp := &relation.UpdateFriendsResp{}
+
+	// When the owner-set display name changed, refresh the friend's display name in
+	// the owner's conversation list and shared group member nicknames, mirroring
+	// SetFriendName's notification semantics.
+	if nameChanged {
+		for _, friendUserID := range req.FriendUserIDs {
+			s.notificationSender.FriendRemarkSetNotification(ctx, req.OwnerUserID, friendUserID)
+		}
+		go func() {
+			noCancelCtx := context.WithoutCancel(ctx)
+			for _, friendUserID := range req.FriendUserIDs {
+				if _, err := s.groupClient.NotificationFriendRemarkUpdate(noCancelCtx, &pbgroup.NotificationFriendRemarkUpdateReq{
+					OwnerUserID:  req.OwnerUserID,
+					FriendUserID: friendUserID,
+				}); err != nil {
+					log.ZError(noCancelCtx, "NotificationFriendRemarkUpdate", err, "ownerUserID", req.OwnerUserID, "friendUserID", friendUserID)
+				}
+			}
+		}()
+	}
 
 	s.notificationSender.FriendsInfoUpdateNotification(ctx, req.OwnerUserID, req.FriendUserIDs)
 	return resp, nil
