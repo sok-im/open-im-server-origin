@@ -38,14 +38,15 @@ import (
 )
 
 type MessageApi struct {
-	Client        msg.MsgClient
-	userClient    *rpcli.UserClient
-	imAdminUserID []string
-	validate      *validator.Validate
+	Client         msg.MsgClient
+	userClient     *rpcli.UserClient
+	relationClient *rpcli.RelationClient
+	imAdminUserID  []string
+	validate       *validator.Validate
 }
 
-func NewMessageApi(client msg.MsgClient, userClient *rpcli.UserClient, imAdminUserID []string) MessageApi {
-	return MessageApi{Client: client, userClient: userClient, imAdminUserID: imAdminUserID, validate: validator.New()}
+func NewMessageApi(client msg.MsgClient, userClient *rpcli.UserClient, relationClient *rpcli.RelationClient, imAdminUserID []string) MessageApi {
+	return MessageApi{Client: client, userClient: userClient, relationClient: relationClient, imAdminUserID: imAdminUserID, validate: validator.New()}
 }
 
 func (*MessageApi) SetOptions(options map[string]bool, value bool) {

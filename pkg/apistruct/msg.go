@@ -119,15 +119,27 @@ type ServiceNotificationContent struct {
 	SubType    int32  `json:"subType,omitempty"`           // 可选分类：1安全 2账号 3系统 4版本更新
 }
 
+// WalletActionDetailExtra 钱包动作通知详情页所需的业务附加信息。
+type WalletActionDetailExtra struct {
+	PacketID        string `json:"packetId,omitempty"`        // 红包/转账业务 ID
+	ChainID         string `json:"chainId,omitempty"`         // 链 ID，如 ethereum
+	ContractAddress string `json:"contractAddress,omitempty"` // 代币合约地址
+	SenderName      string `json:"senderName,omitempty"`      // 发送方/领取方昵称
+	Amount          string `json:"amount,omitempty"`          // 金额，如 1.00
+	TokenSymbol     string `json:"tokenSymbol,omitempty"`     // 代币符号，如 USDT
+}
+
 // WalletActionNotificationContent 红包/转账动作通知（领取、接收、过期等文案提示）。
 // GroupID 非空表示该动作发生在群聊场景，通知会作为群消息下发到群会话。
 type WalletActionNotificationContent struct {
-	Text           string `json:"text" validate:"required"`
-	BizID          string `json:"bizID,omitempty"`
-	DetailURL      string `json:"detailURL,omitempty"`
-	SenderUserID   string `json:"senderUserID,omitempty"`
-	ReceiverUserID string `json:"receiverUserID,omitempty"`
-	GroupID        string `json:"groupID,omitempty"`
+	Text           string                   `json:"text" validate:"required"`
+	BizID          string                   `json:"bizID,omitempty"`
+	DetailURL      string                   `json:"detailURL,omitempty"`
+	DetailRoute    string                   `json:"detailRoute,omitempty"` // 客户端内部详情页路由，如 /redpacket-claim
+	DetailExtra    *WalletActionDetailExtra `json:"detailExtra,omitempty"` // 详情页业务附加信息
+	SenderUserID   string                   `json:"senderUserID,omitempty"`
+	ReceiverUserID string                   `json:"receiverUserID,omitempty"`
+	GroupID        string                   `json:"groupID,omitempty"`
 }
 
 // PaymentNotificationContent SOK 钱包通知卡片内容。
