@@ -22,9 +22,9 @@ import (
 
 // SpamReport status constants.
 const (
-	SpamReportStatusPending  int32 = 0 // 待处理
-	SpamReportStatusHandled  int32 = 1 // 已处理
-	SpamReportStatusIgnored  int32 = 2 // 已忽略
+	SpamReportStatusPending int32 = 0 // 待处理
+	SpamReportStatusHandled int32 = 1 // 已处理
+	SpamReportStatusIgnored int32 = 2 // 已忽略
 )
 
 // SpamReport reason type constants.
@@ -45,7 +45,8 @@ type SpamReport struct {
 	Seq            int64              `bson:"seq"`
 	ReasonType     int32              `bson:"reason_type"` // 1垃圾 2色情 3违法 4其他
 	Reason         string             `bson:"reason"`
-	Status         int32              `bson:"status"`          // 0待处理 1已处理 2已忽略
+	Images         []string           `bson:"images"` // 举报图片（可多张）
+	Status         int32              `bson:"status"` // 0待处理 1已处理 2已忽略
 	CreateTime     time.Time          `bson:"create_time"`
 	HandleTime     time.Time          `bson:"handle_time"`
 	HandlerUserID  string             `bson:"handler_user_id"`
