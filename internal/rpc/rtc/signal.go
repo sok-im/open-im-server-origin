@@ -2108,7 +2108,7 @@ func liveKitParticipantUserIDs(participants []*livekit.ParticipantInfo, excludeU
 }
 
 func (s *rtcServer) goSendGroupCallParticipantCountUpdated(ctx context.Context, groupID, roomID, mediaType string, participantUserIDs []string) {
-	if groupID == "" {
+	if groupID == "" || len(participantUserIDs) == 0 {
 		return
 	}
 	go s.sendGroupCallParticipantCountUpdatedNotification(context.WithoutCancel(ctx), groupID, roomID, mediaType, participantUserIDs)
