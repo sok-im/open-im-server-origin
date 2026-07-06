@@ -1298,15 +1298,8 @@ func (s *rtcServer) isInvitationPending(ctx context.Context, inv *model.SignalIn
 		return false
 	}
 
-	if inv.AcceptTime > 0 {
-		// Answered calls remain active until the invitation is explicitly deleted
-		// on hang-up / cancel / reject / timeout. Do not rely on Redis TTL alone.
-		log.ZDebug(ctx, "isInvitationPending: accepted call still active", "inv", inv)
-		return true
-	}
-
 	// Ring timeout only applies while nobody has joined yet.
-	if inv.Timeout > 0 && inv.InitiateTime > 0 {
+	if inv.AcceptTime <= 0 && inv.Timeout > 0 && inv.InitiateTime > 0 {
 		deadlineMs := inv.InitiateTime + int64(inv.Timeout)*1000
 		if time.Now().UnixMilli() > deadlineMs {
 			log.ZDebug(ctx, "isInvitationPending: timeout", "inv", inv)
@@ -1320,6 +1313,10 @@ func (s *rtcServer) isInvitationPending(ctx context.Context, inv *model.SignalIn
 		return true
 	}
 	if lkErr != nil && isLiveKitRoomGone(lkErr) {
+		if s.hasParticipantCallStatusForRoom(ctx, inv) {
+			log.ZDebug(ctx, "isInvitationPending: LiveKit room gone but participant still active", "inv", inv)
+			return true
+		}
 		log.ZDebug(ctx, "isInvitationPending: LiveKit room gone", "inv", inv)
 		return false
 	}
@@ -2790,6 +2787,7 @@ func (s *rtcServer) isCalleeOnActiveCall(ctx context.Context, userID string) boo
 		return false
 	}
 	if !s.isInvitationPending(ctx, inv) {
+		//s.finalizeStaleInvitation(ctx, inv)
 		return false
 	}
 	log.ZInfo(ctx, "isCalleeOnActiveCall: busy via invitation fallback", "userID", userID, "roomID", inv.RoomID, "acceptTime", inv.AcceptTime)
