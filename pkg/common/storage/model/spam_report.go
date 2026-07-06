@@ -45,7 +45,6 @@ type SpamReport struct {
 	Seq            int64              `bson:"seq"`
 	ReasonType     int32              `bson:"reason_type"` // 1垃圾 2色情 3违法 4其他
 	Reason         string             `bson:"reason"`
-	Images         []string           `bson:"images"` // 举报图片URL列表
 	Status         int32              `bson:"status"` // 0待处理 1已处理 2已忽略
 	CreateTime     time.Time          `bson:"create_time"`
 	HandleTime     time.Time          `bson:"handle_time"`
