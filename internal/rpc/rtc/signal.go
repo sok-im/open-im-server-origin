@@ -671,10 +671,13 @@ func (s *rtcServer) handleJoin(ctx context.Context, req *rtc.SignalJoinReq, sign
 			return nil, err
 		}
 		log.ZDebug(ctx, "handleJoin: idempotent re-join", "roomID", dbInv.RoomID, "userID", req.UserID)
+		participants, inCall := s.joinCallParticipants(ctx, dbInv.RoomID, req.UserID)
 		return &rtc.SignalJoinResp{
-			Token:   token,
-			RoomID:  dbInv.RoomID,
-			LiveURL: s.config.RpcConfig.LiveKit.ExternalAddress,
+			Token:       token,
+			RoomID:      dbInv.RoomID,
+			LiveURL:     s.config.RpcConfig.LiveKit.ExternalAddress,
+			Participant: participants,
+			InCall:      inCall,
 		}, nil
 	}
 	if !s.isInvitationPending(ctx, dbInv) {
@@ -722,25 +725,17 @@ func (s *rtcServer) handleJoin(ctx context.Context, req *rtc.SignalJoinReq, sign
 		}
 	}
 
-	lp, listErr := s.roomClient.ListParticipants(ctx, &livekit.ListParticipantsRequest{Room: dbInv.RoomID})
-	participantUserIDs := []string{req.UserID}
-	if listErr == nil {
-		participantUserIDs = liveKitParticipantUserIDs(lp.Participants)
-		if !datautil.Contain(req.UserID, participantUserIDs...) {
-			participantUserIDs = append(participantUserIDs, req.UserID)
-		}
-	} else {
-		log.ZWarn(ctx, "handleJoin: ListParticipants failed", listErr, "roomID", dbInv.RoomID)
-		participantUserIDs = append(participantUserIDs, dbInv.InviterUserID)
-	}
-	s.goSendGroupCallParticipantCountUpdated(ctx, dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, participantUserIDs)
+	participants, inCall := s.joinCallParticipants(ctx, dbInv.RoomID, req.UserID)
+	s.goSendGroupCallParticipantCountUpdated(ctx, dbInv.GroupID, dbInv.RoomID, dbInv.MediaType, participantUserIDsFromMeta(participants))
 
-	log.ZDebug(ctx, "handleJoin: end", "roomID", dbInv.RoomID, "userID", req.UserID)
+	log.ZDebug(ctx, "handleJoin: end", "roomID", dbInv.RoomID, "userID", req.UserID, "participantCount", len(participants), "inCall", inCall)
 
 	return &rtc.SignalJoinResp{
-		Token:   token,
-		RoomID:  dbInv.RoomID,
-		LiveURL: s.config.RpcConfig.LiveKit.ExternalAddress,
+		Token:       token,
+		RoomID:      dbInv.RoomID,
+		LiveURL:     s.config.RpcConfig.LiveKit.ExternalAddress,
+		Participant: participants,
+		InCall:      inCall,
 	}, nil
 }
 
@@ -1272,6 +1267,54 @@ func (s *rtcServer) livekitRoomParticipantsMeta(ctx context.Context, roomID stri
 		out = append(out, &rtc.ParticipantMetaData{UserInfo: ui})
 	}
 	return out, true, nil
+}
+
+// joinCallParticipants returns LiveKit-connected participants plus the user who is
+// joining (they may not have connected to LiveKit yet).
+func (s *rtcServer) joinCallParticipants(ctx context.Context, roomID, joiningUserID string) ([]*rtc.ParticipantMetaData, bool) {
+	participants, inCall, err := s.livekitRoomParticipantsMeta(ctx, roomID)
+	if err != nil {
+		log.ZWarn(ctx, "joinCallParticipants: livekitRoomParticipantsMeta failed", err, "roomID", roomID)
+		participants = nil
+		inCall = false
+	}
+	joiningUserID = strings.TrimSpace(joiningUserID)
+	if joiningUserID == "" {
+		return participants, inCall
+	}
+	for _, p := range participants {
+		if p.GetUserInfo().GetUserID() == joiningUserID {
+			return participants, inCall
+		}
+	}
+	ui := &sdkws.PublicUserInfo{UserID: joiningUserID}
+	if u, uerr := s.userClient.GetUserInfo(ctx, joiningUserID); uerr == nil && u != nil {
+		ui.Nickname = u.Nickname
+		ui.FaceURL = u.FaceURL
+		ui.Ex = u.Ex
+	}
+	participants = append(participants, &rtc.ParticipantMetaData{UserInfo: ui})
+	return participants, true
+}
+
+func participantUserIDsFromMeta(participants []*rtc.ParticipantMetaData) []string {
+	if len(participants) == 0 {
+		return nil
+	}
+	userIDs := make([]string, 0, len(participants))
+	seen := make(map[string]struct{}, len(participants))
+	for _, p := range participants {
+		uid := strings.TrimSpace(p.GetUserInfo().GetUserID())
+		if uid == "" {
+			continue
+		}
+		if _, ok := seen[uid]; ok {
+			continue
+		}
+		seen[uid] = struct{}{}
+		userIDs = append(userIDs, uid)
+	}
+	return userIDs
 }
 
 // isLiveKitRoomGone reports whether LiveKit indicates the room no longer exists
