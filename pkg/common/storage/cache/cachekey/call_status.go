@@ -25,7 +25,7 @@ const (
 	// It acts as a safety net: if a crash or network partition prevents the
 	// normal deletion path from running, the key self-expires within this window
 	// so users are not permanently stuck in a "connecting" or "in-call" state.
-	CallStatusExpire = 1 * time.Minute
+	CallStatusExpire = 10 * time.Second
 )
 
 // GetCallStatusKey returns the Redis key for a given user's call status.
