@@ -2458,14 +2458,14 @@ type callRecordData struct {
 // should not see a new unread badge when the hang-up record is written.
 func callRecordMsgOptions(status string) map[string]bool {
 	opts := make(map[string]bool, 8)
-	datautil.SetSwitchFromOptions(opts, constant.IsNotNotification, true)                     // → si_/sg_ chat conversation
-	datautil.SetSwitchFromOptions(opts, constant.IsHistory, true)                             // → write to history
-	datautil.SetSwitchFromOptions(opts, constant.IsPersistent, true)                          // → persist to storage
-	datautil.SetSwitchFromOptions(opts, constant.IsUnreadCount, status != callStatusAnswered) // → unread only for missed/unanswered calls
-	datautil.SetSwitchFromOptions(opts, constant.IsConversationUpdate, true)                  // → update conv last message
-	datautil.SetSwitchFromOptions(opts, constant.IsSenderConversationUpdate, true)            // → update inviter's conv too
-	datautil.SetSwitchFromOptions(opts, constant.IsSenderSync, true)                          // → sync to inviter's other devices
-	datautil.SetSwitchFromOptions(opts, constant.IsOfflinePush, false)                        // → no offline banner for call records
+	datautil.SetSwitchFromOptions(opts, constant.IsNotNotification, true)                                                     // → si_/sg_ chat conversation
+	datautil.SetSwitchFromOptions(opts, constant.IsHistory, true)                                                             // → write to history
+	datautil.SetSwitchFromOptions(opts, constant.IsPersistent, true)                                                          // → persist to storage
+	datautil.SetSwitchFromOptions(opts, constant.IsUnreadCount, status != callStatusAnswered && status != callStatusRejected) // → unread only for missed/unanswered calls
+	datautil.SetSwitchFromOptions(opts, constant.IsConversationUpdate, true)                                                  // → update conv last message
+	datautil.SetSwitchFromOptions(opts, constant.IsSenderConversationUpdate, true)                                            // → update inviter's conv too
+	datautil.SetSwitchFromOptions(opts, constant.IsSenderSync, true)                                                          // → sync to inviter's other devices
+	datautil.SetSwitchFromOptions(opts, constant.IsOfflinePush, false)                                                        // → no offline banner for call records
 	return opts
 }
 

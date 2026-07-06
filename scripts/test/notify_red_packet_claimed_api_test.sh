@@ -56,6 +56,15 @@ RESP="$(call_api "/msg/notify_red_packet_claimed" "$(cat <<EOF
   "senderUserID": "${SENDER_USER_ID}",
   "receiverUserID": "${RECEIVER_USER_ID}",
   "bizID": "${BIZ_ID}",
+  "detailRoute": "/redpacket-claim",
+  "detailExtra": {
+    "packetId": "1783070733",
+    "chainId": "ethereum",
+    "contractAddress": "0x...",
+    "senderName": "领取人昵称",
+    "amount": "1.00",
+    "tokenSymbol": "USDT"
+  },
   "receiverText": "${RECEIVER_TEXT}",
   "senderText": "${SENDER_TEXT}",
   "detailURL": "${DETAIL_URL}"
