@@ -28,3 +28,8 @@ liveKit:
   apiSecret: openim-livekit-default-secret-32chars-min
   # Token expiry in seconds (default: 3600 = 1 hour)
   tokenExpiry: 3600
+
+# Per-user call-status Redis TTL in seconds (default: 10).
+# Acts as a safety net so users are not stuck in "connecting"/"in-call" after crashes;
+# clients should heartbeat during active calls to refresh this TTL.
+callStatusTTL: 10

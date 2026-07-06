@@ -14,18 +14,10 @@
 
 package cachekey
 
-import "time"
-
 const (
 	// CallStatusKey is the Redis key prefix for per-user audio/video call status.
 	// Full key: CALL_STATUS:{userID}
 	CallStatusKey = "CALL_STATUS:"
-
-	// CallStatusExpire is the TTL applied to every call-status entry.
-	// It acts as a safety net: if a crash or network partition prevents the
-	// normal deletion path from running, the key self-expires within this window
-	// so users are not permanently stuck in a "connecting" or "in-call" state.
-	CallStatusExpire = 10 * time.Second
 )
 
 // GetCallStatusKey returns the Redis key for a given user's call status.

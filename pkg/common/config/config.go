@@ -570,8 +570,9 @@ type Rtc struct {
 		AutoSetPorts bool   `mapstructure:"autoSetPorts"`
 		Ports        []int  `mapstructure:"ports"`
 	} `mapstructure:"rpc"`
-	Prometheus Prometheus `mapstructure:"prometheus"`
-	LiveKit    LiveKit    `mapstructure:"liveKit"`
+	Prometheus    Prometheus `mapstructure:"prometheus"`
+	LiveKit       LiveKit    `mapstructure:"liveKit"`
+	CallStatusTTL int        `mapstructure:"callStatusTTL"`
 }
 
 type Crypto struct {

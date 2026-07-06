@@ -2693,7 +2693,7 @@ func isUserOnActiveCall(status int32) bool {
 }
 
 // handleHeartbeat refreshes the caller's own call-status TTL in Redis so an
-// active call is not misclassified as idle once CallStatusExpire elapses.
+// active call is not misclassified as idle once the call-status TTL elapses.
 // Each client heartbeats for itself only; both parties must send heartbeats
 // during a call to keep their respective busy keys alive.
 func (s *rtcServer) handleHeartbeat(ctx context.Context, req *rtc.SignalHeartbeatReq) (*rtc.SignalHeartbeatResp, error) {
@@ -2744,7 +2744,7 @@ func (s *rtcServer) isCalleeBusyOnAnotherCall(ctx context.Context, userID, roomI
 
 // isCalleeOnActiveCall reports whether userID should be treated as busy for a new invite.
 // It checks Redis first, then falls back to Mongo invitation + isInvitationPending
-// so long calls are not misclassified as idle after CallStatusExpire.
+// so long calls are not misclassified as idle after the call-status TTL.
 func (s *rtcServer) isCalleeOnActiveCall(ctx context.Context, userID string) bool {
 	if _, busy := s.getCalleeActiveCallStatus(ctx, userID); busy {
 		return true

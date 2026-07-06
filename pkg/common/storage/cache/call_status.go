@@ -29,7 +29,7 @@ import (
 //	Call ends (any path)    →  DeleteCallStatus
 type CallStatusCache interface {
 	// SetCallStatus writes or overwrites the call status for a single user.
-	// The entry is automatically expired after cachekey.CallStatusExpire.
+	// The entry is automatically expired after the configured call-status TTL.
 	SetCallStatus(ctx context.Context, userID string, status *model.UserCallStatus) error
 
 	// GetCallStatus retrieves the current call status for a user.
@@ -37,7 +37,7 @@ type CallStatusCache interface {
 	GetCallStatus(ctx context.Context, userID string) (*model.UserCallStatus, error)
 
 	// RefreshCallStatusTTL extends the TTL of existing call-status entries back to
-	// cachekey.CallStatusExpire. It is driven by client heartbeats during an
+	// the configured call-status TTL. It is driven by client heartbeats during an
 	// active call so a long call is not misclassified as idle when the TTL lapses.
 	// Missing keys (already expired / never set) are silently ignored.
 	RefreshCallStatusTTL(ctx context.Context, userIDs ...string) error

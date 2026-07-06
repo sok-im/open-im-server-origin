@@ -112,6 +112,11 @@ func Start(ctx context.Context, cfg *Config, client discovery.SvcDiscoveryRegist
 		tokenExpiry = time.Hour
 	}
 
+	callStatusTTL := time.Duration(cfg.RpcConfig.CallStatusTTL) * time.Second
+	if callStatusTTL <= 0 {
+		callStatusTTL = 10 * time.Second
+	}
+
 	s := &rtcServer{
 		config:          cfg,
 		db:              controller.NewRtcDatabase(signalDB),
@@ -123,7 +128,7 @@ func Start(ctx context.Context, cfg *Config, client discovery.SvcDiscoveryRegist
 		groupClient:     rpcli.NewGroupClient(groupConn),
 		relationClient:  rpcli.NewRelationClient(friendConn),
 		tokenExpiry:     tokenExpiry,
-		callStatusCache: cacheredis.NewCallStatusCache(rdb),
+		callStatusCache: cacheredis.NewCallStatusCache(rdb, callStatusTTL),
 	}
 
 	rtc.RegisterRtcServiceServer(server, s)

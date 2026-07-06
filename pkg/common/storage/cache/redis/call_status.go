@@ -28,8 +28,8 @@ import (
 )
 
 // NewCallStatusCache returns a Redis-backed CallStatusCache.
-func NewCallStatusCache(rdb redis.UniversalClient) cache.CallStatusCache {
-	return &callStatusCache{rdb: rdb, expire: cachekey.CallStatusExpire}
+func NewCallStatusCache(rdb redis.UniversalClient, expire time.Duration) cache.CallStatusCache {
+	return &callStatusCache{rdb: rdb, expire: expire}
 }
 
 type callStatusCache struct {
