@@ -56,7 +56,6 @@ func (m *msgServer) ReportSpam(ctx context.Context, req *msg.ReportSpamReq) (*ms
 		Seq:            req.Seq,
 		ReasonType:     req.ReasonType,
 		Reason:         req.Reason,
-		Images:         req.Images,
 		Status:         model.SpamReportStatusPending,
 		CreateTime:     time.Now(),
 		Ex:             req.Ex,
@@ -116,7 +115,6 @@ func (m *msgServer) GetSpamReports(ctx context.Context, req *msg.GetSpamReportsR
 			HandleTime:     r.HandleTime.UnixMilli(),
 			HandlerUserID:  r.HandlerUserID,
 			Ex:             r.Ex,
-			Images:         r.Images,
 		}
 	})
 
