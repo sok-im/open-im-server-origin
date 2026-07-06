@@ -651,27 +651,34 @@ func (s *rtcServer) handleJoin(ctx context.Context, req *rtc.SignalJoinReq, sign
 
 	dbInv, err := s.db.GetInvitationByRoomID(ctx, req.Invitation.RoomID)
 	if err != nil {
+		log.ZWarn(ctx, "handleJoin: GetInvitationByRoomID failed", err, "req", req)
 		return nil, errs.WrapMsg(err, "invitation not found or expired", "roomID", req.Invitation.RoomID)
 	}
 	if dbInv.GroupID == "" {
+		log.ZWarn(ctx, "handleJoin: groupID is empty", errs.ErrArgs.WrapMsg("join is only supported for group calls"), "req", req)
 		return nil, errs.ErrArgs.WrapMsg("join is only supported for group calls", "roomID", dbInv.RoomID)
 	}
 	if _, err := s.groupClient.GetGroupMemberCache(ctx, dbInv.GroupID, req.UserID); err != nil {
+		log.ZWarn(ctx, "handleJoin: GetGroupMemberCache failed", err, "req", req)
 		return nil, errs.ErrNoPermission.WrapMsg("user is not a group member", "userID", req.UserID, "groupID", dbInv.GroupID)
 	}
 	if !s.isInvitationPending(ctx, dbInv) {
+		log.ZWarn(ctx, "handleJoin: invitation is not pending", errs.ErrRecordNotFound.WrapMsg("group call not active"), "req", req)
 		s.finalizeStaleInvitation(ctx, dbInv)
 		return nil, errs.ErrRecordNotFound.WrapMsg("group call not active", "roomID", dbInv.RoomID)
 	}
 	if s.isCalleeBusyOnAnotherCall(ctx, req.UserID, dbInv.RoomID) {
+		log.ZWarn(ctx, "handleJoin: user is already on another call", servererrs.ErrAllUserBusy.WrapMsg("user is already on another call"), "req", req)
 		return nil, servererrs.ErrAllUserBusy.WrapMsg("user is already on another call", "userID", req.UserID)
 	}
 	if err := s.ensureCallParticipant(ctx, dbInv, req.UserID); err != nil {
+		log.ZWarn(ctx, "handleJoin: ensureCallParticipant failed", err, "req", req)
 		return nil, errs.WrapMsg(err, "ensureCallParticipant failed", "roomID", dbInv.RoomID, "userID", req.UserID)
 	}
 
 	token, err := s.genToken(dbInv.RoomID, req.UserID)
 	if err != nil {
+		log.ZWarn(ctx, "handleJoin: genToken failed", err, "req", req)
 		return nil, err
 	}
 
@@ -685,6 +692,7 @@ func (s *rtcServer) handleJoin(ctx context.Context, req *rtc.SignalJoinReq, sign
 
 	content, err := marshalSignalReq(signalReq)
 	if err != nil {
+		log.ZWarn(ctx, "handleJoin: marshalSignalReq failed", err, "req", req)
 		return nil, err
 	}
 	notifyPeers := make(map[string]struct{}, len(dbInv.InviteeUserIDList)+1)
