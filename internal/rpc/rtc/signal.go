@@ -662,9 +662,23 @@ func (s *rtcServer) handleJoin(ctx context.Context, req *rtc.SignalJoinReq, sign
 		log.ZWarn(ctx, "handleJoin: GetGroupMemberCache failed", err, "req", req)
 		return nil, errs.ErrNoPermission.WrapMsg("user is not a group member", "userID", req.UserID, "groupID", dbInv.GroupID)
 	}
+	// Idempotent re-join: repeated join clicks while already in this room should
+	// return a fresh token instead of failing or tearing down the call.
+	if callSt, busy := s.getCalleeActiveCallStatus(ctx, req.UserID); busy && callSt.RoomID == dbInv.RoomID {
+		token, err := s.genToken(dbInv.RoomID, req.UserID)
+		if err != nil {
+			log.ZWarn(ctx, "handleJoin: genToken failed (re-join)", err, "req", req)
+			return nil, err
+		}
+		log.ZDebug(ctx, "handleJoin: idempotent re-join", "roomID", dbInv.RoomID, "userID", req.UserID)
+		return &rtc.SignalJoinResp{
+			Token:   token,
+			RoomID:  dbInv.RoomID,
+			LiveURL: s.config.RpcConfig.LiveKit.ExternalAddress,
+		}, nil
+	}
 	if !s.isInvitationPending(ctx, dbInv) {
 		log.ZWarn(ctx, "handleJoin: invitation is not pending", errs.ErrRecordNotFound.WrapMsg("group call not active"), "req", req)
-		s.finalizeStaleInvitation(ctx, dbInv)
 		return nil, errs.ErrRecordNotFound.WrapMsg("group call not active", "roomID", dbInv.RoomID)
 	}
 	if s.isCalleeBusyOnAnotherCall(ctx, req.UserID, dbInv.RoomID) {
@@ -1284,6 +1298,14 @@ func (s *rtcServer) isInvitationPending(ctx context.Context, inv *model.SignalIn
 		return false
 	}
 
+	if inv.AcceptTime > 0 {
+		// Answered calls remain active until the invitation is explicitly deleted
+		// on hang-up / cancel / reject / timeout. Do not rely on Redis TTL alone.
+		log.ZDebug(ctx, "isInvitationPending: accepted call still active", "inv", inv)
+		return true
+	}
+
+	// Ring timeout only applies while nobody has joined yet.
 	if inv.Timeout > 0 && inv.InitiateTime > 0 {
 		deadlineMs := inv.InitiateTime + int64(inv.Timeout)*1000
 		if time.Now().UnixMilli() > deadlineMs {
@@ -1305,22 +1327,20 @@ func (s *rtcServer) isInvitationPending(ctx context.Context, inv *model.SignalIn
 	inviterSt, inviterErr := s.callStatusCache.GetCallStatus(ctx, inv.InviterUserID)
 	inviterActive := inviterErr == nil && inviterSt.RoomID == inv.RoomID
 
-	if inv.AcceptTime > 0 {
-		// Answered calls remain active until the invitation is explicitly deleted
-		// on hang-up / cancel / reject / timeout. Do not rely on Redis TTL alone.
-		log.ZDebug(ctx, "isInvitationPending: accepted call still active", "inv", inv)
+	if inviterActive {
+		// Unanswered and inviter still tracked in call-status (within timeout above).
+		// Some clients ring before joining LiveKit, so an empty room is normal during this phase.
+		log.ZDebug(ctx, "isInvitationPending: inviter active", "inv", inv)
 		return true
 	}
 
-	if !inviterActive {
-		log.ZDebug(ctx, "isInvitationPending: inviter active", "inv", inv)
-		return false
+	if s.hasParticipantCallStatusForRoom(ctx, inv) {
+		log.ZDebug(ctx, "isInvitationPending: participant active", "inv", inv)
+		return true
 	}
 
-	// Unanswered and inviter still tracked in call-status (within timeout above).
-	// Some clients ring before joining LiveKit, so an empty room is normal during this phase.
-	log.ZDebug(ctx, "isInvitationPending: empty LiveKit room", "inv", inv)
-	return true
+	log.ZDebug(ctx, "isInvitationPending: not active", "inv", inv)
+	return false
 }
 
 func (s *rtcServer) hasParticipantCallStatusForRoom(ctx context.Context, inv *model.SignalInvitation) bool {
