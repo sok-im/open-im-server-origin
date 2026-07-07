@@ -48,6 +48,10 @@ func (o *RtcApi) GetSignalInvitationInfo(c *gin.Context) {
 	a2r.Call(c, rtc.RtcServiceClient.GetSignalInvitationInfo, o.Client)
 }
 
+func (o *RtcApi) IsCallEndedByRoomID(c *gin.Context) {
+	a2r.Call(c, rtc.RtcServiceClient.IsCallEndedByRoomID, o.Client)
+}
+
 func (o *RtcApi) GetSignalInvitationInfoStartApp(c *gin.Context) {
 	a2r.Call(c, rtc.RtcServiceClient.GetSignalInvitationInfoStartApp, o.Client)
 }

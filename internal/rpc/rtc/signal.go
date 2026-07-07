@@ -1544,7 +1544,7 @@ func (s *rtcServer) GetSignalInvitationInfo(ctx context.Context, req *rtc.GetSig
 		return nil, err
 	}
 	if !s.isInvitationPending(ctx, inv) {
-		s.finalizeStaleInvitation(ctx, inv)
+		//s.finalizeStaleInvitation(ctx, inv)
 		return nil, errs.ErrRecordNotFound.WrapMsg("invitation not found or expired", "roomID", inv.RoomID)
 	}
 	return &rtc.GetSignalInvitationInfoResp{
@@ -1555,6 +1555,21 @@ func (s *rtcServer) GetSignalInvitationInfo(ctx context.Context, req *rtc.GetSig
 			Ex:    inv.OfflinePushEx,
 		},
 	}, nil
+}
+
+// IsCallEndedByRoomID reports whether the call for the given room has ended.
+func (s *rtcServer) IsCallEndedByRoomID(ctx context.Context, req *rtc.IsCallEndedByRoomIDReq) (*rtc.IsCallEndedByRoomIDResp, error) {
+	if req.RoomID == "" {
+		return nil, errs.ErrArgs.WrapMsg("roomID is empty")
+	}
+	inv, err := s.db.GetInvitationByRoomID(ctx, req.RoomID)
+	if err != nil {
+		if errs.ErrRecordNotFound.Is(err) {
+			return &rtc.IsCallEndedByRoomIDResp{IsEnded: true}, nil
+		}
+		return nil, err
+	}
+	return &rtc.IsCallEndedByRoomIDResp{IsEnded: !s.isInvitationPending(ctx, inv)}, nil
 }
 
 // GetSignalInvitationInfoStartApp retrieves a pending invitation for a user when the app starts.
