@@ -936,12 +936,35 @@ func (s *rtcServer) handleCancel(ctx context.Context, req *rtc.SignalCancelReq, 
 		sessionType = int32(constant.ReadGroupChatType)
 	}
 
-	// 竞态处理：主叫在振铃阶段点击挂断（发送 Cancel），但被叫几乎同时接听，
-	// 服务端先处理了 Accept（AcceptTime>0）。此时被叫已进入通话页面，
-	// 若仍向其推送 Cancel，会被通话页当作“来电已取消”而忽略，导致界面无法关闭、
-	// 通话持续计时。故 1v1 通话在已接听后改发 HungUp（通话结束）信令，让被叫走
-	// OnHangUp 关闭通话页，并按“已接听”落库/写通话记录。
-	answered := dbInv.GroupID == "" && dbInv.AcceptTime > 0
+	// 竞态处理（消除 TOCTOU）：主叫在振铃阶段点击挂断（发送 Cancel），被叫几乎
+	// 同时接听（Accept）。handleCancel 与 handleAccept 是两个并发 RPC，若仅凭函数
+	// 开头读到的 dbInv.AcceptTime 判断，会漏判“Cancel 读到旧快照 accept_time=0、
+	// 而 Accept 稍后才落库”的情况，从而给已进入通话页的被叫误发 Cancel，导致其
+	// 界面无法关闭、通话持续计时。
+	//
+	// 因此对 1v1 通话改用“仅当未接听(accept_time==0)时才删除邀请”的原子操作定夺：
+	//   - 删除成功 → 确属未接听 → 发 Cancel、记为已取消；
+	//   - 删除失败 → 已被并发 Accept 置为已接听 → 重新读取、改发 HungUp、记为已接听，
+	//     让被叫走 OnHangUp 关闭通话页。
+	// 与 handleAccept 里带相同条件的 SetAcceptTime 由 MongoDB 单文档原子性保证互斥。
+	answered := false
+	if dbInv.GroupID == "" {
+		deleted, delErr := s.db.DeleteInvitationIfNotAccepted(ctx, dbInv.RoomID)
+		switch {
+		case delErr != nil:
+			// DB 异常时回退到快照判断，避免完全不处理。
+			log.ZWarn(ctx, "handleCancel: DeleteInvitationIfNotAccepted failed, fallback to snapshot", delErr, "roomID", dbInv.RoomID)
+			answered = dbInv.AcceptTime > 0
+		case deleted:
+			answered = false
+		default:
+			// 未删除：邀请已被并发 Accept 标记为已接听（或已被其它终结路径删除）。
+			if latest, ferr := s.db.GetInvitationByRoomID(ctx, dbInv.RoomID); ferr == nil && latest != nil && latest.AcceptTime > 0 {
+				answered = true
+				dbInv = latest
+			}
+		}
+	}
 	talkSecs, _ := singleChatCallDuration(dbInv)
 
 	invInfo := modelToInvitationInfo(dbInv)

@@ -112,6 +112,34 @@ func (s *signalMgo) TryDeleteInvitation(ctx context.Context, roomID string) (boo
 	return res.DeletedCount > 0, nil
 }
 
+// DeleteInvitationIfNotAccepted atomically deletes the invitation only when it
+// has not been accepted yet (accept_time absent or 0). Returns true when a
+// document was actually deleted.
+//
+// This mirrors the conditional filter used by SetAcceptTime, so "cancel" and
+// "accept" race for the same single document and MongoDB serializes them:
+//   - if SetAcceptTime commits first, accept_time becomes > 0 and this delete
+//     matches nothing (deleted=false) → caller knows the call was accepted;
+//   - if this delete commits first, the document is gone and SetAcceptTime
+//     matches nothing → the accept did not take effect on the record.
+//
+// It lets handleCancel decide answered-vs-not without the TOCTOU window of
+// reading accept_time from an earlier snapshot.
+func (s *signalMgo) DeleteInvitationIfNotAccepted(ctx context.Context, roomID string) (bool, error) {
+	filter := bson.M{
+		"room_id": roomID,
+		"$or": bson.A{
+			bson.M{"accept_time": bson.M{"$exists": false}},
+			bson.M{"accept_time": int64(0)},
+		},
+	}
+	res, err := s.invColl.DeleteOne(ctx, filter)
+	if err != nil {
+		return false, err
+	}
+	return res.DeletedCount > 0, nil
+}
+
 func (s *signalMgo) RemoveInvitee(ctx context.Context, roomID string, userID string) error {
 	filter := bson.M{"room_id": roomID}
 	update := bson.M{"$pull": bson.M{"invitee_user_id_list": userID}}
