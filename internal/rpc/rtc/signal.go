@@ -935,12 +935,38 @@ func (s *rtcServer) handleCancel(ctx context.Context, req *rtc.SignalCancelReq, 
 	if dbInv.GroupID != "" {
 		sessionType = int32(constant.ReadGroupChatType)
 	}
+
+	// 竞态处理：主叫在振铃阶段点击挂断（发送 Cancel），但被叫几乎同时接听，
+	// 服务端先处理了 Accept（AcceptTime>0）。此时被叫已进入通话页面，
+	// 若仍向其推送 Cancel，会被通话页当作“来电已取消”而忽略，导致界面无法关闭、
+	// 通话持续计时。故 1v1 通话在已接听后改发 HungUp（通话结束）信令，让被叫走
+	// OnHangUp 关闭通话页，并按“已接听”落库/写通话记录。
+	answered := dbInv.GroupID == "" && dbInv.AcceptTime > 0
+	talkSecs, _ := singleChatCallDuration(dbInv)
+
+	invInfo := modelToInvitationInfo(dbInv)
 	content, err := marshalSignalReq(signalReq)
 	if err != nil {
 		log.ZWarn(ctx, "handleCancel", err, "marshal signal req failed", "req", req, "dbInv", dbInv, "signalReq", signalReq)
 		return nil, err
 	}
-	invInfo := modelToInvitationInfo(dbInv)
+	if answered {
+		hungUpSignalReq := &rtc.SignalReq{
+			Payload: &rtc.SignalReq_HungUp{
+				HungUp: &rtc.SignalHungUpReq{
+					Invitation:   invInfo,
+					UserID:       dbInv.InviterUserID,
+					CallDuration: talkSecs,
+				},
+			},
+		}
+		if hungUpContent, marshalErr := marshalSignalReq(hungUpSignalReq); marshalErr != nil {
+			log.ZWarn(ctx, "handleCancel: marshal hungUp signal req failed", marshalErr, "roomID", dbInv.RoomID)
+		} else {
+			content = hungUpContent
+			log.ZInfo(ctx, "handleCancel: call already accepted, forwarding hangUp to invitees", "roomID", dbInv.RoomID, "talkSecs", talkSecs)
+		}
+	}
 	for _, inviteeID := range dbInv.InviteeUserIDList {
 		cancelOfflinePush := s.resolveSignalingOfflinePushInfo(ctx, invInfo, offlinePushInfoFromInvitationModel(dbInv), signalCallActionCancel, req.UserID, inviteeID)
 		if err := s.sendSignalingNotification(ctx, req.UserID, inviteeID, sessionType, dbInv.GroupID, cancelOfflinePush, content); err != nil {
@@ -951,6 +977,8 @@ func (s *rtcServer) handleCancel(ctx context.Context, req *rtc.SignalCancelReq, 
 	if _, err := s.roomClient.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: dbInv.RoomID}); err != nil {
 		log.ZWarn(ctx, "handleCancel: DeleteRoom failed", err, "roomID", dbInv.RoomID)
 	}
+
+	log.ZDebug(ctx, "handleCancel: DeleteRoom", "roomID", dbInv.RoomID)
 
 	var groupCallEndedClaimed bool
 	if dbInv.GroupID != "" {
@@ -981,6 +1009,9 @@ func (s *rtcServer) handleCancel(ctx context.Context, req *rtc.SignalCancelReq, 
 			log.ZDebug(ctx, "handleCancel: sendGroupCallEndedNotification", "dbInv", dbInv, "groupCallEndedClaimed", groupCallEndedClaimed)
 
 		}
+	} else if answered {
+		// 已接听后被取消：按已接听通话写入记录（时长为 accept→now）。
+		s.sendCallRecordChatMsg(ctx, dbInv, callStatusAnswered, talkSecs)
 	} else {
 		s.sendCallRecordChatMsg(ctx, dbInv, callStatusCancelled, 0)
 	}
