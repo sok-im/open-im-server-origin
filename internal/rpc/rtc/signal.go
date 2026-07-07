@@ -966,8 +966,11 @@ func (s *rtcServer) handleCancel(ctx context.Context, req *rtc.SignalCancelReq, 
 			content = hungUpContent
 			log.ZInfo(ctx, "handleCancel: call already accepted, forwarding hangUp to invitees", "roomID", dbInv.RoomID, "talkSecs", talkSecs)
 		}
-		log.ZDebug(ctx, "handleCancel: hungUpSignalReq", "hungUpSignalReq", hungUpSignalReq)
+		log.ZDebug(ctx, "handleCancel: answered", "content", content, "req", req)
+	} else {
+		log.ZDebug(ctx, "handleCancel: not answered", "content", content, "req", req)
 	}
+
 	for _, inviteeID := range dbInv.InviteeUserIDList {
 		cancelOfflinePush := s.resolveSignalingOfflinePushInfo(ctx, invInfo, offlinePushInfoFromInvitationModel(dbInv), signalCallActionCancel, req.UserID, inviteeID)
 		if err := s.sendSignalingNotification(ctx, req.UserID, inviteeID, sessionType, dbInv.GroupID, cancelOfflinePush, content); err != nil {
