@@ -10,6 +10,7 @@ import (
 	"github.com/openimsdk/protocol/sdkws"
 	"github.com/openimsdk/tools/apiresp"
 	"github.com/openimsdk/tools/errs"
+	"github.com/openimsdk/tools/log"
 	"github.com/openimsdk/tools/mcontext"
 	"github.com/openimsdk/tools/utils/idutil"
 )
@@ -154,17 +155,31 @@ func (m *MessageApi) sendWalletGroupActionNotification(
 func (m *MessageApi) NotifyRedPacketClaimed(c *gin.Context) {
 	var req walletDualPartyNotifyReq
 	if err := c.BindJSON(&req); err != nil {
+
+		log.ZWarn(c, "NotifyRedPacketClaimed: BindJSON error", err, "req", req)
+
 		apiresp.GinError(c, errs.ErrArgs.WithDetail(err.Error()).Wrap())
 		return
 	}
+
+	log.ZDebug(c, "NotifyRedPacketClaimed", "req", req)
+
 	if err := m.requireWalletNotifyParticipant(c, req.SenderUserID, req.ReceiverUserID); err != nil {
+
+		log.ZWarn(c, "NotifyRedPacketClaimed: requireWalletNotifyParticipant error", err, "req", req)
+
 		apiresp.GinError(c, err)
 		return
 	}
+
 	m.fillWalletSenderName(c, req.DetailExtra, req.ReceiverUserID, req.SenderUserID)
+
 	if req.GroupID != "" {
 		if req.GroupText == "" {
-			apiresp.GinError(c, errs.ErrArgs.WrapMsg("groupText is required when groupID is set"))
+			err := errs.ErrArgs.WrapMsg("groupText is required when groupID is set")
+			log.ZWarn(c, "NotifyRedPacketClaimed: groupText is required when groupID is set", err, "req", req)
+
+			apiresp.GinError(c, err)
 			return
 		}
 		groupContent := apistruct.WalletActionNotificationContent{
@@ -177,10 +192,18 @@ func (m *MessageApi) NotifyRedPacketClaimed(c *gin.Context) {
 			ReceiverUserID: req.ReceiverUserID,
 			GroupID:        req.GroupID,
 		}
+
+		log.ZDebug(c, "NotifyRedPacketClaimed", "groupContent", groupContent, "req", req)
+
 		if err := m.sendWalletGroupActionNotification(c, req.GroupID, constant.RedPacketClaimNotification, groupContent); err != nil {
+			log.ZWarn(c, "NotifyRedPacketClaimed: sendWalletGroupActionNotification error", err, "req", req)
+
 			apiresp.GinError(c, err)
 			return
 		}
+
+		log.ZDebug(c, "NotifyRedPacketClaimed", "sendWalletGroupActionNotification success", "req", req)
+
 		apiresp.GinSuccess(c, nil)
 		return
 	}
@@ -193,7 +216,12 @@ func (m *MessageApi) NotifyRedPacketClaimed(c *gin.Context) {
 		SenderUserID:   req.SenderUserID,
 		ReceiverUserID: req.ReceiverUserID,
 	}
+
+	log.ZDebug(c, "NotifyRedPacketClaimed", "receiverContent", receiverContent, "req", req)
+
 	if err := m.sendWalletActionNotification(c, req.SenderUserID, req.ReceiverUserID, constant.RedPacketClaimNotification, receiverContent); err != nil {
+		log.ZWarn(c, "NotifyRedPacketClaimed: sendWalletActionNotification error", err, "req", req)
+
 		apiresp.GinError(c, err)
 		return
 	}
@@ -206,7 +234,12 @@ func (m *MessageApi) NotifyRedPacketClaimed(c *gin.Context) {
 		SenderUserID:   req.SenderUserID,
 		ReceiverUserID: req.ReceiverUserID,
 	}
+
+	log.ZDebug(c, "NotifyRedPacketClaimed", "senderContent", senderContent, "req", req)
+
 	if err := m.sendWalletActionNotification(c, req.SenderUserID, req.SenderUserID, constant.RedPacketClaimNotification, senderContent); err != nil {
+		log.ZWarn(c, "NotifyRedPacketClaimed: sendWalletActionNotification error", err, "req", req)
+
 		apiresp.GinError(c, err)
 		return
 	}
@@ -216,17 +249,27 @@ func (m *MessageApi) NotifyRedPacketClaimed(c *gin.Context) {
 func (m *MessageApi) NotifyTransferReceived(c *gin.Context) {
 	var req walletDualPartyNotifyReq
 	if err := c.BindJSON(&req); err != nil {
+
+		log.ZWarn(c, "NotifyTransferReceived: BindJSON error", err, "req", req)
+
 		apiresp.GinError(c, errs.ErrArgs.WithDetail(err.Error()).Wrap())
 		return
 	}
 	if err := m.requireWalletNotifyParticipant(c, req.SenderUserID, req.ReceiverUserID); err != nil {
+
+		log.ZWarn(c, "NotifyTransferReceived: requireWalletNotifyParticipant error", err, "req", req)
+
 		apiresp.GinError(c, err)
 		return
 	}
 	m.fillWalletSenderName(c, req.DetailExtra, req.ReceiverUserID, req.SenderUserID)
 	if req.GroupID != "" {
 		if req.GroupText == "" {
-			apiresp.GinError(c, errs.ErrArgs.WrapMsg("groupText is required when groupID is set"))
+
+			err := errs.ErrArgs.WrapMsg("groupText is required when groupID is set")
+			log.ZWarn(c, "NotifyTransferReceived: groupText is required when groupID is set", err, "req", req)
+
+			apiresp.GinError(c, err)
 			return
 		}
 		groupContent := apistruct.WalletActionNotificationContent{
@@ -239,13 +282,22 @@ func (m *MessageApi) NotifyTransferReceived(c *gin.Context) {
 			ReceiverUserID: req.ReceiverUserID,
 			GroupID:        req.GroupID,
 		}
+
+		log.ZDebug(c, "NotifyTransferReceived", "groupContent", groupContent, "req", req)
+
 		if err := m.sendWalletGroupActionNotification(c, req.GroupID, constant.TransferReceiveNotification, groupContent); err != nil {
+			log.ZWarn(c, "NotifyTransferReceived: sendWalletGroupActionNotification error", err, "req", req)
+
 			apiresp.GinError(c, err)
 			return
 		}
+
+		log.ZDebug(c, "NotifyTransferReceived", "sendWalletGroupActionNotification success", "req", req)
+
 		apiresp.GinSuccess(c, nil)
 		return
 	}
+
 	receiverContent := apistruct.WalletActionNotificationContent{
 		Text:           req.ReceiverText,
 		BizID:          req.BizID,
@@ -255,7 +307,12 @@ func (m *MessageApi) NotifyTransferReceived(c *gin.Context) {
 		SenderUserID:   req.SenderUserID,
 		ReceiverUserID: req.ReceiverUserID,
 	}
+
+	log.ZDebug(c, "NotifyTransferReceived", "receiverContent", receiverContent, "req", req)
+
 	if err := m.sendWalletActionNotification(c, req.SenderUserID, req.ReceiverUserID, constant.TransferReceiveNotification, receiverContent); err != nil {
+		log.ZWarn(c, "NotifyTransferReceived: sendWalletActionNotification error", err, "req", req)
+
 		apiresp.GinError(c, err)
 		return
 	}
@@ -268,27 +325,41 @@ func (m *MessageApi) NotifyTransferReceived(c *gin.Context) {
 		SenderUserID:   req.SenderUserID,
 		ReceiverUserID: req.ReceiverUserID,
 	}
+
+	log.ZDebug(c, "NotifyTransferReceived", "senderContent", senderContent)
+
 	if err := m.sendWalletActionNotification(c, req.SenderUserID, req.SenderUserID, constant.TransferReceiveNotification, senderContent); err != nil {
+		log.ZWarn(c, "NotifyTransferReceived: sendWalletActionNotification error", err, "req", req)
+
 		apiresp.GinError(c, err)
 		return
 	}
+
+	log.ZDebug(c, "NotifyTransferReceived", "sendWalletActionNotification success", "req", req)
+
 	apiresp.GinSuccess(c, nil)
 }
 
 func (m *MessageApi) NotifyRedPacketExpired(c *gin.Context) {
 	var req walletExpiredNotifyReq
 	if err := c.BindJSON(&req); err != nil {
+		log.ZWarn(c, "NotifyRedPacketExpired: BindJSON error", err, "req", req)
+
 		apiresp.GinError(c, errs.ErrArgs.WithDetail(err.Error()).Wrap())
 		return
 	}
 	if err := m.requireWalletNotifySender(c, req.SenderUserID); err != nil {
+		log.ZWarn(c, "NotifyRedPacketExpired: requireWalletNotifySender error", err, "req", req)
 		apiresp.GinError(c, err)
 		return
 	}
 	m.fillWalletSenderName(c, req.DetailExtra, "", req.SenderUserID)
 	if req.GroupID != "" {
 		if req.GroupText == "" {
-			apiresp.GinError(c, errs.ErrArgs.WrapMsg("groupText is required when groupID is set"))
+			err := errs.ErrArgs.WrapMsg("groupText is required when groupID is set")
+			log.ZWarn(c, "NotifyRedPacketExpired: groupText is required when groupID is set", err, "req", req)
+
+			apiresp.GinError(c, err)
 			return
 		}
 		groupContent := apistruct.WalletActionNotificationContent{
@@ -300,10 +371,18 @@ func (m *MessageApi) NotifyRedPacketExpired(c *gin.Context) {
 			SenderUserID: req.SenderUserID,
 			GroupID:      req.GroupID,
 		}
+
+		log.ZDebug(c, "NotifyRedPacketExpired", "groupContent", groupContent, "req", req)
+
 		if err := m.sendWalletGroupActionNotification(c, req.GroupID, constant.RedPacketExpiredNotification, groupContent); err != nil {
+			log.ZWarn(c, "NotifyRedPacketExpired: sendWalletGroupActionNotification error", err, "req", req)
+
 			apiresp.GinError(c, err)
 			return
 		}
+
+		log.ZDebug(c, "NotifyRedPacketExpired", "sendWalletGroupActionNotification success", "req", req)
+
 		apiresp.GinSuccess(c, nil)
 		return
 	}
@@ -315,27 +394,39 @@ func (m *MessageApi) NotifyRedPacketExpired(c *gin.Context) {
 		DetailExtra:  req.DetailExtra,
 		SenderUserID: req.SenderUserID,
 	}
+
+	log.ZDebug(c, "NotifyRedPacketExpired", "content", content, "req", req)
+
 	if err := m.sendWalletActionNotification(c, req.SenderUserID, req.SenderUserID, constant.RedPacketExpiredNotification, content); err != nil {
+		log.ZWarn(c, "NotifyRedPacketExpired: sendWalletActionNotification error", err, "req", req)
+
 		apiresp.GinError(c, err)
 		return
 	}
+
+	log.ZDebug(c, "NotifyRedPacketExpired", "sendWalletActionNotification success", "req", req)
+
 	apiresp.GinSuccess(c, nil)
 }
 
 func (m *MessageApi) NotifyTransferExpired(c *gin.Context) {
 	var req walletExpiredNotifyReq
 	if err := c.BindJSON(&req); err != nil {
+		log.ZWarn(c, "NotifyTransferExpired: BindJSON error", err, "req", req)
 		apiresp.GinError(c, errs.ErrArgs.WithDetail(err.Error()).Wrap())
 		return
 	}
 	if err := m.requireWalletNotifySender(c, req.SenderUserID); err != nil {
+		log.ZWarn(c, "NotifyTransferExpired: requireWalletNotifySender error", err, "req", req)
 		apiresp.GinError(c, err)
 		return
 	}
 	m.fillWalletSenderName(c, req.DetailExtra, "", req.SenderUserID)
 	if req.GroupID != "" {
 		if req.GroupText == "" {
-			apiresp.GinError(c, errs.ErrArgs.WrapMsg("groupText is required when groupID is set"))
+			err := errs.ErrArgs.WrapMsg("groupText is required when groupID is set")
+			log.ZWarn(c, "NotifyTransferExpired: groupText is required when groupID is set", err, "req", req)
+			apiresp.GinError(c, err)
 			return
 		}
 		groupContent := apistruct.WalletActionNotificationContent{
@@ -347,10 +438,17 @@ func (m *MessageApi) NotifyTransferExpired(c *gin.Context) {
 			SenderUserID: req.SenderUserID,
 			GroupID:      req.GroupID,
 		}
+
+		log.ZDebug(c, "NotifyTransferExpired", "groupContent", groupContent, "req", req)
+
 		if err := m.sendWalletGroupActionNotification(c, req.GroupID, constant.TransferExpiredNotification, groupContent); err != nil {
+			log.ZWarn(c, "NotifyTransferExpired: sendWalletGroupActionNotification error", err, "req", req)
 			apiresp.GinError(c, err)
 			return
 		}
+
+		log.ZDebug(c, "NotifyTransferExpired", "sendWalletGroupActionNotification success", "req", req)
+
 		apiresp.GinSuccess(c, nil)
 		return
 	}
@@ -362,9 +460,16 @@ func (m *MessageApi) NotifyTransferExpired(c *gin.Context) {
 		DetailExtra:  req.DetailExtra,
 		SenderUserID: req.SenderUserID,
 	}
+
+	log.ZDebug(c, "NotifyTransferExpired", "content", content, "req", req)
+
 	if err := m.sendWalletActionNotification(c, req.SenderUserID, req.SenderUserID, constant.TransferExpiredNotification, content); err != nil {
+		log.ZWarn(c, "NotifyTransferExpired: sendWalletActionNotification error", err, "req", req)
 		apiresp.GinError(c, err)
 		return
 	}
+
+	log.ZDebug(c, "NotifyTransferExpired", "sendWalletActionNotification success", "req", req)
+
 	apiresp.GinSuccess(c, nil)
 }

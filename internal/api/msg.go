@@ -382,8 +382,8 @@ func (m *MessageApi) buildGroupNotificationSendMsgReq(
 
 	return &msg.SendMsgReq{
 		MsgData: &sdkws.MsgData{
-			SendID: sendUserID,
-			RecvID: groupID,
+			SendID:  sendUserID,
+			RecvID:  groupID,
 			GroupID: groupID,
 			Content: []byte(jsonutil.StructToJsonString(&sdkws.NotificationElem{
 				Detail: jsonutil.StructToJsonString(content),
@@ -556,6 +556,9 @@ func (m *MessageApi) SendPaymentNotification(c *gin.Context) {
 		apiresp.GinError(c, errs.ErrArgs.WithDetail(err.Error()).Wrap())
 		return
 	}
+
+	log.ZDebug(c, "SendPaymentNotification", "req", req)
+
 	m.sendNotificationChatMsg(c, req.SendUserID, req.RecvUserID, constant.PaymentNotification, req.Content, false)
 }
 
