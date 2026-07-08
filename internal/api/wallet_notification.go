@@ -202,7 +202,7 @@ func (m *MessageApi) NotifyRedPacketClaimed(c *gin.Context) {
 			return
 		}
 
-		log.ZDebug(c, "NotifyRedPacketClaimed", "sendWalletGroupActionNotification success", "req", req)
+		log.ZDebug(c, "NotifyRedPacketClaimed: sendWalletGroupActionNotification success", "req", req)
 
 		apiresp.GinSuccess(c, nil)
 		return
@@ -292,7 +292,7 @@ func (m *MessageApi) NotifyTransferReceived(c *gin.Context) {
 			return
 		}
 
-		log.ZDebug(c, "NotifyTransferReceived", "sendWalletGroupActionNotification success", "req", req)
+		log.ZDebug(c, "NotifyTransferReceived: sendWalletGroupActionNotification success", "req", req)
 
 		apiresp.GinSuccess(c, nil)
 		return
@@ -335,7 +335,7 @@ func (m *MessageApi) NotifyTransferReceived(c *gin.Context) {
 		return
 	}
 
-	log.ZDebug(c, "NotifyTransferReceived", "sendWalletActionNotification success", "req", req)
+	log.ZDebug(c, "NotifyTransferReceived: sendWalletActionNotification success", "req", req)
 
 	apiresp.GinSuccess(c, nil)
 }
@@ -381,7 +381,7 @@ func (m *MessageApi) NotifyRedPacketExpired(c *gin.Context) {
 			return
 		}
 
-		log.ZDebug(c, "NotifyRedPacketExpired", "sendWalletGroupActionNotification success", "req", req)
+		log.ZDebug(c, "NotifyRedPacketExpired: sendWalletGroupActionNotification success", "req", req)
 
 		apiresp.GinSuccess(c, nil)
 		return
@@ -404,7 +404,7 @@ func (m *MessageApi) NotifyRedPacketExpired(c *gin.Context) {
 		return
 	}
 
-	log.ZDebug(c, "NotifyRedPacketExpired", "sendWalletActionNotification success", "req", req)
+	log.ZDebug(c, "NotifyRedPacketExpired: sendWalletActionNotification success", "req", req)
 
 	apiresp.GinSuccess(c, nil)
 }
@@ -447,7 +447,7 @@ func (m *MessageApi) NotifyTransferExpired(c *gin.Context) {
 			return
 		}
 
-		log.ZDebug(c, "NotifyTransferExpired", "sendWalletGroupActionNotification success", "req", req)
+		log.ZDebug(c, "NotifyTransferExpired: sendWalletGroupActionNotification success", "req", req)
 
 		apiresp.GinSuccess(c, nil)
 		return
@@ -469,7 +469,7 @@ func (m *MessageApi) NotifyTransferExpired(c *gin.Context) {
 		return
 	}
 
-	log.ZDebug(c, "NotifyTransferExpired", "sendWalletActionNotification success", "req", req)
+	log.ZDebug(c, "NotifyTransferExpired: sendWalletActionNotification success", "req", req)
 
 	apiresp.GinSuccess(c, nil)
 }
