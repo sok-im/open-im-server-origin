@@ -95,7 +95,7 @@ const (
 const (
 	// PaymentTransactionType 钱包通知「类型」展示文案（与 UI 一致）。
 	PaymentTransactionTypeTransfer          = "转账"
-	PaymentTransactionTypeRedPacket       = "红包"
+	PaymentTransactionTypeRedPacket         = "红包"
 	PaymentTransactionTypeRedPacketTransfer = "红包/转账"
 )
 
@@ -156,6 +156,7 @@ type PaymentNotificationContent struct {
 	SecondaryAction *PaymentNotificationAction `json:"secondaryAction,omitempty"`           // 次要操作，如「去赎回」
 	OrderNo         string                     `json:"orderNo,omitempty"`                   // 业务单号，详情页使用
 	BizID           string                     `json:"bizID,omitempty"`                     // 业务 ID（红包 ID、转账 ID 等）
+	ChainID         string                     `json:"chainId,omitempty"`                   // 链 ID，如 ethereum
 }
 
 type OANotificationElem struct {
