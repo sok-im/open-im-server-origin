@@ -157,7 +157,8 @@ type PaymentNotificationContent struct {
 	OrderNo         string                     `json:"orderNo,omitempty"`                   // 业务单号，详情页使用
 	BizID           string                     `json:"bizID,omitempty"`                     // 业务 ID（红包 ID、转账 ID 等）
 	ChainID         string                     `json:"chainId,omitempty"`                   // 链 ID，如 ethereum
-	PacketID        string                     `json:"packetId,omitempty"`                  // 红包 ID
+	PacketID        string                     `json:"packetId,omitempty"`
+	ChainKey        string                     `json:"chainKey,omitempty"` // 链 ID，如 ethereum
 }
 
 type OANotificationElem struct {
