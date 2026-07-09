@@ -559,6 +559,9 @@ func (m *MessageApi) SendPaymentNotification(c *gin.Context) {
 
 	log.ZDebug(c, "SendPaymentNotification", "req", req)
 
+	req.Content.RecvUserID = req.RecvUserID
+	req.Content.SendUserID = req.SendUserID
+
 	m.sendNotificationChatMsg(c, req.SendUserID, req.RecvUserID, constant.PaymentNotification, req.Content, false)
 }
 
