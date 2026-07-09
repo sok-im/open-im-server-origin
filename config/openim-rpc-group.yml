@@ -22,7 +22,7 @@ commonGroupsLimitWithFriend: 3
 
 # 群邀请链接配置
 inviteLink:
-  defaultExpireSeconds: 604800  # 默认有效期 7 天；0=永不过期
+  defaultExpireSeconds: 0       # 默认永不过期
   defaultMaxUseCount: 0         # 默认不限使用次数
   maxExpireSeconds: 0           # 有效期硬上限；0=无硬上限
   maxUseCountCap: 0             # 使用次数硬上限；0=无硬上限

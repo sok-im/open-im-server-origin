@@ -332,6 +332,7 @@ func (s *groupServer) CreateGroup(ctx context.Context, req *pbgroup.CreateGroupR
 
 	var groupMembers []*model.GroupMember
 	group := convert.Pb2DBGroupInfo(req.GroupInfo)
+	req.GroupInfo.EnableInviteLink = group.EnableInviteLink
 	// 创建群时默认分享链接入群免审（needVerification=Directly）；客户端可显式传 0/1 开启审核。
 	if group.NeedVerification == constant.ApplyNeedVerification {
 		group.NeedVerification = constant.Directly
@@ -371,6 +372,9 @@ func (s *groupServer) CreateGroup(ctx context.Context, req *pbgroup.CreateGroupR
 	}
 
 	if err := s.db.CreateGroup(ctx, []*model.Group{group}, groupMembers); err != nil {
+		return nil, err
+	}
+	if err := s.saveGroupInviteLink(ctx, newPermanentGroupInviteLink(group.GroupID, req.OwnerUserID)); err != nil {
 		return nil, err
 	}
 	s.syncOwnerConversationBurnOnCreateGroup(ctx, group.GroupID, req.OwnerUserID, userMap[req.OwnerUserID])
@@ -1779,6 +1783,9 @@ func (s *groupServer) DismissGroup(ctx context.Context, req *pbgroup.DismissGrou
 		return nil, servererrs.ErrDismissedAlready.WrapMsg("group status is dismissed")
 	}
 	if err := s.db.DismissGroup(ctx, req.GroupID, req.DeleteMember); err != nil {
+		return nil, err
+	}
+	if err := s.inviteLinkDB.DeleteByGroupID(ctx, req.GroupID); err != nil {
 		return nil, err
 	}
 	if !req.DeleteMember {

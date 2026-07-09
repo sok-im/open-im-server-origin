@@ -16,6 +16,7 @@ type GroupInviteLinkDatabase interface {
 	GetByGroupID(ctx context.Context, groupID string) (*model.GroupInviteLink, error)
 	IncrUsedCount(ctx context.Context, linkID string) error
 	Revoke(ctx context.Context, linkID string) error
+	DeleteByGroupID(ctx context.Context, groupID string) error
 	ListByGroupID(ctx context.Context, groupID string, pg pagination.Pagination) (int64, []*model.GroupInviteLink, error)
 }
 
@@ -49,6 +50,10 @@ func (g *groupInviteLinkDatabase) IncrUsedCount(ctx context.Context, linkID stri
 
 func (g *groupInviteLinkDatabase) Revoke(ctx context.Context, linkID string) error {
 	return g.db.Revoke(ctx, linkID)
+}
+
+func (g *groupInviteLinkDatabase) DeleteByGroupID(ctx context.Context, groupID string) error {
+	return g.db.DeleteByGroupID(ctx, groupID)
 }
 
 func (g *groupInviteLinkDatabase) ListByGroupID(ctx context.Context, groupID string, pg pagination.Pagination) (int64, []*model.GroupInviteLink, error) {

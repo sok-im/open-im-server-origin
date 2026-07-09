@@ -21,6 +21,8 @@ type GroupInviteLink interface {
 	IncrUsedCount(ctx context.Context, linkID string) error
 	// Revoke 将指定链接标记为已吊销（revoked=true）。
 	Revoke(ctx context.Context, linkID string) error
+	// DeleteByGroupID 删除指定群的邀请链接；不存在时不报错。
+	DeleteByGroupID(ctx context.Context, groupID string) error
 	// ListByGroupID 按群 ID 分页查询邀请链接（每群最多一条，兼容 list 接口）。
 	ListByGroupID(ctx context.Context, groupID string, pg pagination.Pagination) (int64, []*model.GroupInviteLink, error)
 }

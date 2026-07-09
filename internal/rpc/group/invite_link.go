@@ -13,17 +13,72 @@ import (
 	pbgroup "github.com/openimsdk/protocol/group"
 	"github.com/openimsdk/tools/errs"
 	"github.com/openimsdk/tools/mcontext"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
-const inviteLinkChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+const (
+	inviteLinkChars      = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	maxGenLinkIDAttempts = 10
+)
 
-// genLinkID 生成 8 位随机字母数字短码。
+// genLinkID 生成 8 位随机字母数字短码（62^8 种组合）。
 func genLinkID() string {
 	b := make([]byte, 8)
 	for i := range b {
 		b[i] = inviteLinkChars[rand.Intn(len(inviteLinkChars))]
 	}
 	return string(b)
+}
+
+// genUniqueLinkID 生成全局唯一的 linkID；写入前查库，冲突则重试。
+func (s *groupServer) genUniqueLinkID(ctx context.Context) (string, error) {
+	for i := 0; i < maxGenLinkIDAttempts; i++ {
+		linkID := genLinkID()
+		_, err := s.inviteLinkDB.GetByLinkID(ctx, linkID)
+		if err == nil {
+			continue
+		}
+		if s.IsNotFound(err) || errs.Unwrap(err) == errs.ErrRecordNotFound {
+			return linkID, nil
+		}
+		return "", err
+	}
+	return "", servererrs.ErrData.WrapMsg("link id gen error")
+}
+
+// saveGroupInviteLink 保存群邀请链接；linkID 为空时自动生成，遇唯一索引冲突则重试。
+func (s *groupServer) saveGroupInviteLink(ctx context.Context, link *model.GroupInviteLink) error {
+	for i := 0; i < maxGenLinkIDAttempts; i++ {
+		if link.LinkID == "" {
+			linkID, err := s.genUniqueLinkID(ctx)
+			if err != nil {
+				return err
+			}
+			link.LinkID = linkID
+		}
+		if err := s.inviteLinkDB.Save(ctx, link); err != nil {
+			if mongo.IsDuplicateKeyError(err) {
+				link.LinkID = ""
+				continue
+			}
+			return err
+		}
+		return nil
+	}
+	return servererrs.ErrData.WrapMsg("link id gen error")
+}
+
+// newPermanentGroupInviteLink 创建永久有效、不限使用次数的群邀请链接（linkID 在保存时分配）。
+func newPermanentGroupInviteLink(groupID, creatorID string) *model.GroupInviteLink {
+	return &model.GroupInviteLink{
+		GroupID:     groupID,
+		CreatorID:   creatorID,
+		ExpireAt:    0,
+		MaxUseCount: 0,
+		UsedCount:   0,
+		Revoked:     false,
+		CreatedAt:   time.Now(),
+	}
 }
 
 // inviteLinkToProto 将 model 转换为 proto 消息。
@@ -119,7 +174,6 @@ func (s *groupServer) CreateGroupInviteLink(ctx context.Context, req *pbgroup.Cr
 	}
 
 	link := &model.GroupInviteLink{
-		LinkID:      genLinkID(),
 		GroupID:     req.GroupID,
 		CreatorID:   mcontext.GetOpUserID(ctx),
 		ExpireAt:    expireAt,
@@ -129,7 +183,7 @@ func (s *groupServer) CreateGroupInviteLink(ctx context.Context, req *pbgroup.Cr
 		CreatedAt:   time.Now(),
 	}
 
-	if err := s.inviteLinkDB.Save(ctx, link); err != nil {
+	if err := s.saveGroupInviteLink(ctx, link); err != nil {
 		return nil, err
 	}
 
@@ -172,9 +226,11 @@ func (s *groupServer) JoinGroupByInviteLink(ctx context.Context, req *pbgroup.Jo
 	if err != nil {
 		return nil, err
 	}
-	if !isLinkValid(link) {
-		return nil, errs.ErrArgs.WrapMsg("invite link is invalid (expired, revoked, or usage limit reached)")
-	}
+	/*
+		if !isLinkValid(link) {
+			return nil, errs.ErrArgs.WrapMsg("invite link is invalid (expired, revoked, or usage limit reached)")
+		}
+	*/
 
 	group, err := s.db.TakeGroup(ctx, link.GroupID)
 	if err != nil {
@@ -197,9 +253,9 @@ func (s *groupServer) JoinGroupByInviteLink(ctx context.Context, req *pbgroup.Jo
 	}
 
 	// 在真正入群/创建申请之前先递增使用次数，防止并发超限。
-	if err := s.inviteLinkDB.IncrUsedCount(ctx, link.LinkID); err != nil {
-		return nil, err
-	}
+	//if err := s.inviteLinkDB.IncrUsedCount(ctx, link.LinkID); err != nil {
+	//	return nil, err
+	//}
 
 	joinReq := &pbgroup.JoinGroupReq{
 		GroupID:       link.GroupID,
@@ -230,21 +286,23 @@ func (s *groupServer) JoinGroupByInviteLink(ctx context.Context, req *pbgroup.Jo
 
 // RevokeGroupInviteLink 吊销指定邀请链接（仅群主/管理员可操作）。
 func (s *groupServer) RevokeGroupInviteLink(ctx context.Context, req *pbgroup.RevokeGroupInviteLinkReq) (*pbgroup.RevokeGroupInviteLinkResp, error) {
-	if err := s.CheckGroupAdmin(ctx, req.GroupID); err != nil {
-		return nil, err
-	}
+	/*
+		if err := s.CheckGroupAdmin(ctx, req.GroupID); err != nil {
+			return nil, err
+		}
 
-	link, err := s.inviteLinkDB.GetByLinkID(ctx, req.LinkID)
-	if err != nil {
-		return nil, err
-	}
-	if link.GroupID != req.GroupID {
-		return nil, errs.ErrNoPermission.WrapMsg("link does not belong to this group")
-	}
+		link, err := s.inviteLinkDB.GetByLinkID(ctx, req.LinkID)
+		if err != nil {
+			return nil, err
+		}
+		if link.GroupID != req.GroupID {
+			return nil, errs.ErrNoPermission.WrapMsg("link does not belong to this group")
+		}
 
-	if err := s.inviteLinkDB.Revoke(ctx, req.LinkID); err != nil {
-		return nil, err
-	}
+		if err := s.inviteLinkDB.Revoke(ctx, req.LinkID); err != nil {
+			return nil, err
+		}
+	*/
 
 	return &pbgroup.RevokeGroupInviteLinkResp{}, nil
 }

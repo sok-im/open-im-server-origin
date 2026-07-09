@@ -107,6 +107,11 @@ func (m *groupInviteLinkMgo) Revoke(ctx context.Context, linkID string) error {
 	return nil
 }
 
+func (m *groupInviteLinkMgo) DeleteByGroupID(ctx context.Context, groupID string) error {
+	_, err := m.coll.DeleteOne(ctx, bson.M{"group_id": groupID})
+	return err
+}
+
 func (m *groupInviteLinkMgo) ListByGroupID(ctx context.Context, groupID string, pg pagination.Pagination) (int64, []*model.GroupInviteLink, error) {
 	link, err := m.GetByGroupID(ctx, groupID)
 	if err != nil {

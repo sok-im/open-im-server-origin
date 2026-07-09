@@ -141,6 +141,7 @@ func Pb2DBGroupInfo(m *sdkws.GroupInfo) *model.Group {
 		ApplyMemberFriend:      m.ApplyMemberFriend,
 		NotificationUpdateTime: time.UnixMilli(m.NotificationUpdateTime),
 		NotificationUserID:     m.NotificationUserID,
+		EnableInviteLink:       model.GroupEnableInviteLinkOn,
 	}
 }
 
