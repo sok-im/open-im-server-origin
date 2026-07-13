@@ -78,13 +78,20 @@ func (c *ConversationNotificationSender) ConversationChangeNotification(ctx cont
 }
 
 // ConversationE2EENotification 单聊会话创建时下发 E2EE 信令（contentType=1705），不依赖专用 Listener 回调。
+//
+// 只向对端发一次（sendID → recvID）。conversationE2EE.isSendMsg=true 且 sessionType 为单聊时，
+// 若再 Notification(sendID, sendID) 会落库成 si_{sendID}_{sendID} 自聊会话，并被 msgtransfer
+// 当作新会话再次 CreateSingleChatConversations，从而递归连发多次 1705。
+// 发送方会随 isSendMsg 单聊消息同步收到同一条 1705，无需单独自发自收。
 func (c *ConversationNotificationSender) ConversationE2EENotification(ctx context.Context, sendID, recvID, conversationID string) {
+	if sendID == "" || recvID == "" || sendID == recvID {
+		return
+	}
 	tips := &sdkws.ConversationSetPrivateTips{
 		SendID:         sendID,
 		RecvID:         recvID,
 		ConversationID: conversationID,
 	}
-	c.Notification(ctx, sendID, sendID, constant.ConversationE2EENotification, tips)
 	c.Notification(ctx, sendID, recvID, constant.ConversationE2EENotification, tips)
 }
 
