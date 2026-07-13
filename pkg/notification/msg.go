@@ -64,6 +64,7 @@ func newContentTypeConf(conf *config.Notification) map[int32]config.Notification
 		constant.GroupBurnDurationSetNotification:             conf.GroupBurnDurationSet,
 		constant.GroupFaceURLSetNotification:                  conf.GroupFaceURLSet,
 		constant.GroupNeedVerificationSetNotification:         conf.GroupNeedVerificationSet,
+		constant.GroupE2EENotification:                        conf.GroupE2EE,
 		// user
 		constant.UserInfoUpdatedNotification:  conf.UserInfoUpdated,
 		constant.UserStatusChangeNotification: conf.UserStatusChanged,
@@ -120,6 +121,7 @@ func newSessionTypeConf() map[int32]int32 {
 		constant.GroupBurnDurationSetNotification:             constant.ReadGroupChatType,
 		constant.GroupFaceURLSetNotification:                  constant.ReadGroupChatType,
 		constant.GroupNeedVerificationSetNotification:         constant.ReadGroupChatType,
+		constant.GroupE2EENotification:                        constant.ReadGroupChatType,
 		// user
 		constant.UserInfoUpdatedNotification:  constant.SingleChatType,
 		constant.UserStatusChangeNotification: constant.SingleChatType,

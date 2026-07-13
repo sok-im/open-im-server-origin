@@ -188,6 +188,7 @@ type Notification struct {
 	GroupBurnDurationSet             NotificationConfig `mapstructure:"groupBurnDurationSet"`
 	GroupFaceURLSet                  NotificationConfig `mapstructure:"groupFaceURLSet"`
 	GroupNeedVerificationSet         NotificationConfig `mapstructure:"groupNeedVerificationSet"`
+	GroupE2EE                        NotificationConfig `mapstructure:"groupE2EE"`
 	FriendApplicationAdded           NotificationConfig `mapstructure:"friendApplicationAdded"`
 	FriendApplicationApproved        NotificationConfig `mapstructure:"friendApplicationApproved"`
 	FriendApplicationRejected        NotificationConfig `mapstructure:"friendApplicationRejected"`

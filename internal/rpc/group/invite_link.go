@@ -226,6 +226,7 @@ func (s *groupServer) JoinGroupByInviteLink(ctx context.Context, req *pbgroup.Jo
 	if err != nil {
 		return nil, err
 	}
+	
 	/*
 		if !isLinkValid(link) {
 			return nil, errs.ErrArgs.WrapMsg("invite link is invalid (expired, revoked, or usage limit reached)")

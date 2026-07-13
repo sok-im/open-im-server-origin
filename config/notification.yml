@@ -284,6 +284,16 @@ groupNeedVerificationSet:
     desc: join approval updated
     ext: join approval updated
 
+groupE2EE:
+  isSendMsg: true
+  reliabilityLevel: 2
+  unreadCount: false
+  offlinePush:
+    enable: false
+    title: group e2ee
+    desc: group e2ee
+    ext: group e2ee
+
 
 #############################friend#################################
 friendApplicationAdded:
