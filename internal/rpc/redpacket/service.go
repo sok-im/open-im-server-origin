@@ -51,27 +51,35 @@ func (s *redPacketServer) CreateOrder(ctx context.Context, req *pbredpacket.Crea
 
 	chainID, contractAddress := applyRuntimeDefaults(runtime, req.ChainID, strings.TrimSpace(req.ContractAddress))
 
+	decimals := s.resolveDecimals(ctx, runtime, chainType, req.Token)
+
 	rp := &model.RedPacket{
-		BizID:           bizID,
-		ChainKey:        runtime.ChainKey,
-		ChainType:       chainType,
-		ChainID:         chainID,
-		ContractAddress: contractAddress,
-		CreatorUserID:   currentUserID,
-		CreatorWallet:   req.CreatorWallet,
-		GroupID:         req.GroupID,
-		ScopeType:       scopeType,
-		ReceiverUserID:  req.ReceiverUserID,
-		ReceiverUserIDs: append([]string(nil), req.ReceiverUserIDs...),
-		PacketType:      req.PacketType,
-		TransactionType: transactionType,
-		Token:           req.Token,
-		TotalAmount:     req.TotalAmount,
-		TotalShares:     req.TotalShares,
-		ExpiryAt:        req.ExpiryAt,
-		Status:          "PENDING",
-		CreatedAt:       time.Now(),
-		UpdatedAt:       time.Now(),
+		BizID:                  bizID,
+		ChainKey:               runtime.ChainKey,
+		ChainType:              chainType,
+		ChainID:                chainID,
+		ContractAddress:        contractAddress,
+		CreatorUserID:          currentUserID,
+		CreatorWallet:          req.CreatorWallet,
+		GroupID:                req.GroupID,
+		ScopeType:              scopeType,
+		ReceiverUserID:         req.ReceiverUserID,
+		ReceiverUserIDs:        append([]string(nil), req.ReceiverUserIDs...),
+		PacketType:             req.PacketType,
+		TransactionType:        transactionType,
+		Token:                  req.Token,
+		Decimals:               decimals,
+		TotalAmount:            req.TotalAmount,
+		TotalAmountDisplay:     model.FormatUnits(req.TotalAmount, decimals),
+		TotalShares:            req.TotalShares,
+		ClaimedAmountDisplay:   model.FormatUnits("0", decimals),
+		RemainingAmount:        req.TotalAmount,
+		RemainingAmountDisplay: model.FormatUnits(req.TotalAmount, decimals),
+		RemainingShares:        req.TotalShares,
+		ExpiryAt:               req.ExpiryAt,
+		Status:                 "PENDING",
+		CreatedAt:              time.Now(),
+		UpdatedAt:              time.Now(),
 	}
 
 	if err := s.db.CreateRedPacket(ctx, rp); err != nil {
@@ -116,25 +124,45 @@ func (s *redPacketServer) CreatedCallback(ctx context.Context, req *pbredpacket.
 		return nil, err
 	}
 
+	// Re-resolve decimals against the on-chain-confirmed token so the display
+	// amount is corrected even if create-time resolution had to fall back.
+	decimals := rp.Decimals
+	if packetRuntime, rtErr := s.runtimeFromPacket(rp); rtErr == nil {
+		decimals = s.resolveDecimals(ctx, packetRuntime, rp.ChainType, createdPacket.Token)
+	}
+
+	// Balance = confirmed total minus whatever has already been claimed (usually
+	// zero at this ACTIVE stage, but computed defensively for correctness).
+	remainingAmount := model.SubAmounts(createdPacket.TotalAmount, rp.ClaimedAmount)
+	remainingShares := createdPacket.TotalShares - rp.ClaimedShares
+	if remainingShares < 0 {
+		remainingShares = 0
+	}
+
 	if err := s.db.UpdateRedPacketCreated(ctx, &model.RedPacket{
-		BizID:           req.BizID,
-		ChainKey:        rp.ChainKey,
-		ChainType:       rp.ChainType,
-		PacketID:        createdPacket.PacketID,
-		ChainID:         createdPacket.ChainID,
-		ContractAddress: createdPacket.ContractAddress,
-		CreatorWallet:   createdPacket.CreatorWallet,
-		PacketType:      createdPacket.PacketType,
-		Token:           createdPacket.Token,
-		TotalAmount:     createdPacket.TotalAmount,
-		TotalShares:     createdPacket.TotalShares,
-		ExpiryAt:        createdPacket.ExpiryAt,
-		TxHash:          req.TxHash,
-		GroupID:         groupID,
-		ScopeType:       scopeType,
-		ReceiverUserID:  receiverUserID,
-		ReceiverUserIDs: receiverUserIDs,
-		Status:          "ACTIVE",
+		BizID:                  req.BizID,
+		ChainKey:               rp.ChainKey,
+		ChainType:              rp.ChainType,
+		PacketID:               createdPacket.PacketID,
+		ChainID:                createdPacket.ChainID,
+		ContractAddress:        createdPacket.ContractAddress,
+		CreatorWallet:          createdPacket.CreatorWallet,
+		PacketType:             createdPacket.PacketType,
+		Token:                  createdPacket.Token,
+		Decimals:               decimals,
+		TotalAmount:            createdPacket.TotalAmount,
+		TotalAmountDisplay:     model.FormatUnits(createdPacket.TotalAmount, decimals),
+		TotalShares:            createdPacket.TotalShares,
+		RemainingAmount:        remainingAmount,
+		RemainingAmountDisplay: model.FormatUnits(remainingAmount, decimals),
+		RemainingShares:        remainingShares,
+		ExpiryAt:               createdPacket.ExpiryAt,
+		TxHash:                 req.TxHash,
+		GroupID:                groupID,
+		ScopeType:              scopeType,
+		ReceiverUserID:         receiverUserID,
+		ReceiverUserIDs:        receiverUserIDs,
+		Status:                 "ACTIVE",
 	}); err != nil {
 		return nil, err
 	}
@@ -348,18 +376,19 @@ func (s *redPacketServer) ClaimResult(ctx context.Context, req *pbredpacket.Clai
 	}
 
 	confirmed := &model.RedPacketClaim{
-		ChainKey:      rp.ChainKey,
-		ChainType:     rp.ChainType,
-		PacketID:      req.PacketID,
-		UserID:        currentUserID,
-		ClaimerWallet: req.Claimer,
-		AuthNonce:     claimedEvent.AuthNonce,
-		ClaimTxHash:   req.TxHash,
-		ClaimedAmount: claimedEvent.Amount,
-		BlockNumber:   claimedEvent.BlockNumber,
-		Status:        "CONFIRMED",
-		CreatedAt:     time.Now(),
-		UpdatedAt:     time.Now(),
+		ChainKey:             rp.ChainKey,
+		ChainType:            rp.ChainType,
+		PacketID:             req.PacketID,
+		UserID:               currentUserID,
+		ClaimerWallet:        req.Claimer,
+		AuthNonce:            claimedEvent.AuthNonce,
+		ClaimTxHash:          req.TxHash,
+		ClaimedAmount:        claimedEvent.Amount,
+		ClaimedAmountDisplay: model.FormatUnits(claimedEvent.Amount, rp.Decimals),
+		BlockNumber:          claimedEvent.BlockNumber,
+		Status:               "CONFIRMED",
+		CreatedAt:            time.Now(),
+		UpdatedAt:            time.Now(),
 	}
 	if err := s.db.SaveClaim(ctx, confirmed); err != nil {
 		return nil, err
@@ -1063,6 +1092,23 @@ func normalizeTokenAddress(token string) string {
 	return strings.ToLower(common.HexToAddress(token).Hex())
 }
 
+// decimalsReaderFor returns the on-chain decimals reader for a runtime, or a nil
+// interface (not a typed nil) when no EVM client is available, so callers can
+// safely pass it to chain.ResolveDecimals without risking a nil-pointer call.
+func decimalsReaderFor(runtime *chainRuntime) chain.DecimalsReader {
+	if runtime != nil && runtime.EVMClient != nil {
+		return runtime.EVMClient
+	}
+	return nil
+}
+
+// resolveDecimals determines the token decimals for a packet, preferring the
+// static known-token table and on-chain lookup. It never fails; unresolvable
+// tokens degrade to a sensible default inside chain.ResolveDecimals.
+func (s *redPacketServer) resolveDecimals(ctx context.Context, runtime *chainRuntime, chainType, token string) int32 {
+	return chain.ResolveDecimals(ctx, chainType, token, decimalsReaderFor(runtime))
+}
+
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if strings.TrimSpace(value) != "" {
@@ -1077,29 +1123,35 @@ func redPacketModelToProto(rp *model.RedPacket) *pbredpacket.RedPacketRecord {
 		return nil
 	}
 	return &pbredpacket.RedPacketRecord{
-		BizID:           rp.BizID,
-		ChainKey:        rp.ChainKey,
-		ChainType:       rp.ChainType,
-		PacketID:        rp.PacketID,
-		ChainID:         rp.ChainID,
-		ContractAddress: rp.ContractAddress,
-		CreatorUserID:   rp.CreatorUserID,
-		CreatorWallet:   rp.CreatorWallet,
-		GroupID:         rp.GroupID,
-		ScopeType:       rp.ScopeType,
-		ReceiverUserID:  rp.ReceiverUserID,
-		ReceiverUserIDs: append([]string(nil), rp.ReceiverUserIDs...),
-		PacketType:      rp.PacketType,
-		Token:           rp.Token,
-		TotalAmount:     rp.TotalAmount,
-		TotalShares:     rp.TotalShares,
-		ClaimedAmount:   rp.ClaimedAmount,
-		ClaimedShares:   rp.ClaimedShares,
-		ExpiryAt:        rp.ExpiryAt,
-		TxHash:          rp.TxHash,
-		Status:          rp.Status,
-		CreatedAt:       rp.CreatedAt.Unix(),
-		UpdatedAt:       rp.UpdatedAt.Unix(),
+		BizID:                  rp.BizID,
+		ChainKey:               rp.ChainKey,
+		ChainType:              rp.ChainType,
+		PacketID:               rp.PacketID,
+		ChainID:                rp.ChainID,
+		ContractAddress:        rp.ContractAddress,
+		CreatorUserID:          rp.CreatorUserID,
+		CreatorWallet:          rp.CreatorWallet,
+		GroupID:                rp.GroupID,
+		ScopeType:              rp.ScopeType,
+		ReceiverUserID:         rp.ReceiverUserID,
+		ReceiverUserIDs:        append([]string(nil), rp.ReceiverUserIDs...),
+		PacketType:             rp.PacketType,
+		Token:                  rp.Token,
+		Decimals:               rp.Decimals,
+		TotalAmount:            rp.TotalAmount,
+		TotalAmountDisplay:     rp.TotalAmountDisplay,
+		TotalShares:            rp.TotalShares,
+		ClaimedAmount:          rp.ClaimedAmount,
+		ClaimedAmountDisplay:   rp.ClaimedAmountDisplay,
+		ClaimedShares:          rp.ClaimedShares,
+		RemainingAmount:        rp.RemainingAmount,
+		RemainingAmountDisplay: rp.RemainingAmountDisplay,
+		RemainingShares:        rp.RemainingShares,
+		ExpiryAt:               rp.ExpiryAt,
+		TxHash:                 rp.TxHash,
+		Status:                 rp.Status,
+		CreatedAt:              rp.CreatedAt.Unix(),
+		UpdatedAt:              rp.UpdatedAt.Unix(),
 	}
 }
 
@@ -1222,16 +1274,17 @@ func claimsModelToProto(claims []*model.RedPacketClaim) []*pbredpacket.RedPacket
 			continue
 		}
 		out = append(out, &pbredpacket.RedPacketClaimRecord{
-			PacketID:      c.PacketID,
-			UserID:        c.UserID,
-			ClaimerWallet: c.ClaimerWallet,
-			AuthNonce:     c.AuthNonce,
-			ClaimTxHash:   c.ClaimTxHash,
-			ClaimedAmount: c.ClaimedAmount,
-			BlockNumber:   c.BlockNumber,
-			Status:        c.Status,
-			CreatedAt:     c.CreatedAt.Unix(),
-			UpdatedAt:     c.UpdatedAt.Unix(),
+			PacketID:             c.PacketID,
+			UserID:               c.UserID,
+			ClaimerWallet:        c.ClaimerWallet,
+			AuthNonce:            c.AuthNonce,
+			ClaimTxHash:          c.ClaimTxHash,
+			ClaimedAmount:        c.ClaimedAmount,
+			ClaimedAmountDisplay: c.ClaimedAmountDisplay,
+			BlockNumber:          c.BlockNumber,
+			Status:               c.Status,
+			CreatedAt:            c.CreatedAt.Unix(),
+			UpdatedAt:            c.UpdatedAt.Unix(),
 		})
 	}
 	return out

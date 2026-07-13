@@ -70,24 +70,29 @@ func (m *RedPacketMgo) GetByChainKeyAndPacketID(ctx context.Context, chainKey, p
 
 func (m *RedPacketMgo) UpdateCreated(ctx context.Context, rp *model.RedPacket) error {
 	updates := bson.M{
-		"chain_key":         rp.ChainKey,
-		"chain_type":        rp.ChainType,
-		"packet_id":         rp.PacketID,
-		"tx_hash":           rp.TxHash,
-		"chain_id":          rp.ChainID,
-		"contract_address":  rp.ContractAddress,
-		"creator_wallet":    rp.CreatorWallet,
-		"packet_type":       rp.PacketType,
-		"token":             rp.Token,
-		"total_amount":      rp.TotalAmount,
-		"total_shares":      rp.TotalShares,
-		"expiry_at":         rp.ExpiryAt,
-		"group_id":          rp.GroupID,
-		"scope_type":        rp.ScopeType,
-		"receiver_user_id":  rp.ReceiverUserID,
-		"receiver_user_ids": rp.ReceiverUserIDs,
-		"status":            rp.Status,
-		"updated_at":        time.Now(),
+		"chain_key":                rp.ChainKey,
+		"chain_type":               rp.ChainType,
+		"packet_id":                rp.PacketID,
+		"tx_hash":                  rp.TxHash,
+		"chain_id":                 rp.ChainID,
+		"contract_address":         rp.ContractAddress,
+		"creator_wallet":           rp.CreatorWallet,
+		"packet_type":              rp.PacketType,
+		"token":                    rp.Token,
+		"decimals":                 rp.Decimals,
+		"total_amount":             rp.TotalAmount,
+		"total_amount_display":     rp.TotalAmountDisplay,
+		"total_shares":             rp.TotalShares,
+		"remaining_amount":         rp.RemainingAmount,
+		"remaining_amount_display": rp.RemainingAmountDisplay,
+		"remaining_shares":         rp.RemainingShares,
+		"expiry_at":                rp.ExpiryAt,
+		"group_id":                 rp.GroupID,
+		"scope_type":               rp.ScopeType,
+		"receiver_user_id":         rp.ReceiverUserID,
+		"receiver_user_ids":        rp.ReceiverUserIDs,
+		"status":                   rp.Status,
+		"updated_at":               time.Now(),
 	}
 	res, err := m.coll.UpdateOne(ctx, bson.M{"biz_id": rp.BizID}, bson.M{"$set": updates})
 	if err != nil {
@@ -140,10 +145,20 @@ func (m *RedPacketMgo) UpdateClaimProgress(ctx context.Context, chainKey, packet
 		}
 	}
 
+	remainingAmount := model.SubAmounts(rp.TotalAmount, totalClaimed)
+	remainingShares := rp.TotalShares - nextShares
+	if remainingShares < 0 {
+		remainingShares = 0
+	}
+
 	setFields := bson.M{
-		"claimed_amount": totalClaimed,
-		"claimed_shares": nextShares,
-		"updated_at":     time.Now(),
+		"claimed_amount":           totalClaimed,
+		"claimed_amount_display":   model.FormatUnits(totalClaimed, rp.Decimals),
+		"claimed_shares":           nextShares,
+		"remaining_amount":         remainingAmount,
+		"remaining_amount_display": model.FormatUnits(remainingAmount, rp.Decimals),
+		"remaining_shares":         remainingShares,
+		"updated_at":               time.Now(),
 	}
 	if nextStatus != "" {
 		setFields["status"] = nextStatus
@@ -221,13 +236,14 @@ func (m *RedPacketClaimMgo) Save(ctx context.Context, claim *model.RedPacketClai
 		}).Decode(&existing)
 		if err == nil {
 			updates := bson.M{
-				"claimer_wallet": claim.ClaimerWallet,
-				"auth_nonce":     claim.AuthNonce,
-				"claim_tx_hash":  claim.ClaimTxHash,
-				"claimed_amount": claim.ClaimedAmount,
-				"block_number":   claim.BlockNumber,
-				"status":         claim.Status,
-				"updated_at":     claim.UpdatedAt,
+				"claimer_wallet":         claim.ClaimerWallet,
+				"auth_nonce":             claim.AuthNonce,
+				"claim_tx_hash":          claim.ClaimTxHash,
+				"claimed_amount":         claim.ClaimedAmount,
+				"claimed_amount_display": claim.ClaimedAmountDisplay,
+				"block_number":           claim.BlockNumber,
+				"status":                 claim.Status,
+				"updated_at":             claim.UpdatedAt,
 			}
 			_, err := m.coll.UpdateOne(ctx,
 				bson.M{"chain_key": claim.ChainKey, "packet_id": claim.PacketID, "user_id": claim.UserID},
