@@ -1818,7 +1818,13 @@ func (s *groupServer) DismissGroup(ctx context.Context, req *pbgroup.DismissGrou
 
 	// Purge MLS group state and commit history.  Fire-and-return: MLS cleanup
 	// must not block or fail the group dissolution operation.
-	s.openMLSClient.DeleteGroup(ctx, req.GroupID)
+	// DeleteGroup requires IM admin; elevate opUserID for this server-side call
+	// so a group owner dismiss does not fail with NoPermissionError.
+	adminCtx := ctx
+	if len(s.config.Share.IMAdminUserID) > 0 {
+		adminCtx = mcontext.WithOpUserIDContext(ctx, s.config.Share.IMAdminUserID[0])
+	}
+	s.openMLSClient.DeleteGroup(adminCtx, req.GroupID)
 
 	return &pbgroup.DismissGroupResp{}, nil
 }

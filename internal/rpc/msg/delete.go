@@ -22,6 +22,7 @@ import (
 	"github.com/openimsdk/protocol/conversation"
 	"github.com/openimsdk/protocol/msg"
 	"github.com/openimsdk/protocol/sdkws"
+	"github.com/openimsdk/tools/errs"
 	"github.com/openimsdk/tools/log"
 	"github.com/openimsdk/tools/utils/timeutil"
 )
@@ -76,6 +77,14 @@ func (m *msgServer) DeleteMsgs(ctx context.Context, req *msg.DeleteMsgsReq) (*ms
 		}
 		conv, err := m.conversationClient.GetConversationsByConversationID(ctx, req.ConversationID)
 		if err != nil {
+			// Physical delete already succeeded. Missing conversation (e.g. all members left /
+			// dissolved group) means there is no one to notify — treat as success so callers
+			// like ClearGroupBurnExpiredMsgs can clean burn records instead of retrying forever.
+			if errs.ErrRecordNotFound.Is(err) {
+				//log.ZWarn(ctx, "DeleteMsgs: conversation not found after physical delete, skip notification", err,
+				//	"conversationID", req.ConversationID, "seqs", req.Seqs)
+				return &msg.DeleteMsgsResp{}, nil
+			}
 			return nil, err
 		}
 		tips := &sdkws.DeleteMsgsTips{UserID: req.UserID, ConversationID: req.ConversationID, Seqs: req.Seqs}

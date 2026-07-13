@@ -1042,8 +1042,8 @@ func (c *conversationServer) ClearBurnExpiredMsgs(ctx context.Context, req *pbco
 
 // ClearGroupBurnExpiredMsgs 处理群消息定时删除到期记录：
 //  1. 查询 burn_end_time 过期的记录（按 group_id 聚合）。
-//  2. 对每个群调用 msg.DeleteMsgs（IsSyncOther：物理删除群会话消息并下发 DeleteMsgsNotification）。
-//  3. DeleteMsgs 成功后再删除 group_msg_burn_record；失败则保留记录供 cron 重试。
+//  2. 对每个群物理删除消息，并以 groupID 下发 DeleteMsgsNotification（不依赖 conversation 文档是否存在）。
+//  3. 物理删除成功后再删除 group_msg_burn_record；失败则保留记录供 cron 重试。
 func (c *conversationServer) ClearGroupBurnExpiredMsgs(ctx context.Context, req *pbconversation.ClearGroupBurnExpiredMsgsReq) (*pbconversation.ClearGroupBurnExpiredMsgsResp, error) {
 	if c.groupMsgBurnRecordDB == nil {
 		return &pbconversation.ClearGroupBurnExpiredMsgsResp{Count: 0}, nil
@@ -1075,12 +1075,25 @@ func (c *conversationServer) ClearGroupBurnExpiredMsgs(ctx context.Context, req 
 				"groupID", g.GroupID, "conversationID", conversationID, "seqs", g.Seqs)
 			continue
 		}
-		if err := c.msgClient.DeleteMsgs(ctx, deleteAsUserID, conversationID, g.Seqs, &msg.DeleteSyncOpt{
-			IsSyncOther: true,
-		}); err != nil {
-			log.ZError(ctx, "ClearGroupBurnExpiredMsgs DeleteMsgs failed", err,
+		// Prefer physical delete + group notify over msg.DeleteMsgs(IsSyncOther):
+		// DeleteMsgs looks up conversation docs to decide recvID/sessionType; if all
+		// conversation rows are gone it returns RecordNotFound after delete and burn
+		// records would never be cleaned (cron poison pill). We already know groupID.
+		if err := c.msgClient.DeleteMsgPhysicalBySeqs(ctx, conversationID, g.Seqs); err != nil {
+			log.ZError(ctx, "ClearGroupBurnExpiredMsgs DeleteMsgPhysicalBySeqs failed", err,
 				"groupID", g.GroupID, "conversationID", conversationID, "seqs", g.Seqs)
 			continue
+		}
+		if c.conversationNotificationSender != nil {
+			tips := &sdkws.DeleteMsgsTips{
+				UserID:         deleteAsUserID,
+				ConversationID: conversationID,
+				Seqs:           g.Seqs,
+			}
+			c.conversationNotificationSender.NotificationWithSessionType(
+				ctx, deleteAsUserID, g.GroupID,
+				constant.DeleteMsgsNotification, constant.ReadGroupChatType, tips,
+			)
 		}
 		if err := c.groupMsgBurnRecordDB.DeleteByGroupSeqs(ctx, g.GroupID, g.Seqs); err != nil {
 			log.ZError(ctx, "ClearGroupBurnExpiredMsgs DeleteByGroupSeqs failed", err,

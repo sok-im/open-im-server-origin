@@ -751,7 +751,7 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 
 	dbInv, err := s.db.GetInvitationByRoomID(ctx, req.Invitation.RoomID)
 	if err != nil {
-		log.ZWarn(ctx, "handleReject", err, "get invitation by roomID failed", "req", req)
+		log.ZWarn(ctx, "handleReject: get invitation by roomID failed", err, "req", req)
 		return nil, errs.WrapMsg(err, "invitation not found or expired", "roomID", req.Invitation.RoomID)
 	}
 
@@ -766,7 +766,7 @@ func (s *rtcServer) handleReject(ctx context.Context, req *rtc.SignalRejectReq, 
 	}
 	content, err := marshalSignalReq(signalReq)
 	if err != nil {
-		log.ZWarn(ctx, "handleReject", err, "marshal signal req failed", "req", req)
+		log.ZWarn(ctx, "handleReject: marshal signal req failed", err, "req", req)
 		return nil, err
 	}
 	invInfo := modelToInvitationInfo(dbInv)
@@ -895,7 +895,7 @@ func (s *rtcServer) handleCancel(ctx context.Context, req *rtc.SignalCancelReq, 
 
 	dbInv, err := s.db.GetInvitationByRoomID(ctx, req.Invitation.RoomID)
 	if err != nil {
-		log.ZWarn(ctx, "handleCancel", err, "get invitation by roomID failed", "req", req)
+		log.ZWarn(ctx, "handleCancel: get invitation by roomID failed", err, "req", req)
 		return nil, errs.WrapMsg(err, "invitation not found or expired", "roomID", req.Invitation.RoomID)
 	}
 	if req.UserID != dbInv.InviterUserID {
@@ -970,7 +970,7 @@ func (s *rtcServer) handleCancel(ctx context.Context, req *rtc.SignalCancelReq, 
 	invInfo := modelToInvitationInfo(dbInv)
 	content, err := marshalSignalReq(signalReq)
 	if err != nil {
-		log.ZWarn(ctx, "handleCancel", err, "marshal signal req failed", "req", req, "dbInv", dbInv, "signalReq", signalReq)
+		log.ZWarn(ctx, "handleCancel: marshal signal req failed", err, "req", req, "dbInv", dbInv, "signalReq", signalReq)
 		return nil, err
 	}
 	if answered {
@@ -1063,7 +1063,7 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 
 	dbInv, err := s.db.GetInvitationByRoomID(ctx, req.Invitation.RoomID)
 	if err != nil {
-		log.ZWarn(ctx, "handleHungUp", err, "get invitation by roomID failed", "req", req)
+		log.ZWarn(ctx, "handleHungUp: get invitation by roomID failed", err, "req", req)
 		return nil, errs.WrapMsg(err, "invitation not found or expired", "roomID", req.Invitation.RoomID)
 	}
 	if req.UserID != dbInv.InviterUserID && !datautil.Contain(req.UserID, dbInv.InviteeUserIDList...) {
@@ -1095,7 +1095,7 @@ func (s *rtcServer) handleHungUp(ctx context.Context, req *rtc.SignalHungUpReq, 
 
 	content, err := marshalSignalReq(signalReq)
 	if err != nil {
-		log.ZWarn(ctx, "handleHungUp", err, "marshal signal req failed", "req", req, "dbInv", dbInv, "signalReq", signalReq)
+		log.ZWarn(ctx, "handleHungUp: marshal signal req failed", err, "req", req, "dbInv", dbInv, "signalReq", signalReq)
 		return nil, err
 	}
 	// Unanswered 1v1 hang-up: wake offline callees with a missed-call push so they sync state.
@@ -1264,7 +1264,7 @@ func (s *rtcServer) SignalGetRoomByGroupID(ctx context.Context, req *rtc.SignalG
 		return nil, errs.ErrArgs.WrapMsg("op user id is empty")
 	}
 	if _, err := s.groupClient.GetGroupMemberCache(ctx, req.GroupID, opUserID); err != nil {
-		log.ZWarn(ctx, "SignalGetRoomByGroupID", err, "get group member cache failed", "req", req)
+		log.ZWarn(ctx, "SignalGetRoomByGroupID: get group member cache failed", err, "req", req)
 		return nil, err
 	}
 
@@ -1273,7 +1273,7 @@ func (s *rtcServer) SignalGetRoomByGroupID(ctx context.Context, req *rtc.SignalG
 		if errs.ErrRecordNotFound.Is(err) {
 			return &rtc.SignalGetRoomByGroupIDResp{InCall: false}, nil
 		}
-		log.ZWarn(ctx, "SignalGetRoomByGroupID", err, "get invitation by groupID failed", "req", req)
+		log.ZWarn(ctx, "SignalGetRoomByGroupID: get invitation by groupID failed", err, "req", req)
 		return nil, err
 	}
 
@@ -1647,7 +1647,7 @@ func (s *rtcServer) SignalNotifyGroupCallEnded(ctx context.Context, req *rtc.Sig
 	}
 
 	if _, err := s.groupClient.GetGroupMemberCache(ctx, req.GroupID, opUserID); err != nil {
-		log.ZWarn(ctx, "SignalNotifyGroupCallEnded: get group member cache failed", err, "get group member cache failed")
+		log.ZWarn(ctx, "SignalNotifyGroupCallEnded: get group member cache failed", err, "req", req)
 		return nil, err
 	}
 
@@ -1657,7 +1657,7 @@ func (s *rtcServer) SignalNotifyGroupCallEnded(ctx context.Context, req *rtc.Sig
 			log.ZDebug(ctx, "SignalNotifyGroupCallEnded: invitation already ended, skip duplicate", "roomID", req.RoomID)
 			return &rtc.SignalNotifyGroupCallEndedResp{}, nil
 		}
-		log.ZWarn(ctx, "SignalNotifyGroupCallEnded: get invitation by roomID failed", err, "get invitation by roomID failed")
+		log.ZWarn(ctx, "SignalNotifyGroupCallEnded: get invitation by roomID failed", err, "req", req, "roomID", req.RoomID)
 		return nil, errs.WrapMsg(err, "invitation not found", "roomID", req.RoomID)
 	}
 	if inv.GroupID != req.GroupID {
