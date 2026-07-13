@@ -552,9 +552,9 @@ func (c *conversationServer) CreateSingleChatConversations(ctx context.Context,
 		}
 		c.syncSenderConversationBurnOnCreateSingleChat(ctx, req.SendID, req.RecvID, req.ConversationID, burnDuration)
 		// 跳过 sendID==recvID：避免自聊会话再次下发 1705（见 ConversationE2EENotification 注释）。
-		if req.SendID != req.RecvID {
-			c.conversationNotificationSender.ConversationE2EENotification(ctx, req.SendID, req.RecvID, req.ConversationID)
-		}
+		//if req.SendID != req.RecvID {
+		//	c.conversationNotificationSender.ConversationE2EENotification(ctx, req.SendID, req.RecvID, req.ConversationID)
+		//}
 	case constant.NotificationChatType:
 		var conversation dbModel.Conversation
 		conversation.ConversationID = req.ConversationID
