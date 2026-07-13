@@ -77,6 +77,17 @@ func (c *ConversationNotificationSender) ConversationChangeNotification(ctx cont
 	c.Notification(ctx, userID, userID, constant.ConversationChangeNotification, tips)
 }
 
+// ConversationE2EENotification 单聊会话创建时下发 E2EE 信令（contentType=1705），不依赖专用 Listener 回调。
+func (c *ConversationNotificationSender) ConversationE2EENotification(ctx context.Context, sendID, recvID, conversationID string) {
+	tips := &sdkws.ConversationSetPrivateTips{
+		SendID:         sendID,
+		RecvID:         recvID,
+		ConversationID: conversationID,
+	}
+	c.Notification(ctx, sendID, sendID, constant.ConversationE2EENotification, tips)
+	c.Notification(ctx, sendID, recvID, constant.ConversationE2EENotification, tips)
+}
+
 func (c *ConversationNotificationSender) ConversationUnreadChangeNotification(
 	ctx context.Context,
 	userID, conversationID string,

@@ -551,6 +551,7 @@ func (c *conversationServer) CreateSingleChatConversations(ctx context.Context,
 			log.ZWarn(ctx, "create conversation failed", err, "conversation2", conversation)
 		}
 		c.syncSenderConversationBurnOnCreateSingleChat(ctx, req.SendID, req.RecvID, req.ConversationID, burnDuration)
+		c.conversationNotificationSender.ConversationE2EENotification(ctx, req.SendID, req.RecvID, req.ConversationID)
 	case constant.NotificationChatType:
 		var conversation dbModel.Conversation
 		conversation.ConversationID = req.ConversationID

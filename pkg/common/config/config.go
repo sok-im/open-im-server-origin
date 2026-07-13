@@ -202,6 +202,7 @@ type Notification struct {
 	UserStatusChanged                NotificationConfig `mapstructure:"userStatusChanged"`
 	ConversationChanged              NotificationConfig `mapstructure:"conversationChanged"`
 	ConversationSetPrivate           NotificationConfig `mapstructure:"conversationSetPrivate"`
+	ConversationE2EE                 NotificationConfig `mapstructure:"conversationE2EE"`
 }
 
 type Prometheus struct {

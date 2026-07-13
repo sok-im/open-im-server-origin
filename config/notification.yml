@@ -427,3 +427,13 @@ conversationSetPrivate:
     title: burn after reading
     desc: burn after reading
     ext: burn after reading
+
+conversationE2EE:
+  isSendMsg: true
+  reliabilityLevel: 2
+  unreadCount: false
+  offlinePush:
+    enable: false
+    title: conversation e2ee
+    desc: conversation e2ee
+    ext: conversation e2ee
