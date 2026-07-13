@@ -1078,26 +1078,15 @@ func (c *conversationServer) ClearGroupBurnExpiredMsgs(ctx context.Context, req 
 				"groupID", g.GroupID, "conversationID", conversationID, "seqs", g.Seqs)
 			continue
 		}
-		// Prefer physical delete + group notify over msg.DeleteMsgs(IsSyncOther):
-		// DeleteMsgs looks up conversation docs to decide recvID/sessionType; if all
-		// conversation rows are gone it returns RecordNotFound after delete and burn
-		// records would never be cleaned (cron poison pill). We already know groupID.
-		if err := c.msgClient.DeleteMsgPhysicalBySeqs(ctx, conversationID, g.Seqs); err != nil {
-			log.ZError(ctx, "ClearGroupBurnExpiredMsgs DeleteMsgPhysicalBySeqs failed", err,
+
+		if err := c.msgClient.DeleteMsgs(ctx, deleteAsUserID, conversationID, g.Seqs, &msg.DeleteSyncOpt{
+			IsSyncOther: true,
+		}); err != nil {
+			log.ZError(ctx, "ClearGroupBurnExpiredMsgs DeleteMsgs failed", err,
 				"groupID", g.GroupID, "conversationID", conversationID, "seqs", g.Seqs)
 			continue
 		}
-		if c.conversationNotificationSender != nil {
-			tips := &sdkws.DeleteMsgsTips{
-				UserID:         deleteAsUserID,
-				ConversationID: conversationID,
-				Seqs:           g.Seqs,
-			}
-			c.conversationNotificationSender.NotificationWithSessionType(
-				ctx, deleteAsUserID, g.GroupID,
-				constant.DeleteMsgsNotification, constant.ReadGroupChatType, tips,
-			)
-		}
+
 		if err := c.groupMsgBurnRecordDB.DeleteByGroupSeqs(ctx, g.GroupID, g.Seqs); err != nil {
 			log.ZError(ctx, "ClearGroupBurnExpiredMsgs DeleteByGroupSeqs failed", err,
 				"groupID", g.GroupID, "seqs", g.Seqs)
