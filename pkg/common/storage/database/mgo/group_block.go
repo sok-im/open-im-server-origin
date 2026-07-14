@@ -14,12 +14,21 @@ import (
 
 func NewGroupBlockMongo(db *mongo.Database) (database.GroupBlock, error) {
 	coll := db.Collection(database.GroupBlockName)
-	_, err := coll.Indexes().CreateOne(context.Background(), mongo.IndexModel{
-		Keys: bson.D{
-			{Key: "owner_user_id", Value: 1},
-			{Key: "group_id", Value: 1},
+	_, err := coll.Indexes().CreateMany(context.Background(), []mongo.IndexModel{
+		{
+			Keys: bson.D{
+				{Key: "owner_user_id", Value: 1},
+				{Key: "group_id", Value: 1},
+			},
+			Options: options.Index().SetUnique(true),
 		},
-		Options: options.Index().SetUnique(true),
+		// Send-path batch check / DeleteByGroupID: filter by group_id first.
+		{
+			Keys: bson.D{
+				{Key: "group_id", Value: 1},
+				{Key: "owner_user_id", Value: 1},
+			},
+		},
 	})
 	if err != nil {
 		return nil, errs.Wrap(err)

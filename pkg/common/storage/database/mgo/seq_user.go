@@ -13,11 +13,14 @@ import (
 
 func NewSeqUserMongo(db *mongo.Database) (database.SeqUser, error) {
 	coll := db.Collection(database.SeqUserName)
+	// Migrate: prior releases created a non-unique index; drop then recreate as unique.
+	_, _ = coll.Indexes().DropOne(context.Background(), "user_id_1_conversation_id_1")
 	_, err := coll.Indexes().CreateOne(context.Background(), mongo.IndexModel{
 		Keys: bson.D{
 			{Key: "user_id", Value: 1},
 			{Key: "conversation_id", Value: 1},
 		},
+		Options: options.Index().SetUnique(true),
 	})
 	if err != nil {
 		return nil, err

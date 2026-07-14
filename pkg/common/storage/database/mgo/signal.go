@@ -40,6 +40,10 @@ func NewSignalMongo(db *mongo.Database) (database.SignalDatabase, error) {
 		{
 			Keys: bson.D{{Key: "invitee_user_id_list", Value: 1}},
 		},
+		// Busy-line / inviter-side lookups (GetBusyUserIDs $or).
+		{
+			Keys: bson.D{{Key: "inviter_user_id", Value: 1}},
+		},
 		{
 			Keys: bson.D{{Key: "create_time", Value: -1}},
 		},

@@ -32,12 +32,21 @@ import (
 
 func NewGroupMember(db *mongo.Database) (database.GroupMember, error) {
 	coll := db.Collection(database.GroupMemberName)
-	_, err := coll.Indexes().CreateOne(context.Background(), mongo.IndexModel{
-		Keys: bson.D{
-			{Key: "group_id", Value: 1},
-			{Key: "user_id", Value: 1},
+	_, err := coll.Indexes().CreateMany(context.Background(), []mongo.IndexModel{
+		{
+			Keys: bson.D{
+				{Key: "group_id", Value: 1},
+				{Key: "user_id", Value: 1},
+			},
+			Options: options.Index().SetUnique(true),
 		},
-		Options: options.Index().SetUnique(true),
+		// User→groups reverse lookup (joined / managed groups).
+		{
+			Keys: bson.D{
+				{Key: "user_id", Value: 1},
+				{Key: "group_id", Value: 1},
+			},
+		},
 	})
 	if err != nil {
 		return nil, errs.Wrap(err)

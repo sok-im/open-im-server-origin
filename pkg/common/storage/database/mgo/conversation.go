@@ -32,12 +32,21 @@ import (
 
 func NewConversationMongo(db *mongo.Database) (*ConversationMgo, error) {
 	coll := db.Collection(database.ConversationName)
-	_, err := coll.Indexes().CreateOne(context.Background(), mongo.IndexModel{
-		Keys: bson.D{
-			{Key: "owner_user_id", Value: 1},
-			{Key: "conversation_id", Value: 1},
+	_, err := coll.Indexes().CreateMany(context.Background(), []mongo.IndexModel{
+		{
+			Keys: bson.D{
+				{Key: "owner_user_id", Value: 1},
+				{Key: "conversation_id", Value: 1},
+			},
+			Options: options.Index().SetUnique(true),
 		},
-		Options: options.Index().SetUnique(true),
+		// Reverse lookup for fanout / recv_msg_opt filtering by conversation_id.
+		{
+			Keys: bson.D{
+				{Key: "conversation_id", Value: 1},
+				{Key: "recv_msg_opt", Value: 1},
+			},
+		},
 	})
 	if err != nil {
 		return nil, errs.Wrap(err)

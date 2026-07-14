@@ -32,6 +32,8 @@ import (
 
 func NewFriendRequestMongo(db *mongo.Database) (database.FriendRequest, error) {
 	coll := db.Collection(database.FriendRequestName)
+	// Standalone create_time index is redundant after inbox/outbox compounds.
+	_, _ = coll.Indexes().DropOne(context.Background(), "create_time_-1")
 	_, err := coll.Indexes().CreateMany(context.Background(), []mongo.IndexModel{
 		{
 			Keys: bson.D{
@@ -40,8 +42,19 @@ func NewFriendRequestMongo(db *mongo.Database) (database.FriendRequest, error) {
 			},
 			Options: options.Index().SetUnique(true),
 		},
+		// Inbox: FindToUserID / GetUnhandledCount.
 		{
 			Keys: bson.D{
+				{Key: "to_user_id", Value: 1},
+				{Key: "handle_result", Value: 1},
+				{Key: "create_time", Value: -1},
+			},
+		},
+		// Outbox: FindFromUserID.
+		{
+			Keys: bson.D{
+				{Key: "from_user_id", Value: 1},
+				{Key: "handle_result", Value: 1},
 				{Key: "create_time", Value: -1},
 			},
 		},
