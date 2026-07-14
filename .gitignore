@@ -39,6 +39,7 @@ deployments/charts/generated-configs/
 .env
 config/config.yaml
 config/notification.yaml
+config/fcm-credentials.json
 
 ### OpenIM deploy ###
 deployments/openim-server/charts
