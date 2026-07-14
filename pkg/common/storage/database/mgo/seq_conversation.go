@@ -13,15 +13,10 @@ import (
 
 func NewSeqConversationMongo(db *mongo.Database) (database.SeqConversation, error) {
 	coll := db.Collection(database.SeqConversationName)
-	// Migrate: prior releases created a non-unique index; drop then recreate as unique.
-	_, _ = coll.Indexes().DropOne(context.Background(), "conversation_id_1")
-	_, err := coll.Indexes().CreateOne(context.Background(), mongo.IndexModel{
-		Keys: bson.D{
-			{Key: "conversation_id", Value: 1},
-		},
-		Options: options.Index().SetUnique(true),
-	})
-	if err != nil {
+	// Migrate legacy non-unique index only when needed (avoid Drop+Create race on every start).
+	if err := ensureUniqueIndex(context.Background(), coll, "conversation_id_1", bson.D{
+		{Key: "conversation_id", Value: 1},
+	}); err != nil {
 		return nil, err
 	}
 	return &seqConversationMongo{coll: coll}, nil
