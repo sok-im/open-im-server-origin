@@ -540,6 +540,18 @@ func (o *GroupApi) GetGroupMute(c *gin.Context) {
 	a2r.Call(c, group.GroupClient.GetGroupMute, o.Client)
 }
 
+func (o *GroupApi) SetGroupBlock(c *gin.Context) {
+	a2r.Call(c, group.GroupClient.SetGroupBlock, o.Client)
+}
+
+func (o *GroupApi) GetGroupBlock(c *gin.Context) {
+	a2r.Call(c, group.GroupClient.GetGroupBlock, o.Client)
+}
+
+func (o *GroupApi) GetBlockGroup(c *gin.Context) {
+	a2r.Call(c, group.GroupClient.GetBlockGroup, o.Client)
+}
+
 func (o *GroupApi) PinGroup(c *gin.Context) {
 	a2r.Call(c, group.GroupClient.PinGroup, o.Client)
 }

@@ -61,6 +61,7 @@ type groupServer struct {
 	pbgroup.UnimplementedGroupServer
 	db                 controller.GroupDatabase
 	groupMuteDB        controller.GroupMuteDatabase
+	groupBlockDB       controller.GroupBlockDatabase
 	inviteLinkDB       controller.GroupInviteLinkDatabase
 	notification       *NotificationSender
 	config             *Config
@@ -113,6 +114,10 @@ func Start(ctx context.Context, config *Config, client discovery.SvcDiscoveryReg
 	if err != nil {
 		return err
 	}
+	groupBlockMongo, err := mgo.NewGroupBlockMongo(mgocli.GetDB())
+	if err != nil {
+		return err
+	}
 
 	//userRpcClient := rpcclient.NewUserRpcClient(client, config.Share.RpcRegisterName.User, config.Share.IMAdminUserID)
 	//msgRpcClient := rpcclient.NewMessageRpcClient(client, config.Share.RpcRegisterName.Msg)
@@ -154,6 +159,7 @@ func Start(ctx context.Context, config *Config, client discovery.SvcDiscoveryReg
 	}
 	gs.db = controller.NewGroupDatabase(rdb, &config.LocalCacheConfig, groupDB, groupMemberDB, groupRequestDB, groupPinnedMsgDB, mgocli.GetTx(), grouphash.NewGroupHashFromGroupServer(&gs))
 	gs.groupMuteDB = controller.NewGroupMuteDatabase(groupMuteMongo)
+	gs.groupBlockDB = controller.NewGroupBlockDatabase(groupBlockMongo)
 
 	groupInviteLinkMgo, err := mgo.NewGroupInviteLinkMongo(mgocli.GetDB())
 	if err != nil {
@@ -1295,6 +1301,9 @@ func (s *groupServer) QuitGroup(ctx context.Context, req *pbgroup.QuitGroupReq) 
 }
 
 func (s *groupServer) deleteMemberAndSetConversationSeq(ctx context.Context, groupID string, userIDs []string) error {
+	if err := s.groupBlockDB.DeleteByUserIDs(ctx, groupID, userIDs); err != nil {
+		return err
+	}
 	conversationID := msgprocessor.GetConversationIDBySessionType(constant.ReadGroupChatType, groupID)
 	maxSeq, err := s.msgClient.GetConversationMaxSeq(ctx, conversationID)
 	if err != nil {
@@ -1786,6 +1795,9 @@ func (s *groupServer) DismissGroup(ctx context.Context, req *pbgroup.DismissGrou
 		return nil, err
 	}
 	if err := s.inviteLinkDB.DeleteByGroupID(ctx, req.GroupID); err != nil {
+		return nil, err
+	}
+	if err := s.groupBlockDB.DeleteByGroupID(ctx, req.GroupID); err != nil {
 		return nil, err
 	}
 	if !req.DeleteMember {

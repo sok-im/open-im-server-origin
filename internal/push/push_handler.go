@@ -37,6 +37,7 @@ type ConsumerHandler struct {
 	onlinePusher           OnlinePusher
 	pushDatabase           controller.PushDatabase
 	groupMuteDB            controller.GroupMuteDatabase
+	groupBlockDB           controller.GroupBlockDatabase
 	onlineCache            *rpccache.OnlineCache
 	groupLocalCache        *rpccache.GroupLocalCache
 	conversationLocalCache *rpccache.ConversationLocalCache
@@ -50,7 +51,7 @@ type ConsumerHandler struct {
 }
 
 func NewConsumerHandler(ctx context.Context, config *Config, database controller.PushDatabase, offlinePusher offlinepush.OfflinePusher, rdb redis.UniversalClient,
-	client discovery.SvcDiscoveryRegistry, groupMuteDB controller.GroupMuteDatabase) (*ConsumerHandler, error) {
+	client discovery.SvcDiscoveryRegistry, groupMuteDB controller.GroupMuteDatabase, groupBlockDB controller.GroupBlockDatabase) (*ConsumerHandler, error) {
 	var consumerHandler ConsumerHandler
 	var err error
 	consumerHandler.pushConsumerGroup, err = kafka.NewMConsumerGroup(config.KafkaConfig.Build(), config.KafkaConfig.ToPushGroupID,
@@ -79,6 +80,7 @@ func NewConsumerHandler(ctx context.Context, config *Config, database controller
 	consumerHandler.msgClient = rpcli.NewMsgClient(msgConn)
 	consumerHandler.conversationClient = rpcli.NewConversationClient(conversationConn)
 	consumerHandler.groupMuteDB = groupMuteDB
+	consumerHandler.groupBlockDB = groupBlockDB
 
 	consumerHandler.offlinePusher = offlinePusher
 	consumerHandler.onlinePusher = NewOnlinePusher(client, config)
@@ -349,6 +351,10 @@ func (c *ConsumerHandler) Push2Group(ctx context.Context, groupID string, msg *s
 		return err
 	}
 
+	if err = c.filterGroupBlockedUsers(ctx, groupID, &pushToUserIDs); err != nil {
+		return err
+	}
+
 	wsResults, err := c.GetConnsAndOnlinePush(ctx, msg, pushToUserIDs)
 	if err != nil {
 		return err
@@ -517,6 +523,13 @@ func (c *ConsumerHandler) filterGroupMessageOfflinePush(ctx context.Context, gro
 	if len(needOfflinePushUserIDs) == 0 {
 		return needOfflinePushUserIDs, nil
 	}
+	needOfflinePushUserIDs, err = c.excludeGroupBlockedUsers(ctx, groupID, needOfflinePushUserIDs)
+	if err != nil {
+		return nil, err
+	}
+	if len(needOfflinePushUserIDs) == 0 {
+		return needOfflinePushUserIDs, nil
+	}
 	if c.groupMuteDB == nil {
 		return filterOfflinePushByNotificationSwitch(ctx, c.userLocalCache, msg, needOfflinePushUserIDs)
 	}
@@ -538,6 +551,44 @@ func (c *ConsumerHandler) filterGroupMessageOfflinePush(ctx context.Context, gro
 		}
 	}
 	return filterOfflinePushByNotificationSwitch(ctx, c.userLocalCache, msg, out)
+}
+
+// filterGroupBlockedUsers removes users who blocked this group from the online push list
+// (chat messages and group notifications alike).
+func (c *ConsumerHandler) filterGroupBlockedUsers(ctx context.Context, groupID string, pushToUserIDs *[]string) error {
+	if pushToUserIDs == nil || len(*pushToUserIDs) == 0 {
+		return nil
+	}
+	filtered, err := c.excludeGroupBlockedUsers(ctx, groupID, *pushToUserIDs)
+	if err != nil {
+		return err
+	}
+	*pushToUserIDs = filtered
+	return nil
+}
+
+func (c *ConsumerHandler) excludeGroupBlockedUsers(ctx context.Context, groupID string, userIDs []string) ([]string, error) {
+	if c.groupBlockDB == nil || len(userIDs) == 0 {
+		return userIDs, nil
+	}
+	blocked, err := c.groupBlockDB.ListBlockedUserIDs(ctx, groupID, userIDs)
+	if err != nil {
+		return nil, err
+	}
+	if len(blocked) == 0 {
+		return userIDs, nil
+	}
+	blockedSet := make(map[string]struct{}, len(blocked))
+	for _, u := range blocked {
+		blockedSet[u] = struct{}{}
+	}
+	out := make([]string, 0, len(userIDs))
+	for _, u := range userIDs {
+		if _, ok := blockedSet[u]; !ok {
+			out = append(out, u)
+		}
+	}
+	return out, nil
 }
 
 func (c *ConsumerHandler) DeleteMemberAndSetConversationSeq(ctx context.Context, groupID string, userIDs []string) error {

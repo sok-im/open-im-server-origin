@@ -69,8 +69,13 @@ func Start(ctx context.Context, config *Config, client discovery.SvcDiscoveryReg
 		return err
 	}
 	groupMuteDB := controller.NewGroupMuteDatabase(groupMuteMongo)
+	groupBlockMongo, err := mgo.NewGroupBlockMongo(mgocli.GetDB())
+	if err != nil {
+		return err
+	}
+	groupBlockDB := controller.NewGroupBlockDatabase(groupBlockMongo)
 
-	consumer, err := NewConsumerHandler(ctx, config, database, offlinePusher, rdb, client, groupMuteDB)
+	consumer, err := NewConsumerHandler(ctx, config, database, offlinePusher, rdb, client, groupMuteDB, groupBlockDB)
 	if err != nil {
 		return err
 	}

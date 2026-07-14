@@ -73,7 +73,8 @@ type msgServer struct {
 	relationClient         *rpcli.RelationClient
 	spamReportDB           database.SpamReport
 	globalBlackDB          controller.UserGlobalBlackDatabase
-	msgBurnDeadlineDB database.MsgBurnDeadline
+	msgBurnDeadlineDB      database.MsgBurnDeadline
+	groupBlockDB           controller.GroupBlockDatabase
 }
 
 func (m *msgServer) addInterceptorHandler(interceptorFunc ...MessageInterceptorFunc) {
@@ -138,6 +139,10 @@ func Start(ctx context.Context, config *Config, client discovery.SvcDiscoveryReg
 	if err != nil {
 		return err
 	}
+	groupBlockMongo, err := mgo.NewGroupBlockMongo(mgocli.GetDB())
+	if err != nil {
+		return err
+	}
 
 	s := &msgServer{
 		MsgDatabase:            msgDatabase,
@@ -152,7 +157,8 @@ func Start(ctx context.Context, config *Config, client discovery.SvcDiscoveryReg
 		relationClient:         rpcli.NewRelationClient(friendConn),
 		spamReportDB:           spamReportDB,
 		globalBlackDB:          controller.NewUserGlobalBlackDatabase(globalBlackMgo),
-		msgBurnDeadlineDB: msgBurnDeadlineDB,
+		msgBurnDeadlineDB:      msgBurnDeadlineDB,
+		groupBlockDB:           controller.NewGroupBlockDatabase(groupBlockMongo),
 	}
 
 	s.notificationSender = notification.NewNotificationSender(&config.NotificationConfig, notification.WithLocalSendMsg(s.SendMsg))

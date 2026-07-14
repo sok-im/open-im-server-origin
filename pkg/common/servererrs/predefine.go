@@ -56,10 +56,11 @@ var (
 	ErrRelationshipAlready  = errs.NewCodeError(RelationshipAlreadyError, "RelationshipAlreadyError")
 	ErrFriendRequestHandled = errs.NewCodeError(FriendRequestHandled, "FriendRequestHandled")
 
-	ErrMutedInGroup     = errs.NewCodeError(MutedInGroup, "MutedInGroup")
-	ErrMutedGroup       = errs.NewCodeError(MutedGroup, "MutedGroup")
-	ErrMsgAlreadyRevoke = errs.NewCodeError(MsgAlreadyRevoke, "MsgAlreadyRevoke")
+	ErrMutedInGroup       = errs.NewCodeError(MutedInGroup, "MutedInGroup")
+	ErrMutedGroup         = errs.NewCodeError(MutedGroup, "MutedGroup")
+	ErrMsgAlreadyRevoke   = errs.NewCodeError(MsgAlreadyRevoke, "MsgAlreadyRevoke")
 	ErrMsgReceiveNotAllowed = errs.NewCodeError(MsgReceiveNotAllowed, "MsgReceiveNotAllowed")
+	ErrGroupMessageBlocked  = errs.NewCodeError(GroupMessageBlocked, "GroupMessageBlocked")
 
 	ErrConnOverMaxNumLimit = errs.NewCodeError(ConnOverMaxNumLimit, "ConnOverMaxNumLimit")
 

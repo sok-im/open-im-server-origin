@@ -99,6 +99,15 @@ scripts/**/*.log
 vendor/
 go.work.sum
 
+### 二进制 / 本地 DB（勿入索引，体积大且无语义价值）###
+*.wasm
+*.db
+*.sqlite
+*.sqlite3
+openim-sdk-core/wasm/cmd/cmd
+openim-sdk-core/identifier.sqlite
+openim-sdk-core/pkg/db/*.db
+
 ### JetBrains / IDE ###
 .idea/
 out/

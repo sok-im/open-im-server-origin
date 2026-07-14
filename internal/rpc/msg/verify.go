@@ -108,6 +108,15 @@ func (m *msgServer) messageVerification(ctx context.Context, data *msg.SendMsgRe
 			data.MsgData.ContentType >= constant.NotificationBegin {
 			return nil
 		}
+		if m.groupBlockDB != nil {
+			block, err := m.groupBlockDB.Get(ctx, data.MsgData.SendID, data.MsgData.GroupID)
+			if err != nil {
+				return err
+			}
+			if block != nil {
+				return servererrs.ErrGroupMessageBlocked.Wrap()
+			}
+		}
 		groupInfo, err := m.GroupLocalCache.GetGroupInfo(ctx, data.MsgData.GroupID)
 		if err != nil {
 			log.ZError(ctx, "messageVerification group: GetGroupInfo failed", err,

@@ -14,6 +14,8 @@ const (
 	GroupRequestName        = "group_request"
 	GroupPinnedMsgName      = "group_pinned_msg"
 	GroupMuteName           = "group_mute"
+	GroupBlockName          = "group_block"
+	GroupBlockName          = "group_block"
 	LogName                 = "log"
 	ObjectName              = "s3"
 	UserName                = "user"

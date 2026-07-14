@@ -328,6 +328,9 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 		groupRouterGroup.POST("/get_group_pinned_messages", g.GetGroupPinnedMessages)
 		groupRouterGroup.POST("/set_mute", g.SetGroupMute)
 		groupRouterGroup.POST("/get_mute", g.GetGroupMute)
+		groupRouterGroup.POST("/set_block", g.SetGroupBlock)
+		groupRouterGroup.POST("/get_block", g.GetGroupBlock)
+		groupRouterGroup.POST("/get_block_group", g.GetBlockGroup)
 		groupRouterGroup.POST("/pin", g.PinGroup)
 		groupRouterGroup.POST("/unpin", g.UnpinGroup)
 
