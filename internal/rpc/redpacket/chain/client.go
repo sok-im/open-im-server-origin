@@ -154,6 +154,33 @@ func (c *ChainClient) EthClient() *ethclient.Client {
 	return c.client
 }
 
+// erc20DecimalsSelector is the 4-byte function selector for the ERC20 `decimals()`
+// view method (keccak256("decimals()")[:4] == 0x313ce567).
+var erc20DecimalsSelector = crypto.Keccak256([]byte("decimals()"))[:4]
+
+// TokenDecimals reads the ERC20 `decimals()` value of the given token contract
+// via eth_call. Callers must not pass the zero (native) address; native token
+// decimals are decided by the caller. Implements chain.DecimalsReader.
+func (c *ChainClient) TokenDecimals(ctx context.Context, tokenAddr string) (int32, error) {
+	addr := common.HexToAddress(tokenAddr)
+	msg := ethereum.CallMsg{
+		To:   &addr,
+		Data: erc20DecimalsSelector,
+	}
+	out, err := c.client.CallContract(ctx, msg, nil)
+	if err != nil {
+		return 0, fmt.Errorf("call decimals() on %s failed: %w", tokenAddr, err)
+	}
+	if len(out) == 0 {
+		return 0, fmt.Errorf("empty decimals() response from %s", tokenAddr)
+	}
+	dec := new(big.Int).SetBytes(out)
+	if !dec.IsInt64() || dec.Int64() < 0 || dec.Int64() > 255 {
+		return 0, fmt.Errorf("invalid decimals() value from %s: %s", tokenAddr, dec.String())
+	}
+	return int32(dec.Int64()), nil
+}
+
 // ContractABI exposes the parsed ABI for indexers.
 func (c *ChainClient) ContractABI() abi.ABI {
 	return c.contractABI

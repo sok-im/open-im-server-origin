@@ -204,18 +204,26 @@ func (i *Indexer) handlePacketClaimed(ctx context.Context, event *ParsedEvent) e
 
 	log.ZInfo(ctx, "PacketClaimed event", "packetID", packetID.String(), "claimer", claimer.Hex(), "amount", amount.String())
 
+	// Look up the packet's stored decimals to render a human-readable amount.
+	// If the packet row is not (yet) present, degrade to the default decimals.
+	var decimals int32 = defaultDecimals
+	if rp, err := i.db.GetRedPacketByChainKeyAndPacketID(ctx, i.chainKey, packetID.String()); err == nil && rp != nil {
+		decimals = rp.Decimals
+	}
+
 	claim := &model.RedPacketClaim{
-		ChainKey:      i.chainKey,
-		ChainType:     "EVM",
-		PacketID:      packetID.String(),
-		ClaimerWallet: claimer.Hex(),
-		AuthNonce:     authNonce.String(),
-		ClaimTxHash:   event.TxHash.Hex(),
-		ClaimedAmount: amount.String(),
-		BlockNumber:   event.BlockNumber,
-		Status:        "CONFIRMED",
-		CreatedAt:     time.Now(),
-		UpdatedAt:     time.Now(),
+		ChainKey:             i.chainKey,
+		ChainType:            "EVM",
+		PacketID:             packetID.String(),
+		ClaimerWallet:        claimer.Hex(),
+		AuthNonce:            authNonce.String(),
+		ClaimTxHash:          event.TxHash.Hex(),
+		ClaimedAmount:        amount.String(),
+		ClaimedAmountDisplay: model.FormatUnits(amount.String(), decimals),
+		BlockNumber:          event.BlockNumber,
+		Status:               "CONFIRMED",
+		CreatedAt:            time.Now(),
+		UpdatedAt:            time.Now(),
 	}
 
 	if err := i.db.SaveClaim(ctx, claim); err != nil {

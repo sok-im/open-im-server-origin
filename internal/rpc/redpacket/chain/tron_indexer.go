@@ -216,18 +216,25 @@ func (t *TronIndexer) handleTronPacketClaimed(ctx context.Context, event *Parsed
 
 	log.ZInfo(ctx, "tron PacketClaimed event", "packetID", packetID.String(), "claimer", claimer.Hex(), "amount", amount.String(), "txID", txID)
 
+	// Look up the packet's stored decimals to render a human-readable amount.
+	var decimals int32 = tronNativeDecimals
+	if rp, err := t.db.GetRedPacketByChainKeyAndPacketID(ctx, t.chainKey, packetID.String()); err == nil && rp != nil {
+		decimals = rp.Decimals
+	}
+
 	claim := &model.RedPacketClaim{
-		ChainKey:      t.chainKey,
-		ChainType:     "TRON",
-		PacketID:      packetID.String(),
-		ClaimerWallet: claimer.Hex(),
-		AuthNonce:     authNonce.String(),
-		ClaimTxHash:   txID,
-		ClaimedAmount: amount.String(),
-		BlockNumber:   event.BlockNumber,
-		Status:        "CONFIRMED",
-		CreatedAt:     time.Now(),
-		UpdatedAt:     time.Now(),
+		ChainKey:             t.chainKey,
+		ChainType:            "TRON",
+		PacketID:             packetID.String(),
+		ClaimerWallet:        claimer.Hex(),
+		AuthNonce:            authNonce.String(),
+		ClaimTxHash:          txID,
+		ClaimedAmount:        amount.String(),
+		ClaimedAmountDisplay: model.FormatUnits(amount.String(), decimals),
+		BlockNumber:          event.BlockNumber,
+		Status:               "CONFIRMED",
+		CreatedAt:            time.Now(),
+		UpdatedAt:            time.Now(),
 	}
 	if err := t.db.SaveClaim(ctx, claim); err != nil {
 		return err
