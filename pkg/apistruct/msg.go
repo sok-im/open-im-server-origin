@@ -161,6 +161,7 @@ type PaymentNotificationContent struct {
 	ChainKey        string                     `json:"chainKey,omitempty"` // 链 ID，如 ethereum
 	SendUserID      string                     `json:"sendUserID" validate:"required"`
 	RecvUserID      string                     `json:"recvUserID" validate:"required"`
+	GroupID         string                     `json:"groupID,omitempty"`
 }
 
 type OANotificationElem struct {
