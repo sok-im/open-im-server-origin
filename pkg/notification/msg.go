@@ -85,9 +85,10 @@ func newContentTypeConf(conf *config.Notification) map[int32]config.Notification
 		constant.ConversationPrivateChatNotification: conf.ConversationSetPrivate,
 		constant.ConversationE2EENotification:        conf.ConversationE2EE,
 		// msg
-		constant.MsgRevokeNotification:  {IsSendMsg: false, ReliabilityLevel: constant.ReliableNotificationNoMsg},
-		constant.HasReadReceipt:         {IsSendMsg: false, ReliabilityLevel: constant.ReliableNotificationNoMsg},
-		constant.DeleteMsgsNotification: {IsSendMsg: false, ReliabilityLevel: constant.ReliableNotificationNoMsg},
+		constant.MsgRevokeNotification:          {IsSendMsg: false, ReliabilityLevel: constant.ReliableNotificationNoMsg},
+		constant.HasReadReceipt:                 {IsSendMsg: false, ReliabilityLevel: constant.ReliableNotificationNoMsg},
+		constant.DeleteMsgsNotification:         {IsSendMsg: false, ReliabilityLevel: constant.ReliableNotificationNoMsg},
+		constant.MsgReactionUpdatedNotification: {IsSendMsg: false, ReliabilityLevel: constant.ReliableNotificationNoMsg},
 	}
 }
 
@@ -144,6 +145,8 @@ func newSessionTypeConf() map[int32]int32 {
 		constant.ConversationE2EENotification:        constant.SingleChatType,
 		// delete
 		constant.DeleteMsgsNotification: constant.SingleChatType,
+		// reaction（实际 sessionType 由调用方按会话显式传入 NotificationWithSessionType）
+		constant.MsgReactionUpdatedNotification: constant.SingleChatType,
 	}
 }
 

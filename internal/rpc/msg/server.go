@@ -72,6 +72,7 @@ type msgServer struct {
 	conversationClient     *rpcli.ConversationClient
 	relationClient         *rpcli.RelationClient
 	spamReportDB           database.SpamReport
+	messageReactionDB      database.MessageReaction
 	globalBlackDB          controller.UserGlobalBlackDatabase
 	msgBurnDeadlineDB      database.MsgBurnDeadline
 	groupBlockDB           controller.GroupBlockDatabase
@@ -131,6 +132,10 @@ func Start(ctx context.Context, config *Config, client discovery.SvcDiscoveryReg
 	if err != nil {
 		return err
 	}
+	messageReactionDB, err := mgo.NewMessageReactionMongo(mgocli.GetDB())
+	if err != nil {
+		return err
+	}
 	globalBlackMgo, err := mgo.NewUserGlobalBlackMongo(mgocli.GetDB())
 	if err != nil {
 		return err
@@ -156,6 +161,7 @@ func Start(ctx context.Context, config *Config, client discovery.SvcDiscoveryReg
 		conversationClient:     conversationClient,
 		relationClient:         rpcli.NewRelationClient(friendConn),
 		spamReportDB:           spamReportDB,
+		messageReactionDB:      messageReactionDB,
 		globalBlackDB:          controller.NewUserGlobalBlackDatabase(globalBlackMgo),
 		msgBurnDeadlineDB:      msgBurnDeadlineDB,
 		groupBlockDB:           controller.NewGroupBlockDatabase(groupBlockMongo),

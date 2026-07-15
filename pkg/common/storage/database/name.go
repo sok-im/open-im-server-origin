@@ -25,6 +25,7 @@ const (
 	SignalInvitationName    = "signal_invitation"
 	SignalRecordName        = "signal_record"
 	SpamReportName          = "spam_report"
+	MessageReactionName     = "message_reaction"
 	MsgBurnDeadlineName     = "msg_burn_deadline"
 	UserOfflineRecordName   = "user_offline_record"
 	UserMuteName            = "user_mute"

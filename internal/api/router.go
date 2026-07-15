@@ -411,6 +411,9 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 		msgGroup.POST("/report_spam", m.ReportSpam)
 		msgGroup.POST("/get_spam_reports", m.GetSpamReports)
 		msgGroup.POST("/handle_spam_report", m.HandleSpamReport)
+		msgGroup.POST("/set_reactions", m.SetMessageReaction)
+		msgGroup.POST("/get_reactions", m.GetMessageReactions)
+		msgGroup.POST("/batch_get_reactions", m.BatchGetMessageReactions)
 	}
 	// Conversation
 	{

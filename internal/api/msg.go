@@ -657,6 +657,18 @@ func (m *MessageApi) ReportSpam(c *gin.Context) {
 	a2r.Call(c, msg.MsgClient.ReportSpam, m.Client)
 }
 
+func (m *MessageApi) SetMessageReaction(c *gin.Context) {
+	a2r.Call(c, msg.MsgClient.SetMessageReaction, m.Client)
+}
+
+func (m *MessageApi) GetMessageReactions(c *gin.Context) {
+	a2r.Call(c, msg.MsgClient.GetMessageReactions, m.Client)
+}
+
+func (m *MessageApi) BatchGetMessageReactions(c *gin.Context) {
+	a2r.Call(c, msg.MsgClient.BatchGetMessageReactions, m.Client)
+}
+
 func (m *MessageApi) GetSpamReports(c *gin.Context) {
 	a2r.Call(c, msg.MsgClient.GetSpamReports, m.Client)
 }
