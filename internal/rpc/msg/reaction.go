@@ -27,13 +27,6 @@ import (
 	"github.com/openimsdk/tools/mcontext"
 )
 
-// defaultReactionEmojiAllowlist 表情反应白名单（v1 仅允许 Unicode 快捷集合）。
-// 与客户端 Phase 1 的快捷条保持一致，并预留少量常用 emoji。
-var defaultReactionEmojiAllowlist = map[string]struct{}{
-	"👍": {}, "👎": {}, "❤️": {}, "🔥": {}, "🥰": {}, "👏": {}, "😁": {},
-	"😂": {}, "😮": {}, "😢": {}, "🎉": {}, "🙏": {}, "💯": {}, "👀": {},
-}
-
 const (
 	reactionActionAdd    = "add"
 	reactionActionRemove = "remove"
@@ -112,9 +105,7 @@ func aggregateReactions(rows []*model.MessageReaction, opUserID string, detail b
 }
 
 func (m *msgServer) SetMessageReaction(ctx context.Context, req *msg.SetMessageReactionReq) (*msg.SetMessageReactionResp, error) {
-	if _, ok := defaultReactionEmojiAllowlist[req.Emoji]; !ok {
-		return nil, errs.ErrArgs.WrapMsg("emoji not in allowlist", "emoji", req.Emoji)
-	}
+
 	opUserID := mcontext.GetOpUserID(ctx)
 	access, err := m.checkReactionAccess(ctx, req.ConversationID, opUserID)
 	if err != nil {
