@@ -36,4 +36,18 @@ func TestCheckE2EECapability(t *testing.T) {
 	}, []string{"mls-exporter-livekit-v1"}, 1); err != nil {
 		t.Fatalf("capability rejected: %v", err)
 	}
+	// minVersion>0 且未声明版本时应判失败（无法证明达到 minVersion）。
+	if err := checkE2EECapability(&pbrtc.E2EECapability{
+		Schemes:      []string{"mls-exporter-livekit-v1"},
+		FrameCryptor: true,
+	}, []string{"mls-exporter-livekit-v1"}, 1); err == nil {
+		t.Fatal("expected version mismatch error for missing client version")
+	}
+	// minVersion=0 时不校验版本，缺省版本应放行。
+	if err := checkE2EECapability(&pbrtc.E2EECapability{
+		Schemes:      []string{"mls-exporter-livekit-v1"},
+		FrameCryptor: true,
+	}, []string{"mls-exporter-livekit-v1"}, 0); err != nil {
+		t.Fatalf("capability rejected with minVersion=0: %v", err)
+	}
 }

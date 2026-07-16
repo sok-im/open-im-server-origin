@@ -100,12 +100,14 @@ Invite / Accept / Join / GetTokenByRoomID 增加：
 | 1830 | `CALL_E2EE_REQUIRED_UNSUPPORTED` | 升级提示，无降级按钮 |
 | 1831 | `CALL_E2EE_CONVERSATION_NOT_READY` | MLS/会话未就绪 |
 | 1832 | `CALL_E2EE_GROUP_MEMBERSHIP_INVALID` | 无权限 |
-| 1833 | `CALL_E2EE_PROTOCOL_VERSION_MISMATCH` | 升级提示 |
-| 1834 | `CALL_E2EE_TOKEN_DENIED` | 无法进入加密通话 |
+| 1833 | `CALL_E2EE_PROTOCOL_VERSION_MISMATCH` | 升级提示；`clientVersion` 缺省也会触发 |
+| 1834 | `CALL_E2EE_TOKEN_DENIED` | 无法进入加密通话；含 `userID` 与鉴权身份不一致 |
 
 ### 3.3 Token 续期
 
-E2EE 房间 JWT TTL ≤ 5 分钟。活跃通话需周期性 `signalingGetTokenByRoomID`（建议 2–4 分钟），续期时同样带 `e2eeCapability`。
+E2EE 房间 JWT TTL ≤ 5 分钟。活跃通话需周期性 `signalingGetTokenByRoomID`（建议 2–4 分钟），续期时同样带 `e2eeCapability`（含可解析的 `clientVersion`）。
+
+请求体 `userID` 必须等于当前登录用户（服务端比对 JWT → `opUserID`）；勿代他人取 Token，否则返回 **1834**。
 
 ### 3.4 自定义信令（换钥控制面）
 

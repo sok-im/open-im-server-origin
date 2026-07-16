@@ -18,8 +18,9 @@
 | `a7daa20e5` | 邀请/Commit 存储扩展与幂等索引 |
 | `6c2f74140` | E2EE helper（解析/conversationID/能力校验） |
 | `adf18e092` | 信令透传、Token 门禁、自定义信令、Commit CAS、踢人联动 |
+| （未提交 / review follow-up） | P1 Token 身份绑定；P2-1 缺省版本不可绕过 minVersion；P2-3 限流 Lua 原子化 |
 
-父仓相对文档基线约 **+1448 / −107**（含 docs）；核心代码主要在 `adf18e092` 等实现提交。
+父仓相对文档基线约 **+1448 / −107**（含 docs）；核心代码主要在 `adf18e092` 等实现提交。评审修复见第 12 节。
 
 ---
 
@@ -48,7 +49,7 @@
 | 1831 | `CALL_E2EE_CONVERSATION_NOT_READY` | 会话/MLS 未就绪（预留） |
 | 1832 | `CALL_E2EE_GROUP_MEMBERSHIP_INVALID` | 非邀请方/非群成员 |
 | 1833 | `CALL_E2EE_PROTOCOL_VERSION_MISMATCH` | scheme/版本不匹配 |
-| 1834 | `CALL_E2EE_TOKEN_DENIED` | Token 被拒（预留） |
+| 1834 | `CALL_E2EE_TOKEN_DENIED` | Token 被拒（含 E2EE 身份冒用） |
 | 4010 | `epoch conflict` | MLS Commit epoch 冲突 |
 
 ---
@@ -80,7 +81,7 @@ Mongo：`idempotency_key` 非空唯一（partial unique index）
 | 文件 | 作用 |
 |---|---|
 | `e2ee.go` | 解析 `customData.e2ee`、规范化 `conversationID`、能力校验 |
-| `custom_signal.go` | 自定义信令：成员校验、16KB、限流、messageID 去重、补发送者/serverSeq |
+| `custom_signal.go` | 自定义信令：成员校验、16KB、限流（Lua 原子）、messageID 去重、补发送者/serverSeq |
 | `remove_participants.go` | 按 groupID 查进行中房间并 LiveKit `RemoveParticipant` |
 
 ### 5.2 `signal.go` 行为变更
@@ -89,6 +90,7 @@ Mongo：`idempotency_key` 非空唯一（partial unique index）
 - Invite / InviteInGroup：写库前解析描述符；响应带 `conversationID`；E2EE 房间发 Token 前校验能力
 - Accept / Join / GetToken / GetRoom / StartApp：回传 `conversationID` + `e2ee`（从 `customData` 抽出）
 - `genToken(roomID, userID, e2ee)`：E2EE 时 TTL≤5min，JWT Attributes `e2ee=true`
+- `issueLiveKitToken`：E2EE 时校验 `req.UserID == mcontext.GetOpUserID(ctx)`，不匹配返回 **1834**；再校验能力；非 E2EE 不校验身份绑定
 - `ensureCallParticipant`：E2EE 单聊禁止任意加人；群聊用 `GetGroupMemberInfo` 权威校验后再 AddInvitee；非 E2EE 保持原「可 AddInvitee」行为
 
 ### 5.3 `server.go` / 配置
@@ -100,12 +102,18 @@ Mongo：`idempotency_key` 非空唯一（partial unique index）
   - `e2ee.minVersion`（默认 1）
 - 文件：`config/openim-rpc-rtc.yml`、`pkg/common/config/config.go`
 
-### 5.4 自定义信令规则
+### 5.4 能力校验规则（`checkE2EECapability`）
+
+- 必须 `frameCryptor=true`，且 `schemes` 与配置 `allowedSchemes` 有交集
+- `minVersion > 0` 时：`clientVersion` 缺省或不可解析 → **1833**（不可绕过下限）
+- `minVersion = 0` 时不校验版本号
+
+### 5.5 自定义信令规则
 
 - 房间必须存在
 - 发送者 ∈ 邀请名单，或为群成员
 - `customInfo` ≤ 16KB
-- Redis：约 20 条/秒/用户/房间 突发上限；`(roomID, messageID)` SET NX 去重
+- Redis：约 20 条/秒/用户/房间 突发上限（Lua：`INCR` + 首次 `PEXPIRE` 原子完成，避免无 TTL 卡死）；`(roomID, messageID)` SET NX 去重
 - 转发载荷补：`senderUserID`、`senderPlatformID`、`serverSeq`；**不解密** `mlsMessage`，不打密文日志
 
 ---
@@ -136,8 +144,8 @@ Mongo：`idempotency_key` 非空唯一（partial unique index）
 
 **兼容：**
 
-- 无 `e2ee` 或 `required!=true` → 不校验能力、长 TTL Token、原成员扩展逻辑
-- 有 `required=true` → 能力门禁 + 短 TTL + 严格成员校验
+- 无 `e2ee` 或 `required!=true` → 不校验能力、不绑定 opUserID、长 TTL Token、原成员扩展逻辑
+- 有 `required=true` → 能力门禁 + Token 身份绑定（`req.UserID == opUserID`）+ 短 TTL + 严格成员校验
 
 **不做 / 不存：**
 
@@ -153,7 +161,7 @@ Mongo：`idempotency_key` 非空唯一（partial unique index）
 已跑通：
 
 - `go test ./internal/rpc/rtc ./internal/rpc/openmls`
-- E2EE helper / custom signal 单测
+- E2EE helper / custom signal 单测（含 `minVersion>0` 缺省版本拒绝、`minVersion=0` 放行）
 - 顺带修复 `offline_push_test` 对 `FriendAliasInfo` 的签名适配（与展示名逻辑对齐）
 
 未纳本变更范围：依赖真实 Mongo 的 `mgo` 集成测试（环境不可达）。
@@ -162,9 +170,9 @@ Mongo：`idempotency_key` 非空唯一（partial unique index）
 
 ## 10. 客户端对接要点（摘要）
 
-1. Invite 写入 `customData.e2ee`；Invite/Accept/Join/GetToken 带 `e2eeCapability`  
+1. Invite 写入 `customData.e2ee`；Invite/Accept/Join/GetToken 带 `e2eeCapability`（须填可解析的 `clientVersion`，否则在默认 `minVersion=1` 下会 **1833**）  
 2. 使用响应 `conversationID` / `e2ee`，勿猜会话 ID  
-3. E2EE 通话短周期续 Token（≤5min）  
+3. E2EE 通话短周期续 Token（≤5min）；请求体 `userID` 必须等于鉴权身份（JWT → `opUserID`），否则 **1834**  
 4. 换钥走 `SignalSendCustomSignal`；监听接收回调中的透传密文  
 5. Commit：先 DS 再 merge；4010 追赶后重生 Commit  
 
@@ -180,3 +188,15 @@ Mongo：`idempotency_key` 非空唯一（partial unique index）
 | `docs/superpowers/plans/2026-07-16-call-e2ee-server.md` | 实现计划 |
 | `docs/superpowers/specs/2026-07-16-call-e2ee-client-plan.md` | 客户端改造方案 |
 | `音视频通话E2EE-服务端接口与实施方案.md` | 原始接口契约 |
+
+---
+
+## 12. 代码评审后续修复（2026-07-16）
+
+| 级别 | 项 | 改动 | 文件 |
+|---|---|---|---|
+| P1 | Token 身份冒用 | E2EE 发 Token 时强制 `req.UserID == GetOpUserID(ctx)`，失败返回 **1834** `CALL_E2EE_TOKEN_DENIED`；非 E2EE 不启用 | `internal/rpc/rtc/signal.go`（`issueLiveKitToken` + Invite/Accept/Join/GetToken 共 6 处传 `ctx`） |
+| P2-1 | 缺省版本绕过 minVersion | `minVersion>0` 且 `clientVersion` 空/不可解析 → **1833**；`minVersion=0` 不校验版本 | `internal/rpc/rtc/e2ee.go`、`e2ee_test.go` |
+| P2-3 | 限流 TTL 竞态 | Redis Lua 原子 `INCR` + 首次 `PEXPIRE`，避免 key 永久无 TTL | `internal/rpc/rtc/custom_signal.go` |
+
+联调注意：API/网关须把 JWT 身份写入 gRPC context 的 `opUserID`；Accept/Join/GetToken 路径若未透传，会误触发 1834。

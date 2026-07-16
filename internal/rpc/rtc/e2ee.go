@@ -53,8 +53,12 @@ func checkE2EECapability(cap *pbrtc.E2EECapability, allowedSchemes []string, min
 	}
 	for _, scheme := range cap.GetSchemes() {
 		if _, ok := allowed[scheme]; ok {
-			if version, ok := capabilityMajorVersion(cap.GetClientVersion()); ok && version < minVersion {
-				return servererrs.ErrCallE2EEProtocolVersionMismatch.Wrap()
+			if minVersion > 0 {
+				version, ok := capabilityMajorVersion(cap.GetClientVersion())
+				// 版本缺省或不可解析时，无法证明达到 minVersion，判失败。
+				if !ok || version < minVersion {
+					return servererrs.ErrCallE2EEProtocolVersionMismatch.Wrap()
+				}
 			}
 			return nil
 		}

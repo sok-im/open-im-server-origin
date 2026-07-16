@@ -14,6 +14,7 @@ import (
 	"github.com/openimsdk/tools/log"
 	"github.com/openimsdk/tools/mcontext"
 	"github.com/openimsdk/tools/utils/datautil"
+	"github.com/redis/go-redis/v9"
 )
 
 const (
@@ -56,17 +57,24 @@ func (s *rtcServer) ensureCustomSignalSender(ctx context.Context, inv *model.Sig
 	return errs.ErrNoPermission.WrapMsg("sender is not a room member", "userID", userID)
 }
 
+// customSignalRateLimitScript 原子地完成 INCR + 首次 EXPIRE，避免 INCR 与 EXPIRE
+// 之间进程崩溃导致计数 key 永久无 TTL 而卡死用户。返回自增后的计数值。
+var customSignalRateLimitScript = redis.NewScript(`
+local n = redis.call("INCR", KEYS[1])
+if n == 1 then
+  redis.call("PEXPIRE", KEYS[1], ARGV[1])
+end
+return n
+`)
+
 func (s *rtcServer) rateLimitCustomSignal(ctx context.Context, roomID, userID string) error {
 	if s.rdb == nil {
 		return nil
 	}
 	key := "rtc:cs:rl:" + roomID + ":" + userID
-	n, err := s.rdb.Incr(ctx, key).Result()
+	n, err := customSignalRateLimitScript.Run(ctx, s.rdb, []string{key}, customSignalRateWindow.Milliseconds()).Int64()
 	if err != nil {
-		return errs.WrapMsg(err, "custom signal rate limit incr failed")
-	}
-	if n == 1 {
-		_ = s.rdb.Expire(ctx, key, customSignalRateWindow).Err()
+		return errs.WrapMsg(err, "custom signal rate limit script failed")
 	}
 	if n > int64(customSignalRateBurst) {
 		return errs.ErrArgs.WrapMsg("custom signal rate limited")
