@@ -562,7 +562,10 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 		redpacketGroup.POST("/detail", rp.GetDetail)
 		redpacketGroup.POST("/issue_claim_sign", rp.IssueClaimSign)
 		redpacketGroup.POST("/claim_result", rp.ClaimResult)
-		redpacketGroup.POST("/request_refund", rp.RequestRefund)
+		// 后端代发退款（管理员账户发起并代付 gas）暂不对外开放，改由前端自发退款 + refund_callback 回传。
+		// 保留 handler / RPC / proto 定义，如需恢复取消下面这行注释即可。
+		// redpacketGroup.POST("/request_refund", rp.RequestRefund)
+		redpacketGroup.POST("/refund_callback", rp.RefundCallback)
 		redpacketGroup.POST("/get_refund", rp.GetRefund)
 		redpacketGroup.POST("/wallet_bind/challenge", rp.IssueWalletBindChallenge)
 		redpacketGroup.POST("/wallet_bind/confirm", rp.ConfirmWalletBind)
