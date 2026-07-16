@@ -117,3 +117,27 @@ scrape_configs:
 #      - targets: [ 127.0.0.1:12320 ]
 #        labels:
 #          namespace: default
+
+  - job_name: openimserver-openim-rpc-rtc
+    http_sd_configs:
+      - url: "http://127.0.0.1:10002/prometheus_discovery/rtc"
+
+  - job_name: openimserver-openim-rpc-crypto
+    http_sd_configs:
+      - url: "http://127.0.0.1:10002/prometheus_discovery/crypto"
+
+  - job_name: openimserver-openim-rpc-openmls
+    http_sd_configs:
+      - url: "http://127.0.0.1:10002/prometheus_discovery/open_mls"
+
+  - job_name: openimserver-openim-rpc-virgilsecurity
+    http_sd_configs:
+      - url: "http://127.0.0.1:10002/prometheus_discovery/virgil_security"
+
+  - job_name: redis_exporter
+    static_configs:
+      - targets: [ 127.0.0.1:19150 ]
+
+  - job_name: mongodb_exporter
+    static_configs:
+      - targets: [ 127.0.0.1:19160 ]

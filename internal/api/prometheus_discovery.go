@@ -112,3 +112,15 @@ func (p *PrometheusDiscoveryApi) MessageTransfer(c *gin.Context) {
 func (p *PrometheusDiscoveryApi) Rtc(c *gin.Context) {
 	p.discovery(c, p.config.Share.RpcRegisterName.Rtc)
 }
+
+func (p *PrometheusDiscoveryApi) Crypto(c *gin.Context) {
+	p.discovery(c, p.config.Share.RpcRegisterName.Crypto)
+}
+
+func (p *PrometheusDiscoveryApi) OpenMLS(c *gin.Context) {
+	p.discovery(c, p.config.Share.RpcRegisterName.OpenMLS)
+}
+
+func (p *PrometheusDiscoveryApi) VirgilSecurity(c *gin.Context) {
+	p.discovery(c, p.config.Share.RpcRegisterName.VirgilSecurity)
+}

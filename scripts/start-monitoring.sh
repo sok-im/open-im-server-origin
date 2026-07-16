@@ -9,8 +9,8 @@ if ! docker info >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "Starting Prometheus, Grafana, Alertmanager, and Node Exporter..."
-docker compose --profile m up -d prometheus grafana alertmanager node-exporter
+echo "Starting Prometheus, Grafana, Alertmanager, Node Exporter, Redis Exporter, and MongoDB Exporter..."
+docker compose --profile m up -d prometheus grafana alertmanager node-exporter redis-exporter mongodb-exporter
 
 echo
 echo "Monitoring stack started:"

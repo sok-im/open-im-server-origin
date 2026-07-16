@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/openimsdk/open-im-server/v3/pkg/rpcli"
 	pbAuth "github.com/openimsdk/protocol/auth"
@@ -52,17 +53,32 @@ const (
 
 func prommetricsGin() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		start := time.Now()
 		c.Next()
+
 		path := c.FullPath()
-		if c.Writer.Status() == http.StatusNotFound {
-			prommetrics.HttpCall("<404>", c.Request.Method, c.Writer.Status())
-		} else {
-			prommetrics.HttpCall(path, c.Request.Method, c.Writer.Status())
+		if path == "" {
+			path = c.Request.URL.Path
 		}
-		if resp := apiresp.GetGinApiResponse(c); resp != nil {
-			prommetrics.APICall(path, c.Request.Method, resp.ErrCode)
+		status := c.Writer.Status()
+		if status == http.StatusNotFound {
+			path = "<404>"
 		}
+
+		module := prommetrics.APIModuleFromPath(path)
+		prommetrics.HttpCall(module, path, c.Request.Method, status)
+		prommetrics.APIObserve(module, path, c.Request.Method, apiCodeFromContext(c, status), time.Since(start))
 	}
+}
+
+func apiCodeFromContext(c *gin.Context, status int) int {
+	if resp := apiresp.GetGinApiResponse(c); resp != nil {
+		return resp.ErrCode
+	}
+	if status == http.StatusOK {
+		return 0
+	}
+	return status
 }
 
 func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, config *Config) (*gin.Engine, error) {
@@ -589,6 +605,9 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 		proDiscoveryGroup.GET("/msg_gateway", pd.MessageGateway)
 		proDiscoveryGroup.GET("/msg_transfer", pd.MessageTransfer)
 		proDiscoveryGroup.GET("/rtc", pd.Rtc)
+		proDiscoveryGroup.GET("/crypto", pd.Crypto)
+		proDiscoveryGroup.GET("/open_mls", pd.OpenMLS)
+		proDiscoveryGroup.GET("/virgil_security", pd.VirgilSecurity)
 	}
 	return r, nil
 }

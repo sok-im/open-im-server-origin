@@ -284,3 +284,29 @@ services:
       - '--path.rootfs=/rootfs'
       - '--web.listen-address=:${NODE_EXPORTER_PORT}'
     network_mode: host
+
+  redis-exporter:
+    image: ${REDIS_EXPORTER_IMAGE}
+    container_name: redis-exporter
+    restart: always
+    profiles:
+      - m
+    environment:
+      REDIS_ADDR: ${REDIS_EXPORTER_ADDR:-redis://127.0.0.1:16379}
+      REDIS_PASSWORD: ${REDIS_EXPORTER_PASSWORD:-openIM123}
+    command:
+      - '--web.listen-address=:${REDIS_EXPORTER_PORT}'
+    network_mode: host
+
+  mongodb-exporter:
+    image: ${MONGO_EXPORTER_IMAGE}
+    container_name: mongodb-exporter
+    restart: always
+    profiles:
+      - m
+    environment:
+      MONGODB_URI: ${MONGO_EXPORTER_URI:-mongodb://openIM:openIM123@127.0.0.1:37017/openim_v3?authSource=openim_v3}
+    command:
+      - '--web.listen-address=:${MONGO_EXPORTER_PORT}'
+      - '--collect-all'
+    network_mode: host
