@@ -19,8 +19,10 @@ import (
 	"time"
 
 	"github.com/openimsdk/open-im-server/v3/pkg/common/config"
+	"github.com/openimsdk/open-im-server/v3/pkg/common/otelx"
 	"github.com/openimsdk/open-im-server/v3/pkg/rpccache"
 	"github.com/openimsdk/tools/db/redisutil"
+	"github.com/openimsdk/tools/errs"
 	"github.com/openimsdk/tools/log"
 	"github.com/openimsdk/tools/utils/datautil"
 )
@@ -38,6 +40,20 @@ func Start(ctx context.Context, index int, conf *Config) error {
 	log.CInfo(ctx, "MSG-GATEWAY server is initializing", "autoSetPorts", conf.MsgGateway.RPC.AutoSetPorts,
 		"rpcPorts", conf.MsgGateway.RPC.Ports,
 		"wsPort", conf.MsgGateway.LongConnSvr.Ports, "prometheusPorts", conf.MsgGateway.Prometheus.Ports)
+
+	// Init tracer before accepting WS connections (hub RPC Start also inits, but WS may race).
+	traceShutdown, err := otelx.InitTracerProvider(ctx, "openim-msggateway")
+	if err != nil {
+		return errs.WrapMsg(err, "init tracer provider failed")
+	}
+	if traceShutdown != nil {
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = traceShutdown(shutdownCtx)
+		}()
+	}
+
 	wsPort, err := datautil.GetElemByIndex(conf.MsgGateway.LongConnSvr.Ports, index)
 	if err != nil {
 		return err

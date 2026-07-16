@@ -1,34 +1,43 @@
+# Local/dev Alertmanager: null receiver (no SMTP required).
+# To enable email, set smtp_* below and switch default receiver to "email".
 global:
   resolve_timeout: 5m
-  smtp_from: alert@openim.io
-  smtp_smarthost: smtp.163.com:465
-  smtp_auth_username: alert@openim.io
-  smtp_auth_password: YOURAUTHPASSWORD
-  smtp_require_tls: false
-  smtp_hello: xxx
 
 templates:
   - /etc/alertmanager/email.tmpl
 
 route:
-  group_by: [ 'alertname' ]
-  group_wait: 5s
-  group_interval: 5s
-  repeat_interval: 5m
-  receiver: email
+  group_by: ['alertname', 'job']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: null
   routes:
     - matchers:
-        - alertname = "XXX"
-      group_by: [ 'instance' ]
-      group_wait: 5s
-      group_interval: 5s
-      repeat_interval: 5m
-      receiver: email
+        - severity = "critical"
+      receiver: null
+      continue: false
+    - matchers:
+        - severity = "warning"
+      receiver: null
+      continue: false
 
 receivers:
-  - name: email
-    email_configs:
-      - to: 'alert@example.com'
-        html: '{{ template "email.to.html" . }}'
-        headers: { Subject: "[OPENIM-SERVER]Alarm" }
-        send_resolved: true
+  - name: 'null'
+  # Uncomment and fill SMTP credentials to enable email alerts:
+  # - name: email
+  #   email_configs:
+  #     - to: 'alert@example.com'
+  #       from: alert@openim.io
+  #       smarthost: smtp.example.com:465
+  #       auth_username: alert@openim.io
+  #       auth_password: YOURAUTHPASSWORD
+  #       require_tls: false
+  #       html: '{{ template "email.to.html" . }}'
+  #       headers: { Subject: "[OPENIM-SERVER]Alarm" }
+  #       send_resolved: true
+
+inhibit_rules:
+  - source_matchers: [severity = "critical"]
+    target_matchers: [severity = "warning"]
+    equal: ['alertname', 'job', 'instance']

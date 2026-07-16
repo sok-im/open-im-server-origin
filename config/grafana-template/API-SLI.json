@@ -1,0 +1,196 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 1,
+      "title": "API SLI",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps" } },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 1 },
+      "id": 2,
+      "targets": [
+        { "expr": "sum(rate(api_count[1m]))", "legendFormat": "total", "refId": "A" },
+        { "expr": "sum by (module) (rate(api_count[1m]))", "legendFormat": "{{module}}", "refId": "B" }
+      ],
+      "title": "API QPS by module",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 1 },
+      "id": 3,
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum by (le) (rate(api_request_duration_seconds_bucket[5m])))", "legendFormat": "p50", "refId": "A" },
+        { "expr": "histogram_quantile(0.95, sum by (le) (rate(api_request_duration_seconds_bucket[5m])))", "legendFormat": "p95", "refId": "B" },
+        { "expr": "histogram_quantile(0.99, sum by (le) (rate(api_request_duration_seconds_bucket[5m])))", "legendFormat": "p99", "refId": "C" }
+      ],
+      "title": "API Latency",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 } },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 1 },
+      "id": 4,
+      "targets": [
+        {
+          "expr": "sum(rate(api_count{code!=\"0\"}[5m])) / clamp_min(sum(rate(api_count[5m])), 0.001)",
+          "legendFormat": "error rate",
+          "refId": "A"
+        }
+      ],
+      "title": "API Business Error Rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 9 },
+      "id": 5,
+      "targets": [
+        {
+          "expr": "topk(10, histogram_quantile(0.95, sum by (le, module, path) (rate(api_request_duration_seconds_bucket[5m]))))",
+          "legendFormat": "{{module}} {{path}}",
+          "refId": "A"
+        }
+      ],
+      "title": "API p95 Top Paths",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps" } },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 9 },
+      "id": 6,
+      "targets": [
+        {
+          "expr": "topk(10, sum by (module, path, code) (rate(api_count{code!=\"0\"}[5m])))",
+          "legendFormat": "{{module}} {{path}} code={{code}}",
+          "refId": "A"
+        }
+      ],
+      "title": "API Errors Top Paths",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 18 },
+      "id": 7,
+      "title": "RPC SLI",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps" } },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 19 },
+      "id": 8,
+      "targets": [
+        { "expr": "sum by (name) (rate(rpc_count[1m]))", "legendFormat": "{{name}}", "refId": "A" }
+      ],
+      "title": "RPC QPS by Service",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 19 },
+      "id": 9,
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum by (le) (rate(rpc_request_duration_seconds_bucket[5m])))", "legendFormat": "p50", "refId": "A" },
+        { "expr": "histogram_quantile(0.95, sum by (le) (rate(rpc_request_duration_seconds_bucket[5m])))", "legendFormat": "p95", "refId": "B" },
+        { "expr": "histogram_quantile(0.99, sum by (le) (rate(rpc_request_duration_seconds_bucket[5m])))", "legendFormat": "p99", "refId": "C" }
+      ],
+      "title": "RPC Latency",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 19 },
+      "id": 10,
+      "targets": [
+        {
+          "expr": "topk(10, histogram_quantile(0.95, sum by (le, name, path) (rate(rpc_request_duration_seconds_bucket[5m]))))",
+          "legendFormat": "{{name}} {{path}}",
+          "refId": "A"
+        }
+      ],
+      "title": "RPC p95 Top Methods",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 27 },
+      "id": 11,
+      "title": "MsgGateway Capacity",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 7, "w": 6, "x": 0, "y": 28 },
+      "id": 12,
+      "targets": [{ "expr": "online_user_num", "legendFormat": "online users", "refId": "A" }],
+      "title": "Online Users",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 7, "w": 6, "x": 6, "y": 28 },
+      "id": 13,
+      "targets": [
+        { "expr": "ws_connection_num", "legendFormat": "connections", "refId": "A" },
+        { "expr": "ws_max_connection_num", "legendFormat": "max", "refId": "B" }
+      ],
+      "title": "WS Connections",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 } },
+      "gridPos": { "h": 7, "w": 6, "x": 12, "y": 28 },
+      "id": 14,
+      "targets": [
+        {
+          "expr": "ws_connection_num / clamp_min(ws_max_connection_num, 1)",
+          "legendFormat": "utilization",
+          "refId": "A"
+        }
+      ],
+      "title": "WS Utilization",
+      "type": "gauge"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "ops" } },
+      "gridPos": { "h": 7, "w": 6, "x": 18, "y": 28 },
+      "id": 15,
+      "targets": [
+        {
+          "expr": "sum by (reason) (rate(ws_conn_rejected_total[5m]))",
+          "legendFormat": "{{reason}}",
+          "refId": "A"
+        }
+      ],
+      "title": "WS Rejected by Reason",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["openim", "sli"],
+  "time": { "from": "now-1h", "to": "now" },
+  "timezone": "browser",
+  "title": "OpenIM API / RPC SLI",
+  "uid": "openim-sli",
+  "version": 1
+}

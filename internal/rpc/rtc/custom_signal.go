@@ -130,31 +130,34 @@ func (s *rtcServer) SignalSendCustomSignal(ctx context.Context, req *rtc.SignalS
 	if err := s.rateLimitCustomSignal(ctx, inv.RoomID, opUserID); err != nil {
 		return nil, err
 	}
-	if msgID := extractCustomMessageID(req.CustomInfo); msgID != "" {
-		ok, err := s.markCustomSignalOnce(ctx, inv.RoomID, msgID)
+	messageID := extractCustomMessageID(req.CustomInfo)
+	if messageID != "" {
+		ok, err := s.markCustomSignalOnce(ctx, inv.RoomID, messageID)
 		if err != nil {
 			return nil, err
 		}
 		if !ok {
 			log.ZDebug(ctx, "SignalSendCustomSignal: duplicate messageID skipped",
-				"roomID", inv.RoomID, "userID", opUserID, "messageID", msgID)
+				"roomID", inv.RoomID, "userID", opUserID, "messageID", messageID)
 			return &rtc.SignalSendCustomSignalResp{}, nil
 		}
 	}
 
 	platformID, _ := strconv.Atoi(mcontext.GetOpUserPlatform(ctx))
 	serverSeq := s.nextCustomSignalSeq(ctx, req.RoomID)
+	// customInfo is forwarded verbatim as an opaque JSON string so that Android,
+	// iOS and Go clients all observe a single, stable wire type — the server must
+	// never re-encode it into an object (which would make the field object on one
+	// platform and string on another) and never parses/decrypts its contents.
+	// messageID is surfaced at the top level so the receiver can dedupe/ack without
+	// having to re-parse the opaque customInfo blob.
 	payload := map[string]any{
 		"roomID":           req.RoomID,
 		"senderUserID":     opUserID,
 		"senderPlatformID": platformID,
 		"serverSeq":        serverSeq,
-	}
-	var customObj any
-	if err := json.Unmarshal([]byte(req.CustomInfo), &customObj); err == nil {
-		payload["customInfo"] = customObj
-	} else {
-		payload["customInfo"] = req.CustomInfo
+		"messageID":        messageID,
+		"customInfo":       req.CustomInfo,
 	}
 	content, err := json.Marshal(payload)
 	if err != nil {

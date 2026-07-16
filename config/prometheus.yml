@@ -19,6 +19,23 @@ rule_files:
 # A scrape configuration containing exactly one endpoint to scrape:
 # Here it's Prometheus itself.
 scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: [ 127.0.0.1:19091 ]
+
+  - job_name: tempo
+    static_configs:
+      - targets: [ 127.0.0.1:3200 ]
+
+  - job_name: loki
+    metrics_path: /metrics
+    static_configs:
+      - targets: [ 127.0.0.1:3100 ]
+
+  - job_name: otel-collector
+    static_configs:
+      - targets: [ 127.0.0.1:8888 ]
+
   # The job name is added as a label "job=job_name" to any timeseries scraped from this config.
   # Monitored information captured by prometheus
 
@@ -134,6 +151,22 @@ scrape_configs:
     http_sd_configs:
       - url: "http://127.0.0.1:10002/prometheus_discovery/virgil_security"
 
+  - job_name: openimserver-openim-rpc-captcha
+    http_sd_configs:
+      - url: "http://127.0.0.1:10002/prometheus_discovery/captcha"
+
+  - job_name: openimserver-openim-rpc-totp
+    http_sd_configs:
+      - url: "http://127.0.0.1:10002/prometheus_discovery/totp"
+
+  - job_name: openimserver-openim-rpc-redpacket
+    http_sd_configs:
+      - url: "http://127.0.0.1:10002/prometheus_discovery/red_packet"
+
+  - job_name: openimserver-openim-crontask
+    static_configs:
+      - targets: [ 127.0.0.1:12190 ]
+
   - job_name: redis_exporter
     static_configs:
       - targets: [ 127.0.0.1:19150 ]
@@ -141,3 +174,22 @@ scrape_configs:
   - job_name: mongodb_exporter
     static_configs:
       - targets: [ 127.0.0.1:19160 ]
+
+  - job_name: kafka_exporter
+    static_configs:
+      - targets: [ 127.0.0.1:19170 ]
+
+  - job_name: etcd
+    metrics_path: /metrics
+    static_configs:
+      - targets: [ 127.0.0.1:12379 ]
+
+  - job_name: minio
+    metrics_path: /minio/v2/metrics/cluster
+    static_configs:
+      - targets: [ 127.0.0.1:10005 ]
+
+  - job_name: livekit
+    metrics_path: /metrics
+    static_configs:
+      - targets: [ 127.0.0.1:16789 ]

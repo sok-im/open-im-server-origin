@@ -1,6 +1,9 @@
 package prommetrics
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestAPIModuleFromPath(t *testing.T) {
 	tests := []struct {
@@ -13,6 +16,7 @@ func TestAPIModuleFromPath(t *testing.T) {
 		{path: "/openmls/v1/key_packages", want: "openmls/v1"},
 		{path: "/crypto/v1/upload", want: "crypto/v1"},
 		{path: "<404>", want: "unknown"},
+		{path: "<unmatched>", want: "unknown"},
 		{path: "", want: "unknown"},
 	}
 	for _, tt := range tests {
@@ -20,4 +24,21 @@ func TestAPIModuleFromPath(t *testing.T) {
 			t.Fatalf("APIModuleFromPath(%q) = %q, want %q", tt.path, got, tt.want)
 		}
 	}
+}
+
+func TestNormalizeMetricPath(t *testing.T) {
+	if got := NormalizeMetricPath("/user/get_users_info", "/user/get_users_info", 200); got != "/user/get_users_info" {
+		t.Fatalf("got %q", got)
+	}
+	if got := NormalizeMetricPath("", "/user/u1234567890/profile", 200); got != "<unmatched>" {
+		t.Fatalf("raw path must not be used as metric label, got %q", got)
+	}
+	if got := NormalizeMetricPath("", "/missing", 404); got != "<404>" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestCronTaskObserve(t *testing.T) {
+	CronTaskObserve("delete_msg", true, time.Second)
+	CronTaskObserve("delete_msg", false, 2*time.Second)
 }

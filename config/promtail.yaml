@@ -1,0 +1,25 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://127.0.0.1:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: openim-logs
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: openim
+          # OpenIM rotated files are named "<prefix>.YYYY-MM-DD" (no .log suffix),
+          # plus the current "openim.log"; match both.
+          __path__: /var/log/openim/**/openim*
+  - job_name: openim-output-logs
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: openim
+          __path__: /var/log/openim-output/**/openim*

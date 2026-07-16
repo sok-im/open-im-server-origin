@@ -142,6 +142,10 @@ type CronTask struct {
 	BurnClearMaxLoop int `mapstructure:"burnClearMaxLoop"`
 	// ChatAPI 是 chat HTTP API 服务的访问配置，用于调用 /account/del 等需要管理员权限的接口。
 	ChatAPI ChatAPI `mapstructure:"chatAPI"`
+	Prometheus struct {
+		Enable bool  `mapstructure:"enable"`
+		Ports  []int `mapstructure:"ports"`
+	} `mapstructure:"prometheus"`
 }
 
 type OfflinePushConfig struct {

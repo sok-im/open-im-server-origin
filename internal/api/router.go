@@ -30,6 +30,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 	"github.com/go-playground/validator/v10"
+	"github.com/openimsdk/open-im-server/v3/pkg/common/otelx"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/prommetrics"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/servererrs"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/cache/redis"
@@ -56,18 +57,11 @@ func prommetricsGin() gin.HandlerFunc {
 		start := time.Now()
 		c.Next()
 
-		path := c.FullPath()
-		if path == "" {
-			path = c.Request.URL.Path
-		}
 		status := c.Writer.Status()
-		if status == http.StatusNotFound {
-			path = "<404>"
-		}
-
+		path := prommetrics.NormalizeMetricPath(c.FullPath(), c.Request.URL.Path, status)
 		module := prommetrics.APIModuleFromPath(path)
 		prommetrics.HttpCall(module, path, c.Request.Method, status)
-		prommetrics.APIObserve(module, path, c.Request.Method, apiCodeFromContext(c, status), time.Since(start))
+		prommetrics.APIObserveCtx(c.Request.Context(), module, path, c.Request.Method, apiCodeFromContext(c, status), time.Since(start))
 	}
 }
 
@@ -188,7 +182,16 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 	case BestSpeed:
 		r.Use(gzip.Gzip(gzip.BestSpeed))
 	}
-	r.Use(prommetricsGin(), gin.RecoveryWithWriter(gin.DefaultErrorWriter, mw.GinPanicErr), mw.CorsHandler(), mw.GinParseOperationID(), GinParseToken(rpcli.NewAuthClient(authConn)))
+	r.Use(
+		prommetricsGin(),
+		gin.RecoveryWithWriter(gin.DefaultErrorWriter, mw.GinPanicErr),
+		// Trace span should wrap auth/parse (not just the handler) and expose
+		// its trace_id to prommetricsGin's exemplar recording (which runs outermost).
+		otelx.GinMiddleware("openim-api"),
+		mw.CorsHandler(),
+		mw.GinParseOperationID(),
+		GinParseToken(rpcli.NewAuthClient(authConn)),
+	)
 	u := NewUserApi(user.NewUserClient(userConn), client, config.Share.RpcRegisterName, config.Share.IMAdminUserID)
 	m := NewMessageApi(msg.NewMsgClient(msgConn), rpcli.NewUserClient(userConn), rpcli.NewRelationClient(friendConn), config.Share.IMAdminUserID)
 	cp := NewCaptchaApi(pbcaptcha.NewCaptchaClient(captchaConn))
@@ -608,6 +611,9 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 		proDiscoveryGroup.GET("/crypto", pd.Crypto)
 		proDiscoveryGroup.GET("/open_mls", pd.OpenMLS)
 		proDiscoveryGroup.GET("/virgil_security", pd.VirgilSecurity)
+		proDiscoveryGroup.GET("/captcha", pd.Captcha)
+		proDiscoveryGroup.GET("/totp", pd.Totp)
+		proDiscoveryGroup.GET("/red_packet", pd.RedPacket)
 	}
 	return r, nil
 }

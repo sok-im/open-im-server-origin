@@ -10,3 +10,7 @@ chatAPI:
   adminAddress: http://127.0.0.1:10009
   adminAccount: chatAdmin
   # adminPassword: ""  # 留空则默认 md5(adminAccount) 十六进制
+
+prometheus:
+  enable: true
+  ports: [ 12190 ]

@@ -3,8 +3,14 @@ apiVersion: 1
 datasources:
   - name: Prometheus
     type: prometheus
+    uid: prometheus
     access: proxy
     # Must match PROMETHEUS_PORT in .env (default 19091)
     url: http://127.0.0.1:19091
     isDefault: true
     editable: true
+    jsonData:
+      httpMethod: POST
+      exemplarTraceIdDestinations:
+        - name: trace_id
+          datasourceUid: tempo

@@ -5,6 +5,7 @@ import (
 
 	"github.com/IBM/sarama"
 	"github.com/openimsdk/open-im-server/v3/internal/push/offlinepush"
+	"github.com/openimsdk/open-im-server/v3/pkg/common/otelx"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/prommetrics"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/kafka"
 	"github.com/openimsdk/open-im-server/v3/pkg/rpccache"
@@ -47,21 +48,24 @@ func (*OfflinePushConsumerHandler) Cleanup(sarama.ConsumerGroupSession) error { 
 func (o *OfflinePushConsumerHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
 	for msg := range claim.Messages() {
 		ctx := o.OfflinePushConsumerGroup.GetContextFromMsg(msg)
-		o.handleMsg2OfflinePush(ctx, msg.Value)
+		ctx, span := otelx.StartKafkaConsumerSpan(ctx, "openim-push", msg.Topic, msg.Partition, msg.Offset)
+		err := o.handleMsg2OfflinePush(ctx, msg.Value)
+		otelx.EndKafkaConsumerSpan(span, err)
 		sess.MarkMessage(msg, "")
 	}
 	return nil
 }
 
-func (o *OfflinePushConsumerHandler) handleMsg2OfflinePush(ctx context.Context, msg []byte) {
+func (o *OfflinePushConsumerHandler) handleMsg2OfflinePush(ctx context.Context, msg []byte) error {
 	offlinePushMsg := pbpush.PushMsgReq{}
 	if err := proto.Unmarshal(msg, &offlinePushMsg); err != nil {
 		log.ZError(ctx, "offline push Unmarshal msg err", err, "msg", string(msg))
-		return
+		return err
 	}
 	if offlinePushMsg.MsgData == nil || offlinePushMsg.UserIDs == nil {
-		log.ZError(ctx, "offline push msg is empty", errs.New("offlinePushMsg is empty"), "userIDs", offlinePushMsg.UserIDs, "msg", offlinePushMsg.MsgData)
-		return
+		err := errs.New("offlinePushMsg is empty")
+		log.ZError(ctx, "offline push msg is empty", err, "userIDs", offlinePushMsg.UserIDs, "msg", offlinePushMsg.MsgData)
+		return err
 	}
 	if offlinePushMsg.MsgData.Status == constant.MsgStatusSending {
 		offlinePushMsg.MsgData.Status = constant.MsgStatusSendSuccess
@@ -71,17 +75,19 @@ func (o *OfflinePushConsumerHandler) handleMsg2OfflinePush(ctx context.Context, 
 	userIDs, err := filterOfflinePushByNotificationSwitch(ctx, o.userLocalCache, offlinePushMsg.MsgData, offlinePushMsg.UserIDs)
 	if err != nil {
 		log.ZWarn(ctx, "filter offline push by notification switch failed", err, "msg", offlinePushMsg.String())
-		return
+		return err
 	}
 	if len(userIDs) == 0 {
 		log.ZDebug(ctx, "offline push skipped: all users disabled notification switch", "clientMsgID", offlinePushMsg.MsgData.ClientMsgID, "contentType", offlinePushMsg.MsgData.ContentType)
-		return
+		return nil
 	}
 
 	err = o.offlinePushMsg(ctx, offlinePushMsg.MsgData, userIDs)
 	if err != nil {
 		log.ZWarn(ctx, "offline push failed", err, "msg", offlinePushMsg.String())
+		return err
 	}
+	return nil
 }
 
 func (o *OfflinePushConsumerHandler) offlinePushMsg(ctx context.Context, msg *sdkws.MsgData, offlinePushUserIDs []string) error {

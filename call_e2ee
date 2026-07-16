@@ -1,0 +1,30 @@
+客户端完成后，服务端和 OpenIM SDK 还必须补齐下面这些，客户端代码本身不能替代：
+OpenIM Go Core / gomobile：
+真正新增 onReceiveCustomSignal 回调，并在回调中完整返回 senderUserID、senderPlatformID、roomID、服务端序列号、messageID、原样 customInfo。
+统一 customInfo 协议。当前内置 Core 是 JSON string；可以继续用 string，但 Android、iOS、Go 三端必须约定一致，不能一端 object、一端 string。
+为 listener 事件贯穿不可伪造的 listener/session ID，避免 A 账号旧回调在 B 登录后被派发给 B。
+重新生成并整体替换 Android jar/AAR、所有 ABI 的 .so，以及 iOS 两个 slice 的 OpenIMCore.xcframework；只改 Dart/Java/Swift 桥不算完成。
+
+OpenIM 信令服务/API：
+邀请、接受、加入、获取 Token、获取房间、启动恢复、推送恢复都要原样保存并返回 E2EE descriptor。
+1 对 1 和群通话都返回服务端规范化的 conversationID。
+请求和响应增加 e2eeCapability；强制 E2EE 房间遇到旧客户端或不支持 FrameCryptor 的客户端必须拒绝发 Token，不能降级成普通通话。
+自定义信令必须做房间参与者授权、16 KB 限制、速率限制、messageID 去重、房间生命周期和重放检查。
+所有 descriptor、roomID、callID、conversationID 不一致时返回明确错误，客户端据此失败关闭。
+
+OpenMLS Delivery Service：
+openMLSSubmitCommit 必须实现原子 CAS：校验 fromEpoch、提交 Commit、推进 epoch、保存 Welcome/Commit 历史要么全部成功，要么全部失败。
+epoch 冲突统一返回 4010，并返回客户端追赶所需的当前 epoch/Commit 元数据。
+不得把空响应或缺字段响应当作提交成功。
+保证授权成员才能获取 KeyPackage、Commit、Welcome 和组状态；成员移除后立即撤权。
+
+LiveKit Token/房间控制面：
+发 Token 前校验 1 对 1 被邀请身份或当前群成员身份。
+Token 绑定 roomID + conversationID + callID + E2EE scheme/version，不满足能力时拒发。
+群成员被移除时同时撤销 Token、从 LiveKit 房间踢出，并通知剩余客户端推进 MLS epoch 和媒体换钥。
+E2EE 房间禁用录制、Egress、转写、SIP/PSTN、服务端混流等依赖服务端解密的能力。
+
+服务端安全与验收：
+OpenIM、LiveKit、推送、日志、数据库、崩溃和分析系统都不得记录媒体原始密钥、exporter secret 或控制明文。
+做双端/三端真机集成：1 对 1 音视频、群通话、中途加入、成员移除、epoch 落后/超前、周期换钥、弱网重连、进程恢复和旧客户端拒绝。
+抓取 SFU 编码帧验证服务端无法解码，并验证 Egress 无法生成可播放媒体。

@@ -33,6 +33,15 @@ type OpenMLSDatabase interface {
 	// DeleteGroup + DeleteByGroupID separately to avoid orphan commit records when
 	// the second operation fails.
 	DeleteGroupAll(ctx context.Context, groupID string) error
+
+	// SubmitCommitTx atomically advances the epoch (CAS on fromEpoch) and appends
+	// the commit record inside a single MongoDB transaction.  Either both the epoch
+	// bump and the commit-history append succeed, or neither is persisted — this
+	// prevents the epoch from advancing without a matching commit record (or vice
+	// versa).  The commit's Epoch and SequenceNumber are filled in with the newly
+	// allocated epoch.  Returns the new epoch, or ErrRecordNotFound when the CAS
+	// on fromEpoch loses (epoch conflict).
+	SubmitCommitTx(ctx context.Context, groupID string, fromEpoch uint64, commit *model.MLSCommit) (uint64, error)
 }
 
 type openMLSDatabase struct {
@@ -127,4 +136,28 @@ func (d *openMLSDatabase) DeleteGroupAll(ctx context.Context, groupID string) er
 		}
 		return d.commit.DeleteByGroupID(ctx, groupID)
 	})
+}
+
+// SubmitCommitTx advances the epoch and appends the commit atomically.  On a
+// non-replica-set deployment the tx wrapper degrades to a sequential call; the
+// CAS in IncrEpoch still guarantees at-most-one winner per epoch, so the only
+// residual risk on single-node MongoDB is the pre-existing "epoch advanced but
+// AppendCommit failed" window — unchanged from before but now eliminated on any
+// replica-set/sharded deployment.
+func (d *openMLSDatabase) SubmitCommitTx(ctx context.Context, groupID string, fromEpoch uint64, commit *model.MLSCommit) (uint64, error) {
+	var newEpoch uint64
+	err := d.tx.Transaction(ctx, func(ctx context.Context) error {
+		e, err := d.group.IncrEpoch(ctx, groupID, fromEpoch)
+		if err != nil {
+			return err
+		}
+		newEpoch = e
+		commit.Epoch = e
+		commit.SequenceNumber = int64(e)
+		return d.commit.AppendCommit(ctx, commit)
+	})
+	if err != nil {
+		return 0, err
+	}
+	return newEpoch, nil
 }

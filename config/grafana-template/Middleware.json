@@ -1,0 +1,397 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 1,
+      "title": "Middleware Health",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [
+            { "options": { "0": { "color": "red", "index": 1, "text": "DOWN" }, "1": { "color": "green", "index": 0, "text": "UP" } }, "type": "value" }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+      "id": 2,
+      "options": { "colorMode": "background", "graphMode": "none", "justifyMode": "center", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [{ "expr": "up{job=\"redis_exporter\"}", "refId": "A" }],
+      "title": "Redis",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [
+            { "options": { "0": { "color": "red", "index": 1, "text": "DOWN" }, "1": { "color": "green", "index": 0, "text": "UP" } }, "type": "value" }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
+      "id": 3,
+      "options": { "colorMode": "background", "graphMode": "none", "justifyMode": "center", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [{ "expr": "up{job=\"mongodb_exporter\"}", "refId": "A" }],
+      "title": "MongoDB",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [
+            { "options": { "0": { "color": "red", "index": 1, "text": "DOWN" }, "1": { "color": "green", "index": 0, "text": "UP" } }, "type": "value" }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
+      "id": 4,
+      "options": { "colorMode": "background", "graphMode": "none", "justifyMode": "center", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [{ "expr": "up{job=\"kafka_exporter\"}", "refId": "A" }],
+      "title": "Kafka",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [
+            { "options": { "0": { "color": "red", "index": 1, "text": "DOWN" }, "1": { "color": "green", "index": 0, "text": "UP" } }, "type": "value" }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
+      "id": 5,
+      "options": { "colorMode": "background", "graphMode": "none", "justifyMode": "center", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [{ "expr": "up{job=\"etcd\"}", "refId": "A" }],
+      "title": "etcd",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [
+            { "options": { "0": { "color": "red", "index": 1, "text": "DOWN" }, "1": { "color": "green", "index": 0, "text": "UP" } }, "type": "value" }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 1 },
+      "id": 6,
+      "options": { "colorMode": "background", "graphMode": "none", "justifyMode": "center", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [{ "expr": "up{job=\"minio\"}", "refId": "A" }],
+      "title": "MinIO",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [
+            { "options": { "0": { "color": "red", "index": 1, "text": "DOWN" }, "1": { "color": "green", "index": 0, "text": "UP" } }, "type": "value" }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
+      "id": 7,
+      "options": { "colorMode": "background", "graphMode": "none", "justifyMode": "center", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [{ "expr": "up{job=\"livekit\"}", "refId": "A" }],
+      "title": "LiveKit",
+      "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "id": 10,
+      "title": "Redis",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 6 },
+      "id": 11,
+      "targets": [
+        { "expr": "redis_connected_clients{job=\"redis_exporter\"}", "legendFormat": "clients", "refId": "A" },
+        { "expr": "redis_blocked_clients{job=\"redis_exporter\"}", "legendFormat": "blocked", "refId": "B" }
+      ],
+      "title": "Redis Connections",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "bytes" } },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 6 },
+      "id": 12,
+      "targets": [
+        { "expr": "redis_memory_used_bytes{job=\"redis_exporter\"}", "legendFormat": "used", "refId": "A" },
+        { "expr": "redis_memory_max_bytes{job=\"redis_exporter\"}", "legendFormat": "max", "refId": "B" }
+      ],
+      "title": "Redis Memory",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "ops" } },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 6 },
+      "id": 13,
+      "targets": [
+        { "expr": "rate(redis_commands_processed_total{job=\"redis_exporter\"}[5m])", "legendFormat": "ops/s", "refId": "A" }
+      ],
+      "title": "Redis Ops/s",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 },
+      "id": 20,
+      "title": "MongoDB",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 15 },
+      "id": 21,
+      "targets": [
+        { "expr": "mongodb_ss_connections{job=\"mongodb_exporter\", conn_type=\"current\"}", "legendFormat": "current", "refId": "A" },
+        { "expr": "mongodb_ss_connections{job=\"mongodb_exporter\", conn_type=\"available\"}", "legendFormat": "available", "refId": "B" }
+      ],
+      "title": "MongoDB Connections",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "ops" } },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 15 },
+      "id": 22,
+      "targets": [
+        { "expr": "rate(mongodb_ss_opcounters{job=\"mongodb_exporter\", legacy_op_type=\"query\"}[5m])", "legendFormat": "query", "refId": "A" },
+        { "expr": "rate(mongodb_ss_opcounters{job=\"mongodb_exporter\", legacy_op_type=\"insert\"}[5m])", "legendFormat": "insert", "refId": "B" },
+        { "expr": "rate(mongodb_ss_opcounters{job=\"mongodb_exporter\", legacy_op_type=\"update\"}[5m])", "legendFormat": "update", "refId": "C" }
+      ],
+      "title": "MongoDB Opcounters",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "bytes" } },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 15 },
+      "id": 23,
+      "targets": [
+        { "expr": "mongodb_ss_mem_resident{job=\"mongodb_exporter\"}", "legendFormat": "resident MB", "refId": "A" },
+        { "expr": "mongodb_ss_mem_virtual{job=\"mongodb_exporter\"}", "legendFormat": "virtual MB", "refId": "B" }
+      ],
+      "title": "MongoDB Memory",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 23 },
+      "id": 30,
+      "title": "Kafka",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 24 },
+      "id": 31,
+      "targets": [
+        { "expr": "kafka_brokers{job=\"kafka_exporter\"}", "legendFormat": "brokers", "refId": "A" }
+      ],
+      "title": "Kafka Brokers",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 24 },
+      "id": 32,
+      "targets": [
+        { "expr": "sum(kafka_consumergroup_lag{job=\"kafka_exporter\"})", "legendFormat": "total lag", "refId": "A" }
+      ],
+      "title": "Consumer Group Lag",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "ops" } },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 24 },
+      "id": 33,
+      "targets": [
+        { "expr": "sum(rate(kafka_topic_partition_current_offset{job=\"kafka_exporter\"}[5m]))", "legendFormat": "msg/s", "refId": "A" }
+      ],
+      "title": "Topic Throughput",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 32 },
+      "id": 40,
+      "title": "etcd",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 33 },
+      "id": 41,
+      "targets": [
+        { "expr": "etcd_server_is_leader{job=\"etcd\"}", "legendFormat": "is_leader", "refId": "A" }
+      ],
+      "title": "etcd Leader",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "bytes" } },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 33 },
+      "id": 42,
+      "targets": [
+        { "expr": "etcd_mvcc_db_total_size_in_bytes{job=\"etcd\"}", "legendFormat": "db size", "refId": "A" }
+      ],
+      "title": "etcd DB Size",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "ops" } },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 33 },
+      "id": 43,
+      "targets": [
+        { "expr": "sum(rate(grpc_server_started_total{job=\"etcd\"}[5m]))", "legendFormat": "grpc/s", "refId": "A" }
+      ],
+      "title": "etcd gRPC Rate",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 41 },
+      "id": 50,
+      "title": "MinIO",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "bytes" } },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 42 },
+      "id": 51,
+      "targets": [
+        { "expr": "minio_cluster_usage_total_bytes{job=\"minio\"}", "legendFormat": "used", "refId": "A" },
+        { "expr": "minio_cluster_capacity_usable_total_bytes{job=\"minio\"}", "legendFormat": "capacity", "refId": "B" }
+      ],
+      "title": "MinIO Storage",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "max": 1, "min": 0 } },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 42 },
+      "id": 52,
+      "targets": [
+        {
+          "expr": "minio_cluster_usage_total_bytes{job=\"minio\"} / clamp_min(minio_cluster_capacity_usable_total_bytes{job=\"minio\"}, 1)",
+          "legendFormat": "usage ratio",
+          "refId": "A"
+        }
+      ],
+      "title": "MinIO Usage Ratio",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "ops" } },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 42 },
+      "id": 53,
+      "targets": [
+        { "expr": "sum(rate(minio_s3_requests_total{job=\"minio\"}[5m]))", "legendFormat": "s3 req/s", "refId": "A" }
+      ],
+      "title": "MinIO S3 Requests",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 50 },
+      "id": 60,
+      "title": "LiveKit",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 51 },
+      "id": 61,
+      "targets": [
+        { "expr": "livekit_room_count{job=\"livekit\"}", "legendFormat": "rooms", "refId": "A" }
+      ],
+      "title": "LiveKit Rooms",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 51 },
+      "id": 62,
+      "targets": [
+        { "expr": "livekit_participant_total{job=\"livekit\"}", "legendFormat": "participants", "refId": "A" }
+      ],
+      "title": "LiveKit Participants",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "max": 1, "min": 0 } },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 51 },
+      "id": 63,
+      "targets": [
+        { "expr": "rate(process_cpu_seconds_total{job=\"livekit\"}[5m])", "legendFormat": "cpu cores", "refId": "A" }
+      ],
+      "title": "LiveKit CPU",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["openim", "middleware"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "OpenIM Middleware",
+  "uid": "openim-middleware",
+  "version": 1
+}

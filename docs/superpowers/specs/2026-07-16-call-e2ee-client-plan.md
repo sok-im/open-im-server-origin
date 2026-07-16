@@ -8,7 +8,7 @@
 
 | 层 | 状态 | 说明 |
 |---|---|---|
-| 服务端（OpenIM Server） | ✅ 已完成 | 描述符透传、能力门禁、短 TTL Token、自定义信令转发、Commit CAS/4010、踢人联动、可观测日志 |
+| 服务端（OpenIM Server） | ✅ 已完成（含评审加固 P0/P1/P2） | 描述符透传、能力门禁、短 TTL Token（绑定 conversationID/callID/scheme/version）、自定义信令转发（顶层 messageID + customInfo 恒为字符串）、Commit 原子 CAS/4010、OpenMLS 读接口成员鉴权、踢人联动、可观测日志 |
 | Go Core（`openim-sdk-core-origin`） | ✅ t1–t4 已完成 | protocol 同步、`OnReceiveCustomSignal` 贯通、信令/Commit 字段透传；构建（标准 + wasm）通过 |
 | Dart SDK / 原生桥 + 产物 | ⬜ 待实施 | `OnReceiveCustomSignal` 到 App、模型字段、重生成 aar/so/xcframework/wasm |
 | App 通话 E2EE 核心 | ⬜ 待实施 | 描述符、Coordinator、导出器、LiveKit KeyProvider/FrameCryptor、短 TTL 续 Token |
@@ -21,9 +21,10 @@
 |---|---|---|
 | `customData.e2ee` 透传 + 响应 `conversationID` / `e2ee` | ✅ | 邀请写入描述符；接听/加入/取 Token/恢复时解析服务端回传 |
 | `e2eeCapability` 门禁 | ✅ | Invite/Accept/Join/GetToken 必带能力；处理 1830–1834 |
-| 自定义信令转发（16KB / 限流 / messageID 去重） | ✅ | Send + OnReceive 全链路；控制消息走 MLS 密文 |
-| `openMLSSubmitCommit` CAS + 4010 | ✅ | Commit：先 DS 再 merge；冲突追赶后重生 Commit |
-| 踢人 `RemoveParticipant` + 短 TTL JWT | ✅ | E2EE 房间短周期续 Token；踢出/退群后触发换钥 |
+| 自定义信令转发（16KB / 限流 / messageID 去重） | ✅ | Send + OnReceive 全链路；控制消息走 MLS 密文；转发信封顶层含 `messageID`，`customInfo` 恒为字符串 |
+| `openMLSSubmitCommit` **原子** CAS + 4010 | ✅ | 推进 epoch 与写 Commit 历史同事务全成功/全失败；Commit：先 DS 再 merge；冲突追赶后重生 Commit |
+| OpenMLS 读接口成员鉴权（`GetCommits` / `GetGroupState`） | ✅ | 仅 IM 管理员 / 1:1 双方 / 当前群成员可读；成员移除即失权 |
+| 踢人 `RemoveParticipant` + 短 TTL JWT（绑定会话上下文） | ✅ | E2EE 房间短周期续 Token；Token 绑定 roomID/conversationID/callID/scheme/version；踢出/退群后触发换钥 |
 
 服务端**不**做：派生/下发 `K_media`、解密 `mlsMessage`、静默降级。
 
@@ -120,11 +121,16 @@ E2EE 房间 JWT TTL ≤ 5 分钟（服务端封顶）。活跃通话需周期性
 
 请求体 `userID` 必须等于当前登录用户（服务端比对 JWT → `opUserID`）；勿代他人取 Token，否则返回 **1834**。
 
+**Token 绑定（服务端已写入 JWT attributes，客户端应核对）：** E2EE Token 的 `attributes` 现携带 `e2ee=true`、`e2eeRoomID`、`e2eeConversationID`、`e2eeCallID`、`e2eeScheme`、`e2eeVersion`（均为非秘密，不含 `K_media`/exporter secret）。客户端连房前应校验这些值与本地会话（roomID/conversationID/callID/协商 scheme）一致，防止 Token 被跨会话/跨方案重放。`e2eeScheme`/`e2eeVersion` 取自本次协商命中的方案与 `clientVersion`。
+
 ### 3.4 自定义信令（换钥控制面）
 
 **Go Core 已落地**（详见 §9.2）：`SendCustomSignal` 发送链路 + `OnReceiveCustomSignal` 接收回调，非 `groupCallStatus` 的 `CustomSignalNotification`(1605) 原样上抛；**Core 不解密** `mlsMessage`。
 
-转发载荷（服务端补充的外层字段）：`{roomID, senderUserID, senderPlatformID, serverSeq, customInfo}`。
+转发载荷（服务端补充的外层字段）：`{roomID, senderUserID, senderPlatformID, serverSeq, messageID, customInfo}`。
+
+- `messageID` 在顶层暴露，接收端无需解析 `customInfo` 即可去重/ack；服务端已按 `messageID` 做过一次转发去重。
+- `customInfo` **恒为不透明 JSON 字符串**（服务端不再按可解析与否在 object/string 间切换），Android/iOS/Go 三端观测到同一线类型；服务端不解析、不解密其内容。
 
 **仍需（Dart/原生）：**
 
@@ -146,7 +152,11 @@ App 侧约定：`kind=call_e2ee_control`，`mlsMessage` 为 MLS 应用密文；�
 
 响应字段（成功）：`accepted` / `duplicate` / `acceptedEpoch` / `sequenceNumber`。
 
+> 服务端保证**原子性**：`epoch` 推进（对 `fromEpoch` 做 CAS）与 Commit 历史写入在同一 MongoDB 事务内，全成功或全失败——不会出现「epoch 已进但无对应 Commit 记录」的裂缝（副本集/分片部署有效；单机 Mongo 因无多文档事务退化为顺序执行，与既有 `DeleteGroupAll` 语义一致）。因此客户端可信任：拿到 `accepted=true` 即历史必然可经 `GetCommits` 追齐。
+
 > 注意：4010 冲突时服务端 resp body 的 `expectedFromEpoch` 会因 `errCode!=0` 被丢弃，客户端需从 errMsg（`expectedFromEpoch=N`）解析；兼容未来结构化 `data`。
+
+> `GetCommits` / `GetGroupState` 现要求调用者为该群成员（或 1:1 会话双方、IM 管理员），否则返回无权限错误；被踢/退群后立即失去读取权。客户端追赶历史前须确保自身仍是成员。
 
 ---
 
@@ -289,3 +299,18 @@ SDK 通过 `replace github.com/openimsdk/protocol => ./protocol` vendored 一份
 
 - Dart/原生桥暴露 `OnReceiveCustomSignal`；重生成 `.aar`/`.so`/`xcframework`/wasm 产物
 - App 层 C1–C3、C7–C14（描述符、Coordinator、导出器、LiveKit KeyProvider/FrameCryptor、短 TTL 续 Token）
+
+---
+
+## 10. 服务端评审加固（2026-07-16，P0/P1/P2）
+
+对照 `@call_e2ee` 验收清单的代码评审后，服务端补齐以下缺口（详见服务端 changelog）。**客户端据此可放宽/简化对应的防御性假设，但仍需完成核对逻辑：**
+
+| 级别 | 项 | 服务端改动 | 客户端配合 |
+|---|---|---|---|
+| P0 | SubmitCommit 原子 CAS | `IncrEpoch`+`AppendCommit` 合入单事务（`controller/openmls.go: SubmitCommitTx`） | 信任 `accepted=true` ⇒ 历史可追齐；4010 仍走重生流程 |
+| P0 | OpenMLS 读接口鉴权 | `GetCommits`/`GetGroupState` 增加成员校验（`service.go: authorizeGroupAccess` + `singleChatMembers`） | 追赶历史前确认自身仍为成员；非成员会收到无权限错误 |
+| P1 | Token 绑定会话上下文 | `genToken` 写入 `e2eeRoomID/ConversationID/CallID/Scheme/Version` attributes（`signal.go` + `negotiateE2EEScheme`） | 连房前核对 JWT attributes 与本地会话一致，拒绝不匹配 Token |
+| P2 | 自定义信令转发契约统一 | 顶层补 `messageID`；`customInfo` 恒为字符串（`custom_signal.go`） | 直接读顶层 `messageID` 去重；按字符串解析 `customInfo` |
+
+> 上述改动均为**服务端向后兼容**：不改变既有非 E2EE 通话行为，仅在 `e2ee.required=true` 或 OpenMLS 调用路径上增强。相关单测/构建（server rtc、openmls、controller；Core `open_im_sdk_callback`、`signaling`）通过。

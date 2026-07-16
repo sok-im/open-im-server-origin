@@ -1779,8 +1779,22 @@ func (s *rtcServer) DeleteSignalRecords(ctx context.Context, req *rtc.DeleteSign
 
 // ---- helpers ----
 
+// e2eeTokenBinding carries the non-secret E2EE parameters bound into a LiveKit
+// token so that a token minted for one call/session/scheme cannot be replayed on
+// another. None of these fields are secret (no media key / exporter secret).
+type e2eeTokenBinding struct {
+	conversationID string
+	callID         string
+	scheme         string
+	version        string
+}
+
 // genToken generates a LiveKit access token for the given room and identity.
-func (s *rtcServer) genToken(roomID, userID string, e2ee bool) (string, error) {
+// For E2EE rooms it binds roomID (via the grant) plus conversationID/callID and
+// the negotiated E2EE scheme/version into the token attributes, so the client
+// can assert the token matches the session it is joining and the server can
+// audit which E2EE scheme a participant was admitted under.
+func (s *rtcServer) genToken(roomID, userID string, e2ee bool, binding *e2eeTokenBinding) (string, error) {
 	lk := s.config.RpcConfig.LiveKit
 	at := auth.NewAccessToken(lk.APIKey, lk.APISecret)
 	grant := &auth.VideoGrant{
@@ -1793,7 +1807,22 @@ func (s *rtcServer) genToken(roomID, userID string, e2ee bool) (string, error) {
 		if validFor <= 0 || validFor > 5*time.Minute {
 			validFor = 5 * time.Minute
 		}
-		at.SetAttributes(map[string]string{"e2ee": "true"})
+		attrs := map[string]string{"e2ee": "true", "e2eeRoomID": roomID}
+		if binding != nil {
+			if binding.conversationID != "" {
+				attrs["e2eeConversationID"] = binding.conversationID
+			}
+			if binding.callID != "" {
+				attrs["e2eeCallID"] = binding.callID
+			}
+			if binding.scheme != "" {
+				attrs["e2eeScheme"] = binding.scheme
+			}
+			if binding.version != "" {
+				attrs["e2eeVersion"] = binding.version
+			}
+		}
+		at.SetAttributes(attrs)
 	}
 	at.SetVideoGrant(grant).
 		SetIdentity(userID).
@@ -1830,11 +1859,19 @@ func (s *rtcServer) issueLiveKitToken(ctx context.Context, inv *model.SignalInvi
 				"allowedSchemes", s.e2eeAllowedSchemes, "minVersion", s.e2eeMinVersion)
 			return "", err
 		}
+		scheme, version := negotiateE2EEScheme(cap, s.e2eeAllowedSchemes)
 		log.ZDebug(ctx, "issueLiveKitToken: E2EE token granted",
 			"roomID", inv.RoomID, "userID", userID, "callID", inv.CallID,
+			"conversationID", inv.ConversationID, "scheme", scheme, "version", version,
 			"e2eeTokenExpiry", s.e2eeTokenExpiry.String())
+		return s.genToken(inv.RoomID, userID, true, &e2eeTokenBinding{
+			conversationID: invitationConversationID(inv),
+			callID:         inv.CallID,
+			scheme:         scheme,
+			version:        version,
+		})
 	}
-	return s.genToken(inv.RoomID, userID, inv.E2EERequired)
+	return s.genToken(inv.RoomID, userID, false, nil)
 }
 
 func invitationConversationID(m *model.SignalInvitation) string {

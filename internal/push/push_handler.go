@@ -11,6 +11,7 @@ import (
 
 	"github.com/IBM/sarama"
 	"github.com/openimsdk/open-im-server/v3/internal/push/offlinepush"
+	"github.com/openimsdk/open-im-server/v3/pkg/common/otelx"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/prommetrics"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/controller"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/kafka"
@@ -97,11 +98,11 @@ func NewConsumerHandler(ctx context.Context, config *Config, database controller
 	return &consumerHandler, nil
 }
 
-func (c *ConsumerHandler) handleMs2PsChat(ctx context.Context, msg []byte) {
+func (c *ConsumerHandler) handleMs2PsChat(ctx context.Context, msg []byte) error {
 	msgFromMQ := pbpush.PushMsgReq{}
 	if err := proto.Unmarshal(msg, &msgFromMQ); err != nil {
 		log.ZError(ctx, "push Unmarshal msg err", err, "msg", string(msg))
-		return
+		return err
 	}
 
 	sec := msgFromMQ.MsgData.SendTime / 1000
@@ -133,7 +134,9 @@ func (c *ConsumerHandler) handleMs2PsChat(ctx context.Context, msg []byte) {
 	}
 	if err != nil {
 		log.ZWarn(ctx, "push failed", err, "msg", msgFromMQ.String())
+		return err
 	}
+	return nil
 }
 
 func (*ConsumerHandler) Setup(sarama.ConsumerGroupSession) error { return nil }
@@ -152,7 +155,9 @@ func (c *ConsumerHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim s
 	for msg := range claim.Messages() {
 		ctx := c.pushConsumerGroup.GetContextFromMsg(msg)
 		ctx = mcontext.WithOpUserIDContext(ctx, c.config.Share.IMAdminUserID[0])
-		c.handleMs2PsChat(ctx, msg.Value)
+		ctx, span := otelx.StartKafkaConsumerSpan(ctx, "openim-push", msg.Topic, msg.Partition, msg.Offset)
+		err := c.handleMs2PsChat(ctx, msg.Value)
+		otelx.EndKafkaConsumerSpan(span, err)
 		sess.MarkMessage(msg, "")
 	}
 	return nil

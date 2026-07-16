@@ -1,0 +1,107 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "datasource": { "type": "tempo", "uid": "tempo" },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 0 },
+      "id": 1,
+      "targets": [
+        {
+          "datasource": { "type": "tempo", "uid": "tempo" },
+          "queryType": "traceqlSearch",
+          "refId": "A",
+          "limit": 20,
+          "tableType": "traces",
+          "filters": [
+            { "id": "service-name", "operator": "=~", "scope": "resource", "tag": "service.name", "value": ["openim-.*"], "valueType": "string" }
+          ]
+        }
+      ],
+      "title": "Recent OpenIM Traces",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "tempo", "uid": "tempo" },
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 10 },
+      "id": 2,
+      "targets": [
+        {
+          "datasource": { "type": "tempo", "uid": "tempo" },
+          "query": "{ span.op.user.id = \"$user_id\" && resource.service.name =~ \"openim-.*\" }",
+          "queryType": "traceql",
+          "refId": "A",
+          "limit": 20,
+          "tableType": "traces"
+        }
+      ],
+      "title": "Traces By OpUserID",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "tempo", "uid": "tempo" },
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 22 },
+      "id": 3,
+      "targets": [
+        {
+          "datasource": { "type": "tempo", "uid": "tempo" },
+          "query": "{ span.operation.id = \"$operation_id\" }",
+          "queryType": "traceql",
+          "refId": "A",
+          "limit": 20,
+          "tableType": "traces"
+        }
+      ],
+      "title": "Traces By OperationID",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "tempo", "uid": "tempo" },
+      "gridPos": { "h": 14, "w": 24, "x": 0, "y": 34 },
+      "id": 4,
+      "targets": [
+        {
+          "datasource": { "type": "tempo", "uid": "tempo" },
+          "query": "{ resource.service.name =~ \"openim-.*\" }",
+          "queryType": "traceql",
+          "refId": "A"
+        }
+      ],
+      "title": "Trace Detail",
+      "type": "traces"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["openim", "tracing"],
+  "templating": {
+    "list": [
+      {
+        "current": { "selected": false, "text": "", "value": "" },
+        "hide": 0,
+        "label": "OpUserID",
+        "name": "user_id",
+        "options": [{ "selected": true, "text": "", "value": "" }],
+        "query": "",
+        "type": "textbox"
+      },
+      {
+        "current": { "selected": false, "text": "", "value": "" },
+        "hide": 0,
+        "label": "OperationID",
+        "name": "operation_id",
+        "options": [{ "selected": true, "text": "", "value": "" }],
+        "query": "",
+        "type": "textbox"
+      }
+    ]
+  },
+  "time": { "from": "now-1h", "to": "now" },
+  "timezone": "browser",
+  "title": "OpenIM Traces",
+  "uid": "openim-traces",
+  "version": 1
+}

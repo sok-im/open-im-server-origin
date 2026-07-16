@@ -146,6 +146,7 @@ func NewWsServer(msgGatewayConfig *Config, opts ...Option) *WsServer {
 		CheckOrigin:      func(r *http.Request) bool { return true },
 	}
 	v := validator.New()
+	prommetrics.SetWSMaxConn(config.maxConnNum)
 	return &WsServer{
 		websocket:        upgrader,
 		msgGatewayConfig: msgGatewayConfig,
@@ -291,6 +292,7 @@ func (ws *WsServer) registerClient(client *Client) {
 			ws.onlineUserConnNum.Add(1)
 		}
 	}
+	prommetrics.SetWSConnectionNum(ws.onlineUserConnNum.Load())
 
 	wg := sync.WaitGroup{}
 	log.ZDebug(client.ctx, "ws.msgGatewayConfig.Discovery.Enable", "discoveryEnable", ws.msgGatewayConfig.Discovery.Enable)
@@ -449,6 +451,7 @@ func (ws *WsServer) unregisterClient(client *Client) {
 		prommetrics.OnlineUserGauge.Dec()
 	}
 	ws.onlineUserConnNum.Add(-1)
+	prommetrics.SetWSConnectionNum(ws.onlineUserConnNum.Load())
 	ws.subscription.DelClient(client)
 	//ws.SetUserOnlineStatus(client.ctx, client, constant.Offline)
 	log.ZDebug(client.ctx, "user offline", "close reason", client.closedErr, "online user Num",
@@ -500,6 +503,7 @@ func (ws *WsServer) wsHandler(w http.ResponseWriter, r *http.Request) {
 	// Check if the current number of online user connections exceeds the maximum limit
 	if ws.onlineUserConnNum.Load() >= ws.wsMaxConnNum {
 		// If it exceeds the maximum connection number, return an error via HTTP and stop processing
+		prommetrics.WSConnRejected(prommetrics.WSRejectReasonMaxConn)
 		ws.handlerError(connContext, w, r, servererrs.ErrConnOverMaxNumLimit.WrapMsg("over max conn num limit"))
 		return
 	}
@@ -508,6 +512,7 @@ func (ws *WsServer) wsHandler(w http.ResponseWriter, r *http.Request) {
 	err := connContext.ParseEssentialArgs()
 	if err != nil {
 		// If there's an error during parsing, return an error via HTTP and stop processing
+		prommetrics.WSConnRejected(prommetrics.WSRejectReasonParseArgs)
 		ws.handlerError(connContext, w, r, err)
 		return
 	}
@@ -515,6 +520,7 @@ func (ws *WsServer) wsHandler(w http.ResponseWriter, r *http.Request) {
 	// Call the authentication client to parse the Token obtained from the context
 	resp, err := ws.authClient.ParseToken(connContext, connContext.GetToken())
 	if err != nil {
+		prommetrics.WSConnRejected(prommetrics.WSRejectReasonAuth)
 		ws.handlerError(connContext, w, r, err)
 		return
 	}
@@ -523,11 +529,13 @@ func (ws *WsServer) wsHandler(w http.ResponseWriter, r *http.Request) {
 	err = ws.validateRespWithRequest(connContext, resp)
 	if err != nil {
 		// If validation fails, return an error via HTTP and stop processing
+		prommetrics.WSConnRejected(prommetrics.WSRejectReasonValidate)
 		ws.handlerError(connContext, w, r, err)
 		return
 	}
 	conn, err := ws.websocket.Upgrade(w, r, nil)
 	if err != nil {
+		prommetrics.WSConnRejected(prommetrics.WSRejectReasonUpgrade)
 		log.ZWarn(connContext, "websocket upgrade failed", err)
 		return
 	}

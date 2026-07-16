@@ -66,6 +66,26 @@ func checkE2EECapability(cap *pbrtc.E2EECapability, allowedSchemes []string, min
 	return servererrs.ErrCallE2EEProtocolVersionMismatch.Wrap()
 }
 
+// negotiateE2EEScheme returns the E2EE scheme and client version to bind into
+// the LiveKit token for a capability that has already passed checkE2EECapability.
+// It picks the first client-declared scheme that the server allows; version is
+// the client-declared version string (empty when unset). Neither value is secret.
+func negotiateE2EEScheme(cap *pbrtc.E2EECapability, allowedSchemes []string) (scheme, version string) {
+	if cap == nil {
+		return "", ""
+	}
+	allowed := make(map[string]struct{}, len(allowedSchemes))
+	for _, s := range allowedSchemes {
+		allowed[s] = struct{}{}
+	}
+	for _, s := range cap.GetSchemes() {
+		if _, ok := allowed[s]; ok {
+			return s, cap.GetClientVersion()
+		}
+	}
+	return "", cap.GetClientVersion()
+}
+
 func capabilityMajorVersion(value string) (int, bool) {
 	value = strings.TrimPrefix(strings.TrimSpace(value), "v")
 	if value == "" {

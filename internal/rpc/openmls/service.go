@@ -320,8 +320,23 @@ func (s *openMLSServer) SubmitCommit(ctx context.Context, req *pbopenmls.SubmitC
 		}
 	}
 
-	// Optimistic concurrency: increment epoch
-	newEpoch, err := s.db.IncrEpoch(ctx, req.GroupID, req.FromEpoch)
+	// Advance the epoch (optimistic CAS on fromEpoch) and persist the commit record
+	// atomically: either both succeed or neither does, so the epoch never advances
+	// without a matching commit history entry (§ E2EE OpenMLS atomic-CAS contract).
+	// SequenceNumber is set to the new epoch inside the transaction — it is already
+	// strictly monotonic per group and avoids non-monotonic wall-clock UnixMilli().
+	commit := &model.MLSCommit{
+		ID:             uuid.New().String(),
+		GroupID:        req.GroupID,
+		FromEpoch:      req.FromEpoch,
+		CommitHash:     req.CommitHash,
+		IdempotencyKey: req.IdempotencyKey,
+		CommitMessage:  req.CommitMessage,
+		SenderUserID:   req.SenderUserID,
+		SenderDeviceID: req.SenderDeviceID,
+		CreatedAt:      time.Now(),
+	}
+	newEpoch, err := s.db.SubmitCommitTx(ctx, req.GroupID, req.FromEpoch, commit)
 	if err != nil {
 		if errs.ErrRecordNotFound.Is(err) {
 			st, getErr := s.db.GetState(ctx, req.GroupID)
@@ -338,27 +353,6 @@ func (s *openMLSServer) SubmitCommit(ctx context.Context, req *pbopenmls.SubmitC
 				ExpectedFromEpoch: expected,
 			}, servererrs.ErrMLSEpochConflict.WrapMsg(fmt.Sprintf("epoch conflict expectedFromEpoch=%d", expected))
 		}
-		return nil, err
-	}
-
-	// Persist commit record.
-	// Use the epoch as the sequence number — it is already strictly monotonic per
-	// group and avoids the non-monotonic behaviour of wall-clock UnixMilli().
-	seqNum := int64(newEpoch)
-	commit := &model.MLSCommit{
-		ID:             uuid.New().String(),
-		GroupID:        req.GroupID,
-		Epoch:          newEpoch,
-		FromEpoch:      req.FromEpoch,
-		CommitHash:     req.CommitHash,
-		IdempotencyKey: req.IdempotencyKey,
-		SequenceNumber: seqNum,
-		CommitMessage:  req.CommitMessage,
-		SenderUserID:   req.SenderUserID,
-		SenderDeviceID: req.SenderDeviceID,
-		CreatedAt:      time.Now(),
-	}
-	if err := s.db.AppendCommit(ctx, commit); err != nil {
 		return nil, err
 	}
 	log.ZInfo(ctx, "SubmitCommit: accepted",
@@ -450,7 +444,7 @@ func (s *openMLSServer) SubmitCommit(ctx context.Context, req *pbopenmls.SubmitC
 
 	return &pbopenmls.SubmitCommitResp{
 		NewEpoch:       newEpoch,
-		SequenceNumber: seqNum,
+		SequenceNumber: commit.SequenceNumber,
 		BroadcastCount: broadcastCount,
 		Accepted:       true,
 		Duplicate:      false,
@@ -462,6 +456,11 @@ func (s *openMLSServer) SubmitCommit(ctx context.Context, req *pbopenmls.SubmitC
 func (s *openMLSServer) GetCommits(ctx context.Context, req *pbopenmls.GetCommitsReq) (*pbopenmls.GetCommitsResp, error) {
 	if req.GroupID == "" {
 		return nil, errs.ErrArgs.WrapMsg("groupID is required")
+	}
+	if err := s.authorizeGroupAccess(ctx, req.GroupID); err != nil {
+		log.ZWarn(ctx, "GetCommits: access denied", err,
+			"groupID", req.GroupID, "opUserID", mcontext.GetOpUserID(ctx))
+		return nil, err
 	}
 
 	limit := int(req.Limit)
@@ -552,6 +551,11 @@ func (s *openMLSServer) SendWelcome(ctx context.Context, req *pbopenmls.SendWelc
 func (s *openMLSServer) GetGroupState(ctx context.Context, req *pbopenmls.GetGroupStateReq) (*pbopenmls.GetGroupStateResp, error) {
 	if req.GroupID == "" {
 		return nil, errs.ErrArgs.WrapMsg("groupID is required")
+	}
+	if err := s.authorizeGroupAccess(ctx, req.GroupID); err != nil {
+		log.ZWarn(ctx, "GetGroupState: access denied", err,
+			"groupID", req.GroupID, "opUserID", mcontext.GetOpUserID(ctx))
+		return nil, err
 	}
 
 	state, err := s.db.GetState(ctx, req.GroupID)
@@ -826,6 +830,60 @@ func singleChatPeerUserIDs(groupID, senderUserID string) []string {
 		}
 	}
 	return peers
+}
+
+// singleChatMembers returns both participant user IDs for a 1:1 MLS groupID
+// (si_ / c_1v1_ prefix), or nil if groupID is not a 1:1 session identifier.
+func singleChatMembers(groupID string) []string {
+	var raw string
+	switch {
+	case strings.HasPrefix(groupID, "si_"):
+		raw = strings.TrimPrefix(groupID, "si_")
+	case strings.HasPrefix(groupID, "c_1v1_"):
+		raw = strings.TrimPrefix(groupID, "c_1v1_")
+	default:
+		return nil
+	}
+	ids := strings.Split(raw, "_")
+	if len(ids) != 2 || ids[0] == "" || ids[1] == "" {
+		return nil
+	}
+	return ids
+}
+
+// authorizeGroupAccess enforces that the authenticated caller is allowed to read
+// the MLS state of the given group: an IM admin, one of the two peers of a 1:1
+// session, or a current member of the OpenIM group. This gates GetCommits /
+// GetGroupState so that only authorised members can pull Commit history and
+// group state (§ E2EE: authorised-members-only + revoke-on-removal). Because
+// membership is re-checked on every read against the live OpenIM group roster,
+// a removed member loses access immediately.
+func (s *openMLSServer) authorizeGroupAccess(ctx context.Context, groupID string) error {
+	opUserID := mcontext.GetOpUserID(ctx)
+	if opUserID == "" {
+		return errs.ErrNoPermission.WrapMsg("missing opUserID")
+	}
+	if authverify.IsAppManagerUid(ctx, s.config.Share.IMAdminUserID) {
+		return nil
+	}
+	if members := singleChatMembers(groupID); members != nil {
+		for _, id := range members {
+			if id == opUserID {
+				return nil
+			}
+		}
+		return errs.ErrNoPermission.WrapMsg("not a participant of this session", "groupID", groupID)
+	}
+	memberIDs, err := s.groupClient.GetGroupMemberUserIDs(ctx, groupID)
+	if err != nil {
+		return err
+	}
+	for _, id := range memberIDs {
+		if id == opUserID {
+			return nil
+		}
+	}
+	return errs.ErrNoPermission.WrapMsg("not a member of this group", "groupID", groupID)
 }
 
 func splitIdentity(identity string) []string {

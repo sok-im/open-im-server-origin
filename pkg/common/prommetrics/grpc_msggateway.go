@@ -18,9 +18,44 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
+const (
+	WSRejectReasonMaxConn   = "max_conn"
+	WSRejectReasonParseArgs = "parse_args"
+	WSRejectReasonAuth      = "auth_failed"
+	WSRejectReasonValidate  = "validate_failed"
+	WSRejectReasonUpgrade   = "upgrade_failed"
+)
+
 var (
 	OnlineUserGauge = prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "online_user_num",
-		Help: "The number of online user num",
+		Help: "The number of online users",
 	})
+	OnlineUserConnGauge = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "ws_connection_num",
+		Help: "The number of active websocket connections",
+	})
+	WSMaxConnGauge = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "ws_max_connection_num",
+		Help: "Configured websocket max connection limit",
+	})
+	WSConnRejectedCounter = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ws_conn_rejected_total",
+			Help: "Websocket connections rejected before established",
+		},
+		[]string{"reason"},
+	)
 )
+
+func WSConnRejected(reason string) {
+	WSConnRejectedCounter.WithLabelValues(reason).Inc()
+}
+
+func SetWSMaxConn(max int64) {
+	WSMaxConnGauge.Set(float64(max))
+}
+
+func SetWSConnectionNum(n int64) {
+	OnlineUserConnGauge.Set(float64(n))
+}

@@ -3,7 +3,9 @@ package kafka
 import (
 	"context"
 	"errors"
+
 	"github.com/IBM/sarama"
+	"github.com/openimsdk/open-im-server/v3/pkg/common/otelx"
 	"github.com/openimsdk/protocol/constant"
 	"github.com/openimsdk/tools/mcontext"
 )
@@ -16,19 +18,32 @@ func GetMQHeaderWithContext(ctx context.Context) ([]sarama.RecordHeader, error) 
 	if err != nil {
 		return nil, err
 	}
-	return []sarama.RecordHeader{
+	return otelx.InjectTraceHeaders(ctx, []sarama.RecordHeader{
 		{Key: []byte(constant.OperationID), Value: []byte(operationID)},
 		{Key: []byte(constant.OpUserID), Value: []byte(opUserID)},
 		{Key: []byte(constant.OpUserPlatform), Value: []byte(platform)},
 		{Key: []byte(constant.ConnID), Value: []byte(connID)},
-	}, nil
+	}), nil
 }
 
 // GetContextWithMQHeader creates a context from message queue headers.
 func GetContextWithMQHeader(header []*sarama.RecordHeader) context.Context {
-	var values []string
+	var operationID, opUserID, platform, connID string
 	for _, recordHeader := range header {
-		values = append(values, string(recordHeader.Value))
+		if recordHeader == nil {
+			continue
+		}
+		switch string(recordHeader.Key) {
+		case constant.OperationID:
+			operationID = string(recordHeader.Value)
+		case constant.OpUserID:
+			opUserID = string(recordHeader.Value)
+		case constant.OpUserPlatform:
+			platform = string(recordHeader.Value)
+		case constant.ConnID:
+			connID = string(recordHeader.Value)
+		}
 	}
-	return mcontext.WithMustInfoCtx(values) // Attach extracted values to context
+	ctx := mcontext.WithMustInfoCtx([]string{operationID, opUserID, platform, connID})
+	return otelx.ExtractTraceContext(ctx, header)
 }
