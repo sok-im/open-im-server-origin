@@ -205,6 +205,11 @@ func (s *rtcServer) handleInvite(ctx context.Context, req *rtc.SignalInviteReq, 
 	}
 
 	storeInv := invitationToModel(inv, inviteOfflinePush)
+	if storeInv.E2EERequired {
+		log.ZInfo(ctx, "handleInvite: E2EE required",
+			"roomID", storeInv.RoomID, "callID", storeInv.CallID,
+			"conversationID", storeInv.ConversationID, "inviterUserID", storeInv.InviterUserID)
+	}
 	token, err := s.issueLiveKitToken(ctx, storeInv, req.UserID, req.E2EeCapability)
 	if err != nil {
 		if _, delErr := s.roomClient.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: inv.RoomID}); delErr != nil {
@@ -372,6 +377,11 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 	}
 
 	storeInv := invitationToModel(inv, inviteOfflinePush)
+	if storeInv.E2EERequired {
+		log.ZInfo(ctx, "handleInviteInGroup: E2EE required",
+			"roomID", storeInv.RoomID, "groupID", storeInv.GroupID, "callID", storeInv.CallID,
+			"conversationID", storeInv.ConversationID, "inviterUserID", storeInv.InviterUserID)
+	}
 	token, err := s.issueLiveKitToken(ctx, storeInv, req.UserID, req.E2EeCapability)
 	if err != nil {
 		if _, delErr := s.roomClient.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: inv.RoomID}); delErr != nil {
@@ -1529,10 +1539,16 @@ func (s *rtcServer) ensureCallParticipant(ctx context.Context, inv *model.Signal
 	if inv.E2EERequired {
 		if inv.GroupID != "" {
 			if _, err := s.groupClient.GetGroupMemberInfo(ctx, inv.GroupID, userID); err != nil {
+				log.ZWarn(ctx, "ensureCallParticipant: E2EE group membership invalid", err,
+					"roomID", inv.RoomID, "groupID", inv.GroupID, "userID", userID)
 				return servererrs.ErrCallE2EEGroupMembershipInvalid.WrapMsg("not a group member", "userID", userID, "groupID", inv.GroupID)
 			}
+			log.ZInfo(ctx, "ensureCallParticipant: E2EE group member added as invitee",
+				"roomID", inv.RoomID, "groupID", inv.GroupID, "userID", userID)
 			return s.db.AddInvitee(ctx, inv.RoomID, userID)
 		}
+		log.ZWarn(ctx, "ensureCallParticipant: E2EE 1:1 reject non-invitee", nil,
+			"roomID", inv.RoomID, "userID", userID)
 		return servererrs.ErrCallE2EEGroupMembershipInvalid.WrapMsg("not an invited participant", "userID", userID, "roomID", inv.RoomID)
 	}
 	return s.db.AddInvitee(ctx, inv.RoomID, userID)
@@ -1794,11 +1810,29 @@ func (s *rtcServer) issueLiveKitToken(ctx context.Context, inv *model.SignalInvi
 		// 禁止用请求体里的 userID 冒用同房间其他成员身份换取 token。
 		opUserID := mcontext.GetOpUserID(ctx)
 		if opUserID == "" || opUserID != userID {
-			return "", servererrs.ErrCallE2EETokenDenied.WrapMsg("token identity mismatch", "opUserID", opUserID, "userID", userID)
-		}
-		if err := checkE2EECapability(cap, s.e2eeAllowedSchemes, s.e2eeMinVersion); err != nil {
+			err := servererrs.ErrCallE2EETokenDenied.WrapMsg("token identity mismatch", "opUserID", opUserID, "userID", userID)
+			log.ZWarn(ctx, "issueLiveKitToken: E2EE identity mismatch", err,
+				"roomID", inv.RoomID, "opUserID", opUserID, "userID", userID, "callID", inv.CallID)
 			return "", err
 		}
+		if err := checkE2EECapability(cap, s.e2eeAllowedSchemes, s.e2eeMinVersion); err != nil {
+			var schemes []string
+			var clientVersion string
+			var frameCryptor bool
+			if cap != nil {
+				schemes = cap.GetSchemes()
+				clientVersion = cap.GetClientVersion()
+				frameCryptor = cap.GetFrameCryptor()
+			}
+			log.ZWarn(ctx, "issueLiveKitToken: E2EE capability rejected", err,
+				"roomID", inv.RoomID, "userID", userID, "schemes", schemes,
+				"clientVersion", clientVersion, "frameCryptor", frameCryptor,
+				"allowedSchemes", s.e2eeAllowedSchemes, "minVersion", s.e2eeMinVersion)
+			return "", err
+		}
+		log.ZDebug(ctx, "issueLiveKitToken: E2EE token granted",
+			"roomID", inv.RoomID, "userID", userID, "callID", inv.CallID,
+			"e2eeTokenExpiry", s.e2eeTokenExpiry.String())
 	}
 	return s.genToken(inv.RoomID, userID, inv.E2EERequired)
 }

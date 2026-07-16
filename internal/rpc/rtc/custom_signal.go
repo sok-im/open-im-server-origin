@@ -77,6 +77,7 @@ func (s *rtcServer) rateLimitCustomSignal(ctx context.Context, roomID, userID st
 		return errs.WrapMsg(err, "custom signal rate limit script failed")
 	}
 	if n > int64(customSignalRateBurst) {
+		log.ZWarn(ctx, "custom signal rate limited", nil, "roomID", roomID, "userID", userID, "count", n)
 		return errs.ErrArgs.WrapMsg("custom signal rate limited")
 	}
 	return nil
@@ -108,6 +109,8 @@ func (s *rtcServer) nextCustomSignalSeq(ctx context.Context, roomID string) int6
 // SignalSendCustomSignal forwards a custom signal to all participants in a room.
 func (s *rtcServer) SignalSendCustomSignal(ctx context.Context, req *rtc.SignalSendCustomSignalReq) (*rtc.SignalSendCustomSignalResp, error) {
 	if err := validateCustomInfoSize(req.CustomInfo); err != nil {
+		log.ZWarn(ctx, "SignalSendCustomSignal: customInfo too large", err,
+			"roomID", req.RoomID, "size", len(req.CustomInfo))
 		return nil, err
 	}
 	inv, err := s.db.GetInvitationByRoomID(ctx, req.RoomID)
@@ -116,9 +119,12 @@ func (s *rtcServer) SignalSendCustomSignal(ctx context.Context, req *rtc.SignalS
 	}
 	opUserID := mcontext.GetOpUserID(ctx)
 	if opUserID == "" {
+		log.ZWarn(ctx, "SignalSendCustomSignal: missing opUserID", nil, "roomID", req.RoomID)
 		return nil, errs.ErrNoPermission.WrapMsg("missing opUserID")
 	}
 	if err := s.ensureCustomSignalSender(ctx, inv, opUserID); err != nil {
+		log.ZWarn(ctx, "SignalSendCustomSignal: sender not allowed", err,
+			"roomID", inv.RoomID, "userID", opUserID, "groupID", inv.GroupID)
 		return nil, err
 	}
 	if err := s.rateLimitCustomSignal(ctx, inv.RoomID, opUserID); err != nil {
@@ -130,16 +136,19 @@ func (s *rtcServer) SignalSendCustomSignal(ctx context.Context, req *rtc.SignalS
 			return nil, err
 		}
 		if !ok {
+			log.ZDebug(ctx, "SignalSendCustomSignal: duplicate messageID skipped",
+				"roomID", inv.RoomID, "userID", opUserID, "messageID", msgID)
 			return &rtc.SignalSendCustomSignalResp{}, nil
 		}
 	}
 
 	platformID, _ := strconv.Atoi(mcontext.GetOpUserPlatform(ctx))
+	serverSeq := s.nextCustomSignalSeq(ctx, req.RoomID)
 	payload := map[string]any{
 		"roomID":           req.RoomID,
 		"senderUserID":     opUserID,
 		"senderPlatformID": platformID,
-		"serverSeq":        s.nextCustomSignalSeq(ctx, req.RoomID),
+		"serverSeq":        serverSeq,
 	}
 	var customObj any
 	if err := json.Unmarshal([]byte(req.CustomInfo), &customObj); err == nil {
@@ -156,6 +165,7 @@ func (s *rtcServer) SignalSendCustomSignal(ctx context.Context, req *rtc.SignalS
 	recipients = append(recipients, inv.InviteeUserIDList...)
 	recipients = append(recipients, inv.InviterUserID)
 	seen := make(map[string]struct{}, len(recipients))
+	delivered := 0
 	for _, uid := range recipients {
 		if uid == "" || uid == opUserID {
 			continue
@@ -166,7 +176,13 @@ func (s *rtcServer) SignalSendCustomSignal(ctx context.Context, req *rtc.SignalS
 		seen[uid] = struct{}{}
 		if err := s.sendCustomSignalNotification(ctx, opUserID, uid, int32(constant.SingleChatType), content); err != nil {
 			log.ZWarn(ctx, "sendCustomSignalNotification failed", err, "to", uid)
+			continue
 		}
+		delivered++
 	}
+	log.ZInfo(ctx, "SignalSendCustomSignal: forwarded",
+		"roomID", inv.RoomID, "senderUserID", opUserID, "serverSeq", serverSeq,
+		"recipientCount", delivered, "customInfoBytes", len(req.CustomInfo),
+		"e2eeRequired", inv.E2EERequired)
 	return &rtc.SignalSendCustomSignalResp{}, nil
 }

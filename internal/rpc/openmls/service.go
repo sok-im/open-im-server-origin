@@ -286,6 +286,9 @@ func (s *openMLSServer) SubmitCommit(ctx context.Context, req *pbopenmls.SubmitC
 
 	if req.IdempotencyKey != "" {
 		if prev, err := s.db.FindByIdempotencyKey(ctx, req.IdempotencyKey); err == nil && prev != nil {
+			log.ZInfo(ctx, "SubmitCommit: duplicate idempotencyKey",
+				"groupID", req.GroupID, "idempotencyKey", req.IdempotencyKey,
+				"acceptedEpoch", prev.Epoch, "commitID", prev.ID, "senderUserID", req.SenderUserID)
 			return &pbopenmls.SubmitCommitResp{
 				Accepted:       true,
 				Duplicate:      true,
@@ -326,6 +329,10 @@ func (s *openMLSServer) SubmitCommit(ctx context.Context, req *pbopenmls.SubmitC
 			if getErr == nil && st != nil {
 				expected = st.CurrentEpoch
 			}
+			log.ZWarn(ctx, "SubmitCommit: epoch conflict", err,
+				"groupID", req.GroupID, "fromEpoch", req.FromEpoch,
+				"expectedFromEpoch", expected, "senderUserID", req.SenderUserID,
+				"idempotencyKey", req.IdempotencyKey)
 			return &pbopenmls.SubmitCommitResp{
 				Accepted:          false,
 				ExpectedFromEpoch: expected,
@@ -354,6 +361,10 @@ func (s *openMLSServer) SubmitCommit(ctx context.Context, req *pbopenmls.SubmitC
 	if err := s.db.AppendCommit(ctx, commit); err != nil {
 		return nil, err
 	}
+	log.ZInfo(ctx, "SubmitCommit: accepted",
+		"groupID", req.GroupID, "fromEpoch", req.FromEpoch, "acceptedEpoch", newEpoch,
+		"commitID", commit.ID, "commitHash", req.CommitHash, "senderUserID", req.SenderUserID,
+		"idempotencyKey", req.IdempotencyKey)
 
 	// ---------- Broadcast the commit to all current group members ----------
 	//

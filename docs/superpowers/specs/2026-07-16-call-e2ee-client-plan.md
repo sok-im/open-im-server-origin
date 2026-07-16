@@ -111,11 +111,16 @@ E2EE 房间 JWT TTL ≤ 5 分钟。活跃通话需周期性 `signalingGetTokenBy
 
 ### 3.4 自定义信令（换钥控制面）
 
-**SDK 缺口（优先）：**
+**Go Core（`openim-sdk-core-origin`）已落地：**
 
-- Dart：`signalingSendCustomSignal` / `onReceiveCustomSignal`
-- Android/iOS 桥 + Go Core `OnReceiveCustomSignal`（`CustomSignalNotification`）
-- 重生成 jar/so、xcframework
+- `SignalingSendCustomSignal` 发送链路（已存在）
+- `OnReceiveCustomSignal` 接收链路：`handleCustomSignalNotification` 对非 `groupCallStatus` 的 `CustomSignalNotification`(1605) 原样上抛（`internal/signaling/signaling.go`）；`OnSignalingListener` 新增 `OnReceiveCustomSignal`（`open_im_sdk_callback/callback_client.go`）；WASM/空实现同步（`wasm/event_listener/listener.go`、`open_im_sdk/em.go`）
+- **Core 不解密** `mlsMessage`，转发载荷 `{roomID,senderUserID,senderPlatformID,serverSeq,customInfo}`
+
+**仍需（客户端 App / 原生桥）：**
+
+- Dart：`onReceiveCustomSignal` 回调贯通到 App 层
+- Android/iOS 桥暴露该回调；重生成 jar/so、xcframework
 
 载荷：`kind=call_e2ee_control`，`mlsMessage` 为 MLS 应用密文；客户端二次校验 `messageID`、`generation`、类型、`verifiedSenderID` vs 外层 `senderUserID`。
 
@@ -150,11 +155,13 @@ E2EE 房间 JWT TTL ≤ 5 分钟。活跃通话需周期性 `signalingGetTokenBy
 
 ### P1 — SDK / 协议桥
 
-| # | 内容 | 关键文件 |
-|---|---|---|
-| C4 | 信令请求/响应模型增加 `e2eeCapability`、`conversationID`、`e2ee` | `im_signaling_manager` + 原生 |
-| C5 | `SendCustomSignal` / `OnReceiveCustomSignal` 全链路 | SDK + Go Core 产物 |
-| C6 | OpenMLS SubmitCommit 解析 `accepted/duplicate/4010` | `im_openmls_manager` |
+> Go Core（`openim-sdk-core-origin`）侧的 C4–C6 已落地（见 §9）：protocol 已同步 E2EE 字段，`call()` 导出层对请求/响应 E2EE 字段与 SubmitCommit 新契约透明透传，`OnReceiveCustomSignal` 已贯通。**剩余为 Dart/原生桥 + 产物重生成。**
+
+| # | 内容 | 关键文件 | Go Core | Dart/原生 |
+|---|---|---|---|---|
+| C4 | 信令请求/响应模型增加 `e2eeCapability`、`conversationID`、`e2ee` | `im_signaling_manager` + 原生 | ✅ 透传 | ⬜ 模型字段 |
+| C5 | `SendCustomSignal` / `OnReceiveCustomSignal` 全链路 | SDK + Go Core 产物 | ✅ | ⬜ 桥+产物 |
+| C6 | OpenMLS SubmitCommit 解析 `accepted/duplicate/4010` | `im_openmls_manager` | ✅ 透传+errCode | ⬜ 解析层 |
 
 ### P2 — 通话 E2EE 核心
 
@@ -236,3 +243,41 @@ context 绑定: protocolVersion, conversationID, callID, roomID,
 - 总计划：`音视频通话端到端加密（E2EE）实施计划.md`（任务 1–5、7–12；任务 6 服务端已完成）
 - 服务端设计：`docs/superpowers/specs/2026-07-16-call-e2ee-server-design.md`
 - 服务端接口：`音视频通话E2EE-服务端接口与实施方案.md`
+
+---
+
+## 9. Go Core（`openim-sdk-core-origin`）落地记录（2026-07-16）
+
+仓库：`openim-sdk-core-origin`（与本仓库同级）。标准构建与 `GOOS=js GOARCH=wasm` 构建均通过。
+
+### 9.1 Protocol 同步（t1）
+
+SDK 通过 `replace github.com/openimsdk/protocol => ./protocol` vendored 一份 protocol。已用服务端同版本生成物（protoc-gen-go v1.36.11）整体覆盖：
+
+- `protocol/rtc/{rtc.proto,rtc.pb.go,rtc_grpc.pb.go}`
+- `protocol/openmls/{openmls.proto,openmls.pb.go,openmls_grpc.pb.go}`
+
+新增：`E2EECapability`、请求 `e2eeCapability`、响应 `conversationID`/`e2ee`、`SignalRemoveParticipants`，以及 SubmitCommit 的 `idempotencyKey`/`accepted`/`duplicate`/`acceptedEpoch`/`expectedFromEpoch`。
+
+### 9.2 `OnReceiveCustomSignal`（t2，真实改动）
+
+原 `handleCustomSignalNotification` 把非 `groupCallStatus` 的 1605 通知**直接丢弃**；现改为原样上抛：
+
+| 文件 | 改动 |
+|---|---|
+| `internal/signaling/signaling.go` | 非 `groupCallStatus` 载荷 → `listener.OnReceiveCustomSignal(string(msg.Content))`，Core 不解密 |
+| `open_im_sdk_callback/callback_client.go` | `OnSignalingListener` 新增 `OnReceiveCustomSignal` |
+| `wasm/event_listener/listener.go` | `SignalingCallback.OnReceiveCustomSignal` |
+| `open_im_sdk/em.go` | `emptySignalingListener.OnReceiveCustomSignal` 兜底 |
+
+### 9.3 信令 / Commit 透传（t3、t4）
+
+导出层 `call()` 反序列化 typed 请求、全量 JSON 返回 typed 响应，protocol 同步后即透传，无需额外 Go 代码：
+
+- Invite/Accept/Join/GetToken 的 JSON 带 `e2eeCapability` → 自动进入请求；响应 `conversationID`/`e2ee` 回传 App
+- SubmitCommit 成功回传 `accepted`/`duplicate`/`acceptedEpoch`；**4010** 经 `ApiPost` → `sdkerrs.New(4010,…)`，errCode 与 `expectedFromEpoch=N`（errMsg）传到 App
+
+### 9.4 仍需（不在 Core）
+
+- Dart/原生桥暴露 `OnReceiveCustomSignal`；重生成 `.aar`/`.so`/`xcframework`/wasm 产物
+- App 层 C1–C3、C7–C14（描述符、Coordinator、导出器、LiveKit KeyProvider/FrameCryptor、短 TTL 续 Token）
