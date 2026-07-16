@@ -234,7 +234,7 @@ func NewMLSCommitMongo(db *mongo.Database) (database.MLSCommitDatabase, error) {
 			Keys: bson.D{{Key: "idempotency_key", Value: 1}},
 			Options: options.Index().
 				SetUnique(true).
-				SetPartialFilterExpression(bson.M{"idempotency_key": bson.M{"$ne": ""}}),
+				SetPartialFilterExpression(bson.M{"idempotency_key": bson.M{"$gt": ""}}),
 		},
 	})
 	if err != nil {

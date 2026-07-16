@@ -46,7 +46,7 @@ func NewVirgilDeviceMongo(db *mongo.Database) (database.VirgilDevice, error) {
 			Keys: bson.D{{Key: "user_id", Value: 1}, {Key: "idempotency_key", Value: 1}},
 			Options: options.Index().
 				SetSparse(true).
-				SetPartialFilterExpression(bson.M{"idempotency_key": bson.M{"$exists": true, "$ne": ""}}),
+				SetPartialFilterExpression(bson.M{"idempotency_key": bson.M{"$gt": ""}}),
 		},
 	})
 	if err != nil {
