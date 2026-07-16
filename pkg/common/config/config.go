@@ -563,6 +563,13 @@ type LiveKit struct {
 	APIKey          string `mapstructure:"apiKey"`
 	APISecret       string `mapstructure:"apiSecret"`
 	TokenExpiry     int    `mapstructure:"tokenExpiry"`
+	// E2EETokenExpiry is JWT TTL in seconds for E2EE-required rooms (default 300, capped at 300).
+	E2EETokenExpiry int `mapstructure:"e2eeTokenExpiry"`
+}
+
+type RtcE2EE struct {
+	AllowedSchemes []string `mapstructure:"allowedSchemes"`
+	MinVersion     int      `mapstructure:"minVersion"`
 }
 
 type Rtc struct {
@@ -575,6 +582,7 @@ type Rtc struct {
 	Prometheus    Prometheus `mapstructure:"prometheus"`
 	LiveKit       LiveKit    `mapstructure:"liveKit"`
 	CallStatusTTL int        `mapstructure:"callStatusTTL"`
+	E2EE          RtcE2EE    `mapstructure:"e2ee"`
 }
 
 type Crypto struct {

@@ -30,6 +30,7 @@ import (
 	"github.com/openimsdk/tools/db/mongoutil"
 	"github.com/openimsdk/tools/db/redisutil"
 	"github.com/openimsdk/tools/discovery"
+	"github.com/redis/go-redis/v9"
 	"google.golang.org/grpc"
 )
 
@@ -45,17 +46,21 @@ type Config struct {
 
 type rtcServer struct {
 	rtc.UnimplementedRtcServiceServer
-	config           *Config
-	db               controller.RtcDatabase
-	globalBlackDB    controller.UserGlobalBlackDatabase
-	userDB           database.User
-	roomClient       *lksdk.RoomServiceClient
-	msgClient        *rpcli.MsgClient
-	userClient       *rpcli.UserClient
-	groupClient      *rpcli.GroupClient
-	relationClient   *rpcli.RelationClient
-	tokenExpiry      time.Duration
-	callStatusCache  cache.CallStatusCache
+	config             *Config
+	db                 controller.RtcDatabase
+	globalBlackDB      controller.UserGlobalBlackDatabase
+	userDB             database.User
+	roomClient         *lksdk.RoomServiceClient
+	msgClient          *rpcli.MsgClient
+	userClient         *rpcli.UserClient
+	groupClient        *rpcli.GroupClient
+	relationClient     *rpcli.RelationClient
+	rdb                redis.UniversalClient
+	tokenExpiry        time.Duration
+	e2eeTokenExpiry    time.Duration
+	e2eeAllowedSchemes []string
+	e2eeMinVersion     int
+	callStatusCache    cache.CallStatusCache
 }
 
 // Start initialises the RTC gRPC service and registers it with the gRPC server.
@@ -111,6 +116,18 @@ func Start(ctx context.Context, cfg *Config, client discovery.SvcDiscoveryRegist
 	if tokenExpiry <= 0 {
 		tokenExpiry = time.Hour
 	}
+	e2eeTokenExpiry := time.Duration(lk.E2EETokenExpiry) * time.Second
+	if e2eeTokenExpiry <= 0 || e2eeTokenExpiry > 5*time.Minute {
+		e2eeTokenExpiry = 5 * time.Minute
+	}
+	allowedSchemes := cfg.RpcConfig.E2EE.AllowedSchemes
+	if len(allowedSchemes) == 0 {
+		allowedSchemes = []string{"mls-exporter-livekit-v1"}
+	}
+	e2eeMinVersion := cfg.RpcConfig.E2EE.MinVersion
+	if e2eeMinVersion <= 0 {
+		e2eeMinVersion = 1
+	}
 
 	callStatusTTL := time.Duration(cfg.RpcConfig.CallStatusTTL) * time.Second
 	if callStatusTTL <= 0 {
@@ -118,17 +135,21 @@ func Start(ctx context.Context, cfg *Config, client discovery.SvcDiscoveryRegist
 	}
 
 	s := &rtcServer{
-		config:          cfg,
-		db:              controller.NewRtcDatabase(signalDB),
-		globalBlackDB:   controller.NewUserGlobalBlackDatabase(globalBlackMgo),
-		userDB:          userMgo,
-		roomClient:      roomClient,
-		msgClient:       rpcli.NewMsgClient(msgConn),
-		userClient:      rpcli.NewUserClient(userConn),
-		groupClient:     rpcli.NewGroupClient(groupConn),
-		relationClient:  rpcli.NewRelationClient(friendConn),
-		tokenExpiry:     tokenExpiry,
-		callStatusCache: cacheredis.NewCallStatusCache(rdb, callStatusTTL),
+		config:             cfg,
+		db:                 controller.NewRtcDatabase(signalDB),
+		globalBlackDB:      controller.NewUserGlobalBlackDatabase(globalBlackMgo),
+		userDB:             userMgo,
+		roomClient:         roomClient,
+		msgClient:          rpcli.NewMsgClient(msgConn),
+		userClient:         rpcli.NewUserClient(userConn),
+		groupClient:        rpcli.NewGroupClient(groupConn),
+		relationClient:     rpcli.NewRelationClient(friendConn),
+		rdb:                rdb,
+		tokenExpiry:        tokenExpiry,
+		e2eeTokenExpiry:    e2eeTokenExpiry,
+		e2eeAllowedSchemes: allowedSchemes,
+		e2eeMinVersion:     e2eeMinVersion,
+		callStatusCache:    cacheredis.NewCallStatusCache(rdb, callStatusTTL),
 	}
 
 	rtc.RegisterRtcServiceServer(server, s)

@@ -191,15 +191,6 @@ func (s *rtcServer) handleInvite(ctx context.Context, req *rtc.SignalInviteReq, 
 		return nil, errs.WrapMsg(err, "LiveKit CreateRoom failed", "roomID", inv.RoomID)
 	}
 
-	token, err := s.genToken(inv.RoomID, req.UserID)
-	if err != nil {
-		if _, delErr := s.roomClient.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: inv.RoomID}); delErr != nil {
-			log.ZWarn(ctx, "handleInvite: rollback DeleteRoom failed", delErr, "roomID", inv.RoomID)
-		}
-		log.ZError(ctx, "handleInvite: genToken failed", err, "roomID", inv.RoomID, "req", req)
-		return nil, err
-	}
-
 	var storeCalleeID string
 	for _, inviteeID := range inv.InviteeUserIDList {
 		if _, notAllow := notAllowSet[inviteeID]; !notAllow {
@@ -213,7 +204,17 @@ func (s *rtcServer) handleInvite(ctx context.Context, req *rtc.SignalInviteReq, 
 			nil, "roomID", inv.RoomID, "inviterUserID", req.UserID, "inviteeUserIDList", inv.InviteeUserIDList)
 	}
 
-	if err := s.db.CreateInvitation(ctx, invitationToModel(inv, inviteOfflinePush)); err != nil {
+	storeInv := invitationToModel(inv, inviteOfflinePush)
+	token, err := s.issueLiveKitToken(storeInv, req.UserID, req.E2EeCapability)
+	if err != nil {
+		if _, delErr := s.roomClient.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: inv.RoomID}); delErr != nil {
+			log.ZWarn(ctx, "handleInvite: rollback DeleteRoom failed", delErr, "roomID", inv.RoomID)
+		}
+		log.ZError(ctx, "handleInvite: genToken failed", err, "roomID", inv.RoomID, "req", req)
+		return nil, err
+	}
+
+	if err := s.db.CreateInvitation(ctx, storeInv); err != nil {
 		if mongo.IsDuplicateKeyError(err) {
 			log.ZWarn(ctx, "handleInvite: duplicate invitation (idempotent retry)", err, "roomID", inv.RoomID)
 		} else {
@@ -254,6 +255,7 @@ func (s *rtcServer) handleInvite(ctx context.Context, req *rtc.SignalInviteReq, 
 		NotAllowUserIDList: notAllowUserIDs,
 		CalleeRingtoneURL:  calleeRingtoneURL,
 		CallerRingtoneURL:  inv.CallerRingtoneURL,
+		ConversationID:     storeInv.ConversationID,
 	}, nil
 }
 
@@ -355,15 +357,6 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 		return nil, errs.WrapMsg(err, "LiveKit CreateRoom failed", "roomID", inv.RoomID)
 	}
 
-	token, err := s.genToken(inv.RoomID, req.UserID)
-	if err != nil {
-		if _, delErr := s.roomClient.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: inv.RoomID}); delErr != nil {
-			log.ZWarn(ctx, "handleInviteInGroup: rollback DeleteRoom failed", delErr, "roomID", inv.RoomID)
-		}
-		log.ZError(ctx, "handleInviteInGroup: genToken failed", err, "roomID", inv.RoomID, "req", req)
-		return nil, err
-	}
-
 	var storeCalleeID string
 	for _, inviteeID := range inv.InviteeUserIDList {
 		if _, notAllow := notAllowSet[inviteeID]; !notAllow {
@@ -378,7 +371,17 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 			nil, "roomID", inv.RoomID, "groupID", inv.GroupID, "inviterUserID", req.UserID, "inviteeUserIDList", inv.InviteeUserIDList)
 	}
 
-	if err := s.db.CreateInvitation(ctx, invitationToModel(inv, inviteOfflinePush)); err != nil {
+	storeInv := invitationToModel(inv, inviteOfflinePush)
+	token, err := s.issueLiveKitToken(storeInv, req.UserID, req.E2EeCapability)
+	if err != nil {
+		if _, delErr := s.roomClient.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: inv.RoomID}); delErr != nil {
+			log.ZWarn(ctx, "handleInviteInGroup: rollback DeleteRoom failed", delErr, "roomID", inv.RoomID)
+		}
+		log.ZError(ctx, "handleInviteInGroup: genToken failed", err, "roomID", inv.RoomID, "req", req)
+		return nil, err
+	}
+
+	if err := s.db.CreateInvitation(ctx, storeInv); err != nil {
 		if !mongo.IsDuplicateKeyError(err) {
 			if _, delErr := s.roomClient.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: inv.RoomID}); delErr != nil {
 				log.ZWarn(ctx, "handleInviteInGroup: rollback DeleteRoom failed", delErr, "roomID", inv.RoomID)
@@ -430,6 +433,7 @@ func (s *rtcServer) handleInviteInGroup(ctx context.Context, req *rtc.SignalInvi
 		LiveURL:            s.config.RpcConfig.LiveKit.ExternalAddress,
 		NotAllowUserIDList: notAllowUserIDs,
 		CalleeRingtoneURL:  calleeRingtoneURL,
+		ConversationID:     storeInv.ConversationID,
 	}
 
 	log.ZDebug(ctx, "handleInviteInGroup", "req", req, "resp", resp)
@@ -574,7 +578,7 @@ func (s *rtcServer) handleAccept(ctx context.Context, req *rtc.SignalAcceptReq, 
 		return nil, errs.ErrNoPermission.WrapMsg("user not in invitee list", "userID", req.UserID)
 	}
 
-	token, err := s.genToken(dbInv.RoomID, req.UserID)
+	token, err := s.issueLiveKitToken(dbInv, req.UserID, req.E2EeCapability)
 	if err != nil {
 		log.ZWarn(ctx, "handleAccept: genToken failed", err, "req", req)
 		return nil, err
@@ -632,9 +636,11 @@ func (s *rtcServer) handleAccept(ctx context.Context, req *rtc.SignalAcceptReq, 
 	log.ZDebug(ctx, "handleAccept: end", "req", req)
 
 	return &rtc.SignalAcceptResp{
-		Token:   token,
-		RoomID:  dbInv.RoomID,
-		LiveURL: s.config.RpcConfig.LiveKit.ExternalAddress,
+		Token:          token,
+		RoomID:         dbInv.RoomID,
+		LiveURL:        s.config.RpcConfig.LiveKit.ExternalAddress,
+		ConversationID: invitationConversationID(dbInv),
+		E2Ee:           invitationE2EEJSON(dbInv),
 	}, nil
 }
 
@@ -665,7 +671,7 @@ func (s *rtcServer) handleJoin(ctx context.Context, req *rtc.SignalJoinReq, sign
 	// Idempotent re-join: repeated join clicks while already in this room should
 	// return a fresh token instead of failing or tearing down the call.
 	if callSt, busy := s.getCalleeActiveCallStatus(ctx, req.UserID); busy && callSt.RoomID == dbInv.RoomID {
-		token, err := s.genToken(dbInv.RoomID, req.UserID)
+		token, err := s.issueLiveKitToken(dbInv, req.UserID, req.E2EeCapability)
 		if err != nil {
 			log.ZWarn(ctx, "handleJoin: genToken failed (re-join)", err, "req", req)
 			return nil, err
@@ -673,11 +679,13 @@ func (s *rtcServer) handleJoin(ctx context.Context, req *rtc.SignalJoinReq, sign
 		log.ZDebug(ctx, "handleJoin: idempotent re-join", "roomID", dbInv.RoomID, "userID", req.UserID)
 		participants, inCall := s.joinCallParticipants(ctx, dbInv.RoomID, req.UserID)
 		return &rtc.SignalJoinResp{
-			Token:       token,
-			RoomID:      dbInv.RoomID,
-			LiveURL:     s.config.RpcConfig.LiveKit.ExternalAddress,
-			Participant: participants,
-			InCall:      inCall,
+			Token:          token,
+			RoomID:         dbInv.RoomID,
+			LiveURL:        s.config.RpcConfig.LiveKit.ExternalAddress,
+			Participant:    participants,
+			InCall:         inCall,
+			ConversationID: invitationConversationID(dbInv),
+			E2Ee:           invitationE2EEJSON(dbInv),
 		}, nil
 	}
 	if !s.isInvitationPending(ctx, dbInv) {
@@ -693,7 +701,7 @@ func (s *rtcServer) handleJoin(ctx context.Context, req *rtc.SignalJoinReq, sign
 		return nil, errs.WrapMsg(err, "ensureCallParticipant failed", "roomID", dbInv.RoomID, "userID", req.UserID)
 	}
 
-	token, err := s.genToken(dbInv.RoomID, req.UserID)
+	token, err := s.issueLiveKitToken(dbInv, req.UserID, req.E2EeCapability)
 	if err != nil {
 		log.ZWarn(ctx, "handleJoin: genToken failed", err, "req", req)
 		return nil, err
@@ -731,11 +739,13 @@ func (s *rtcServer) handleJoin(ctx context.Context, req *rtc.SignalJoinReq, sign
 	log.ZDebug(ctx, "handleJoin: end", "roomID", dbInv.RoomID, "userID", req.UserID, "participantCount", len(participants), "inCall", inCall)
 
 	return &rtc.SignalJoinResp{
-		Token:       token,
-		RoomID:      dbInv.RoomID,
-		LiveURL:     s.config.RpcConfig.LiveKit.ExternalAddress,
-		Participant: participants,
-		InCall:      inCall,
+		Token:          token,
+		RoomID:         dbInv.RoomID,
+		LiveURL:        s.config.RpcConfig.LiveKit.ExternalAddress,
+		Participant:    participants,
+		InCall:         inCall,
+		ConversationID: invitationConversationID(dbInv),
+		E2Ee:           invitationE2EEJSON(dbInv),
 	}, nil
 }
 
@@ -1279,10 +1289,12 @@ func (s *rtcServer) SignalGetRoomByGroupID(ctx context.Context, req *rtc.SignalG
 
 	participants, inCall, _ := s.livekitRoomParticipantsMeta(ctx, inv.RoomID)
 	return &rtc.SignalGetRoomByGroupIDResp{
-		Invitation:  modelToInvitationInfo(inv),
-		RoomID:      inv.RoomID,
-		Participant: participants,
-		InCall:      inCall,
+		Invitation:     modelToInvitationInfo(inv),
+		RoomID:         inv.RoomID,
+		Participant:    participants,
+		InCall:         inCall,
+		ConversationID: invitationConversationID(inv),
+		E2Ee:           invitationE2EEJSON(inv),
 	}, nil
 }
 
@@ -1498,19 +1510,30 @@ func (s *rtcServer) getTokenByRoomID(ctx context.Context, req *rtc.SignalGetToke
 	if err := s.ensureCallParticipant(ctx, dbInv, req.UserID); err != nil {
 		return nil, err
 	}
-	token, err := s.genToken(req.RoomID, req.UserID)
+	token, err := s.issueLiveKitToken(dbInv, req.UserID, req.E2EeCapability)
 	if err != nil {
 		return nil, err
 	}
 	return &rtc.SignalGetTokenByRoomIDResp{
-		Token:   token,
-		LiveURL: s.config.RpcConfig.LiveKit.ExternalAddress,
+		Token:          token,
+		LiveURL:        s.config.RpcConfig.LiveKit.ExternalAddress,
+		ConversationID: invitationConversationID(dbInv),
+		E2Ee:           invitationE2EEJSON(dbInv),
 	}, nil
 }
 
 func (s *rtcServer) ensureCallParticipant(ctx context.Context, inv *model.SignalInvitation, userID string) error {
 	if userID == inv.InviterUserID || datautil.Contain(userID, inv.InviteeUserIDList...) {
 		return nil
+	}
+	if inv.E2EERequired {
+		if inv.GroupID != "" {
+			if _, err := s.groupClient.GetGroupMemberInfo(ctx, inv.GroupID, userID); err != nil {
+				return servererrs.ErrCallE2EEGroupMembershipInvalid.WrapMsg("not a group member", "userID", userID, "groupID", inv.GroupID)
+			}
+			return s.db.AddInvitee(ctx, inv.RoomID, userID)
+		}
+		return servererrs.ErrCallE2EEGroupMembershipInvalid.WrapMsg("not an invited participant", "userID", userID, "roomID", inv.RoomID)
 	}
 	return s.db.AddInvitee(ctx, inv.RoomID, userID)
 }
@@ -1592,37 +1615,8 @@ func (s *rtcServer) GetSignalInvitationInfoStartApp(ctx context.Context, req *rt
 			Desc:  inv.OfflinePushDesc,
 			Ex:    inv.OfflinePushEx,
 		},
+		ConversationID: invitationConversationID(inv),
 	}, nil
-}
-
-// SignalSendCustomSignal forwards a custom signal to all participants in a room.
-func (s *rtcServer) SignalSendCustomSignal(ctx context.Context, req *rtc.SignalSendCustomSignalReq) (*rtc.SignalSendCustomSignalResp, error) {
-	inv, err := s.db.GetInvitationByRoomID(ctx, req.RoomID)
-	if err != nil {
-		log.ZWarn(ctx, "GetInvitationByRoomID failed for custom signal", err, "roomID", req.RoomID)
-		return &rtc.SignalSendCustomSignalResp{}, nil
-	}
-	opUserID := mcontext.GetOpUserID(ctx)
-	// Fix P3: 处理 json.Marshal 错误
-	content, err := json.Marshal(map[string]any{
-		"roomID":     req.RoomID,
-		"customInfo": req.CustomInfo,
-	})
-	if err != nil {
-		return nil, errs.WrapMsg(err, "marshal custom signal content failed")
-	}
-	recipients := make([]string, 0, len(inv.InviteeUserIDList)+1)
-	recipients = append(recipients, inv.InviteeUserIDList...)
-	recipients = append(recipients, inv.InviterUserID)
-	for _, uid := range recipients {
-		if uid == opUserID {
-			continue
-		}
-		if err := s.sendCustomSignalNotification(ctx, opUserID, uid, int32(constant.SingleChatType), content); err != nil {
-			log.ZWarn(ctx, "sendCustomSignalNotification failed", err, "to", uid)
-		}
-	}
-	return &rtc.SignalSendCustomSignalResp{}, nil
 }
 
 // SignalNotifyGroupCallEnded sends GroupCallEndedNotification (1523) to all group members.
@@ -1770,17 +1764,55 @@ func (s *rtcServer) DeleteSignalRecords(ctx context.Context, req *rtc.DeleteSign
 // ---- helpers ----
 
 // genToken generates a LiveKit access token for the given room and identity.
-func (s *rtcServer) genToken(roomID, userID string) (string, error) {
+func (s *rtcServer) genToken(roomID, userID string, e2ee bool) (string, error) {
 	lk := s.config.RpcConfig.LiveKit
 	at := auth.NewAccessToken(lk.APIKey, lk.APISecret)
 	grant := &auth.VideoGrant{
 		RoomJoin: true,
 		Room:     roomID,
 	}
+	validFor := s.tokenExpiry
+	if e2ee {
+		validFor = s.e2eeTokenExpiry
+		if validFor <= 0 || validFor > 5*time.Minute {
+			validFor = 5 * time.Minute
+		}
+		at.SetAttributes(map[string]string{"e2ee": "true"})
+	}
 	at.SetVideoGrant(grant).
 		SetIdentity(userID).
-		SetValidFor(s.tokenExpiry)
+		SetValidFor(validFor)
 	return at.ToJWT()
+}
+
+func (s *rtcServer) issueLiveKitToken(inv *model.SignalInvitation, userID string, cap *rtc.E2EECapability) (string, error) {
+	if inv == nil {
+		return "", errs.ErrArgs.WrapMsg("invitation is nil")
+	}
+	if inv.E2EERequired {
+		if err := checkE2EECapability(cap, s.e2eeAllowedSchemes, s.e2eeMinVersion); err != nil {
+			return "", err
+		}
+	}
+	return s.genToken(inv.RoomID, userID, inv.E2EERequired)
+}
+
+func invitationConversationID(m *model.SignalInvitation) string {
+	if m == nil {
+		return ""
+	}
+	if m.ConversationID != "" {
+		return m.ConversationID
+	}
+	return normalizeCallConversationID(m.GroupID, m.InviterUserID, m.InviteeUserIDList)
+}
+
+func invitationE2EEJSON(m *model.SignalInvitation) string {
+	if m == nil {
+		return ""
+	}
+	_, _, e2eeJSON, _ := parseE2EEFromCustomData(m.CustomData)
+	return e2eeJSON
 }
 
 // signalingMsgOptions 返回信令通知消息应设置的 Options。
@@ -2421,11 +2453,21 @@ func newRoomID() string {
 // invitationToModel converts a proto InvitationInfo to the database model.
 func invitationToModel(inv *rtc.InvitationInfo, push *sdkws.OfflinePushInfo) *model.SignalInvitation {
 	now := time.Now()
+	convID := normalizeCallConversationID(inv.GroupID, inv.InviterUserID, inv.InviteeUserIDList)
+	required, callID, _, _ := parseE2EEFromCustomData(inv.CustomData)
+	if inv.ConversationID == "" {
+		inv.ConversationID = convID
+	} else {
+		convID = inv.ConversationID
+	}
 	m := &model.SignalInvitation{
 		RoomID:             inv.RoomID,
 		InviterUserID:      inv.InviterUserID,
 		InviteeUserIDList:  inv.InviteeUserIDList,
 		CustomData:         inv.CustomData,
+		ConversationID:     convID,
+		E2EERequired:       required,
+		CallID:             callID,
 		GroupID:            inv.GroupID,
 		Timeout:            inv.Timeout,
 		MediaType:          inv.MediaType,
@@ -2460,6 +2502,7 @@ func modelToInvitationInfo(m *model.SignalInvitation) *rtc.InvitationInfo {
 		SessionType:        m.SessionType,
 		InitiateTime:       m.InitiateTime,
 		BusyLineUserIDList: m.BusyLineUserIDList,
+		ConversationID:     invitationConversationID(m),
 	}
 }
 

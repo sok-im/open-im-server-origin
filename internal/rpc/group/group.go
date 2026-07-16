@@ -72,6 +72,7 @@ type groupServer struct {
 	cryptoClient       *rpcli.CryptoClient
 	relationClient     *rpcli.RelationClient
 	openMLSClient      *rpcli.OpenMLSClient
+	rtcClient          *rpcli.RtcServiceClient
 }
 
 type Config struct {
@@ -147,6 +148,10 @@ func Start(ctx context.Context, config *Config, client discovery.SvcDiscoveryReg
 	if err != nil {
 		return err
 	}
+	rtcConn, err := client.GetConn(ctx, config.Share.RpcRegisterName.Rtc)
+	if err != nil {
+		return err
+	}
 	gs := groupServer{
 		config:             config,
 		webhookClient:      webhook.NewWebhookClient(config.WebhooksConfig.URL),
@@ -156,6 +161,7 @@ func Start(ctx context.Context, config *Config, client discovery.SvcDiscoveryReg
 		relationClient:     rpcli.NewRelationClient(friendConn),
 		//cryptoClient:       rpcli.NewCryptoClient(cryptoConn),
 		openMLSClient: rpcli.NewOpenMLSClient(openMLSConn),
+		rtcClient:     rpcli.NewRtcServiceClient(rtcConn),
 	}
 	gs.db = controller.NewGroupDatabase(rdb, &config.LocalCacheConfig, groupDB, groupMemberDB, groupRequestDB, groupPinnedMsgDB, mgocli.GetTx(), grouphash.NewGroupHashFromGroupServer(&gs))
 	gs.groupMuteDB = controller.NewGroupMuteDatabase(groupMuteMongo)
@@ -899,6 +905,11 @@ func (s *groupServer) KickGroupMember(ctx context.Context, req *pbgroup.KickGrou
 	s.webhookAfterKickGroupMember(ctx, &s.config.WebhooksConfig.AfterKickGroupMember, req)
 	//s.cryptoClient.BumpGroupKeyVersion(ctx, req.GroupID, opUserID, "member_removed")
 	go s.openMLSClient.RemoveMemberTrigger(context.WithoutCancel(ctx), req.GroupID, opUserID, req.KickedUserIDs)
+	go func() {
+		if err := s.rtcClient.SignalRemoveParticipants(context.WithoutCancel(ctx), req.GroupID, req.KickedUserIDs); err != nil {
+			log.ZWarn(ctx, "SignalRemoveParticipants after kick failed", err, "groupID", req.GroupID, "userIDs", req.KickedUserIDs)
+		}
+	}()
 
 	return &pbgroup.KickGroupMemberResp{}, nil
 }
@@ -1296,6 +1307,11 @@ func (s *groupServer) QuitGroup(ctx context.Context, req *pbgroup.QuitGroupReq) 
 	// online (they just called QuitGroup), making this more reliable than
 	// triggering the group owner who may be offline.
 	go s.openMLSClient.RemoveMemberTrigger(context.WithoutCancel(ctx), req.GroupID, req.UserID, []string{req.UserID})
+	go func() {
+		if err := s.rtcClient.SignalRemoveParticipants(context.WithoutCancel(ctx), req.GroupID, []string{req.UserID}); err != nil {
+			log.ZWarn(ctx, "SignalRemoveParticipants after quit failed", err, "groupID", req.GroupID, "userID", req.UserID)
+		}
+	}()
 
 	return &pbgroup.QuitGroupResp{}, nil
 }

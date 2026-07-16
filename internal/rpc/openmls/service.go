@@ -26,6 +26,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/openimsdk/open-im-server/v3/pkg/authverify"
+	"github.com/openimsdk/open-im-server/v3/pkg/common/servererrs"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/model"
 	"github.com/openimsdk/protocol/constant"
 	pbopenmls "github.com/openimsdk/protocol/openmls"
@@ -283,6 +284,21 @@ func (s *openMLSServer) SubmitCommit(ctx context.Context, req *pbopenmls.SubmitC
 		return nil, err
 	}
 
+	if req.IdempotencyKey != "" {
+		if prev, err := s.db.FindByIdempotencyKey(ctx, req.IdempotencyKey); err == nil && prev != nil {
+			return &pbopenmls.SubmitCommitResp{
+				Accepted:       true,
+				Duplicate:      true,
+				AcceptedEpoch:  prev.Epoch,
+				CommitID:       prev.ID,
+				NewEpoch:       prev.Epoch,
+				SequenceNumber: prev.SequenceNumber,
+			}, nil
+		} else if err != nil && !errs.ErrRecordNotFound.Is(err) {
+			return nil, err
+		}
+	}
+
 	// Ensure group state exists (create if first commit)
 	_, err := s.db.GetState(ctx, req.GroupID)
 	if err != nil {
@@ -305,7 +321,15 @@ func (s *openMLSServer) SubmitCommit(ctx context.Context, req *pbopenmls.SubmitC
 	newEpoch, err := s.db.IncrEpoch(ctx, req.GroupID, req.FromEpoch)
 	if err != nil {
 		if errs.ErrRecordNotFound.Is(err) {
-			return nil, errs.New("epoch conflict: current epoch does not match fromEpoch").Wrap()
+			st, getErr := s.db.GetState(ctx, req.GroupID)
+			var expected uint64
+			if getErr == nil && st != nil {
+				expected = st.CurrentEpoch
+			}
+			return &pbopenmls.SubmitCommitResp{
+				Accepted:          false,
+				ExpectedFromEpoch: expected,
+			}, servererrs.ErrMLSEpochConflict.WrapMsg(fmt.Sprintf("epoch conflict expectedFromEpoch=%d", expected))
 		}
 		return nil, err
 	}
@@ -318,6 +342,9 @@ func (s *openMLSServer) SubmitCommit(ctx context.Context, req *pbopenmls.SubmitC
 		ID:             uuid.New().String(),
 		GroupID:        req.GroupID,
 		Epoch:          newEpoch,
+		FromEpoch:      req.FromEpoch,
+		CommitHash:     req.CommitHash,
+		IdempotencyKey: req.IdempotencyKey,
 		SequenceNumber: seqNum,
 		CommitMessage:  req.CommitMessage,
 		SenderUserID:   req.SenderUserID,
@@ -414,6 +441,10 @@ func (s *openMLSServer) SubmitCommit(ctx context.Context, req *pbopenmls.SubmitC
 		NewEpoch:       newEpoch,
 		SequenceNumber: seqNum,
 		BroadcastCount: broadcastCount,
+		Accepted:       true,
+		Duplicate:      false,
+		AcceptedEpoch:  newEpoch,
+		CommitID:       commit.ID,
 	}, nil
 }
 
