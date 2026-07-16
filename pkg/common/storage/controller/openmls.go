@@ -101,6 +101,10 @@ func (d *openMLSDatabase) AppendCommit(ctx context.Context, c *model.MLSCommit) 
 	return d.commit.AppendCommit(ctx, c)
 }
 
+func (d *openMLSDatabase) FindByIdempotencyKey(ctx context.Context, key string) (*model.MLSCommit, error) {
+	return d.commit.FindByIdempotencyKey(ctx, key)
+}
+
 func (d *openMLSDatabase) FindSinceEpoch(ctx context.Context, groupID string, sinceEpoch uint64, limit int) ([]*model.MLSCommit, error) {
 	return d.commit.FindSinceEpoch(ctx, groupID, sinceEpoch, limit)
 }

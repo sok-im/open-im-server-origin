@@ -50,6 +50,7 @@ type MLSGroupDatabase interface {
 // MLSCommitDatabase 追加和查询 Commit 历史。
 type MLSCommitDatabase interface {
 	AppendCommit(ctx context.Context, c *model.MLSCommit) error
+	FindByIdempotencyKey(ctx context.Context, key string) (*model.MLSCommit, error)
 	// FindSinceEpoch 返回 epoch > sinceEpoch 的 Commit，按 epoch 升序，最多 limit 条。
 	FindSinceEpoch(ctx context.Context, groupID string, sinceEpoch uint64, limit int) ([]*model.MLSCommit, error)
 	DeleteByGroupID(ctx context.Context, groupID string) error
