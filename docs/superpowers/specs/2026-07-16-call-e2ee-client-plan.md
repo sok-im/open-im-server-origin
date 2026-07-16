@@ -1,23 +1,29 @@
 # 音视频通话 E2EE — 客户端改造方案
 
-> 日期：2026-07-16  
-> 状态：待客户端实施  
-> 依据：`音视频通话端到端加密（E2EE）实施计划.md`、服务端已落地契约（OpenIM Server `lintao1`）  
+> 日期：2026-07-16（重新生成）
+> 依据：`音视频通话端到端加密（E2EE）实施计划.md`、服务端已落地契约（OpenIM Server `lintao1`）、Go Core 已落地（`openim-sdk-core-origin`）
 > 兼容策略：**方案 A** — 仅当邀请 `e2ee.required=true` 时走强制 E2EE；旧客户端仍可发非 E2EE 通话
+
+## 进度总览
+
+| 层 | 状态 | 说明 |
+|---|---|---|
+| 服务端（OpenIM Server） | ✅ 已完成 | 描述符透传、能力门禁、短 TTL Token、自定义信令转发、Commit CAS/4010、踢人联动、可观测日志 |
+| Go Core（`openim-sdk-core-origin`） | ✅ t1–t4 已完成 | protocol 同步、`OnReceiveCustomSignal` 贯通、信令/Commit 字段透传；构建（标准 + wasm）通过 |
+| Dart SDK / 原生桥 + 产物 | ⬜ 待实施 | `OnReceiveCustomSignal` 到 App、模型字段、重生成 aar/so/xcframework/wasm |
+| App 通话 E2EE 核心 | ⬜ 待实施 | 描述符、Coordinator、导出器、LiveKit KeyProvider/FrameCryptor、短 TTL 续 Token |
 
 ---
 
 ## 0. 与服务端对齐结论
 
-服务端已具备：
-
-| 能力 | 服务端状态 | 客户端必须配合 |
+| 能力 | 服务端 | 客户端必须配合 |
 |---|---|---|
-| `customData.e2ee` 透传 + 响应 `conversationID` / `e2ee` | 已落地 | 邀请写入描述符；接听/加入/取 Token/恢复时解析服务端回传 |
-| `e2eeCapability` 门禁 | 已落地 | Invite/Accept/Join/GetToken 必带能力；处理 1830–1834 |
-| 自定义信令转发（16KB / 限流 / messageID 去重） | 已落地 | SDK 贯通 Send + OnReceive；控制消息走 MLS 密文 |
-| `openMLSSubmitCommit` CAS + 4010 | 已落地 | Commit：先 DS 再 merge；冲突追赶后重生 Commit |
-| 踢人 `RemoveParticipant` + 短 TTL JWT | 已落地 | E2EE 房间短周期续 Token；踢出/退群后触发换钥 |
+| `customData.e2ee` 透传 + 响应 `conversationID` / `e2ee` | ✅ | 邀请写入描述符；接听/加入/取 Token/恢复时解析服务端回传 |
+| `e2eeCapability` 门禁 | ✅ | Invite/Accept/Join/GetToken 必带能力；处理 1830–1834 |
+| 自定义信令转发（16KB / 限流 / messageID 去重） | ✅ | Send + OnReceive 全链路；控制消息走 MLS 密文 |
+| `openMLSSubmitCommit` CAS + 4010 | ✅ | Commit：先 DS 再 merge；冲突追赶后重生 Commit |
+| 踢人 `RemoveParticipant` + 短 TTL JWT | ✅ | E2EE 房间短周期续 Token；踢出/退群后触发换钥 |
 
 服务端**不**做：派生/下发 `K_media`、解密 `mlsMessage`、静默降级。
 
@@ -77,6 +83,8 @@
 - `roomID`：以 Invite 响应为准回写描述符（若先本地占位，须在收到响应后对齐）。
 - `conversationID`：以响应字段为准覆盖本地猜测。
 
+服务端只解析非秘密字段（`required`/`callID`），其余原样存储并透传；`custom_data` 作为不透明 blob。
+
 ### 3.2 能力声明（所有准入请求）
 
 Invite / Accept / Join / GetTokenByRoomID 增加：
@@ -93,53 +101,52 @@ Invite / Accept / Join / GetTokenByRoomID 增加：
 }
 ```
 
-错误码映射（服务端 18xx）：
+错误码映射（服务端 18xx / 4010）：
 
-| 码 | 名 | UI |
+| 码 | 名 | UI / 处理 |
 |---|---|---|
 | 1830 | `CALL_E2EE_REQUIRED_UNSUPPORTED` | 升级提示，无降级按钮 |
 | 1831 | `CALL_E2EE_CONVERSATION_NOT_READY` | MLS/会话未就绪 |
 | 1832 | `CALL_E2EE_GROUP_MEMBERSHIP_INVALID` | 无权限 |
-| 1833 | `CALL_E2EE_PROTOCOL_VERSION_MISMATCH` | 升级提示；`clientVersion` 缺省也会触发 |
+| 1833 | `CALL_E2EE_PROTOCOL_VERSION_MISMATCH` | 升级提示；`clientVersion` 缺省/不可解析也会触发 |
 | 1834 | `CALL_E2EE_TOKEN_DENIED` | 无法进入加密通话；含 `userID` 与鉴权身份不一致 |
+| 4010 | `epoch conflict` | Commit 追赶后重生（见 3.5） |
+
+> 服务端默认 `e2ee.minVersion=1`：`clientVersion` 必须填可解析版本号（如 `"1"`/`"1.2.0"`），否则强制 E2EE 房间取 Token 返回 1833。
 
 ### 3.3 Token 续期
 
-E2EE 房间 JWT TTL ≤ 5 分钟。活跃通话需周期性 `signalingGetTokenByRoomID`（建议 2–4 分钟），续期时同样带 `e2eeCapability`（含可解析的 `clientVersion`）。
+E2EE 房间 JWT TTL ≤ 5 分钟（服务端封顶）。活跃通话需周期性 `signalingGetTokenByRoomID`（建议 2–4 分钟），续期时同样带 `e2eeCapability`（含可解析的 `clientVersion`）。
 
 请求体 `userID` 必须等于当前登录用户（服务端比对 JWT → `opUserID`）；勿代他人取 Token，否则返回 **1834**。
 
 ### 3.4 自定义信令（换钥控制面）
 
-**Go Core（`openim-sdk-core-origin`）已落地：**
+**Go Core 已落地**（详见 §9.2）：`SendCustomSignal` 发送链路 + `OnReceiveCustomSignal` 接收回调，非 `groupCallStatus` 的 `CustomSignalNotification`(1605) 原样上抛；**Core 不解密** `mlsMessage`。
 
-- `SignalingSendCustomSignal` 发送链路（已存在）
-- `OnReceiveCustomSignal` 接收链路：`handleCustomSignalNotification` 对非 `groupCallStatus` 的 `CustomSignalNotification`(1605) 原样上抛（`internal/signaling/signaling.go`）；`OnSignalingListener` 新增 `OnReceiveCustomSignal`（`open_im_sdk_callback/callback_client.go`）；WASM/空实现同步（`wasm/event_listener/listener.go`、`open_im_sdk/em.go`）
-- **Core 不解密** `mlsMessage`，转发载荷 `{roomID,senderUserID,senderPlatformID,serverSeq,customInfo}`
+转发载荷（服务端补充的外层字段）：`{roomID, senderUserID, senderPlatformID, serverSeq, customInfo}`。
 
-**仍需（客户端 App / 原生桥）：**
+**仍需（Dart/原生）：**
 
 - Dart：`onReceiveCustomSignal` 回调贯通到 App 层
 - Android/iOS 桥暴露该回调；重生成 jar/so、xcframework
 
-载荷：`kind=call_e2ee_control`，`mlsMessage` 为 MLS 应用密文；客户端二次校验 `messageID`、`generation`、类型、`verifiedSenderID` vs 外层 `senderUserID`。
-
-单条 ≤ 16KB；勿打明文日志。
-
-短期兜底（仅 Core 未好时）：隐藏 `CustomMessage`，须严格过滤 UI/`localEx`。
+App 侧约定：`kind=call_e2ee_control`，`mlsMessage` 为 MLS 应用密文；客户端二次校验 `messageID`、`generation`、类型、`verifiedSenderID` vs 外层 `senderUserID`。单条 ≤ 16KB；勿打明文日志。
 
 ### 3.5 OpenMLS Commit
 
 顺序固定：
 
-1. 生成本地 pending Commit  
-2. `openMLSSubmitCommit`（带 `fromEpoch` + `idempotencyKey`）  
-3. 成功 → `mergePendingCommit()`  
-4. 失败 → `clearPendingCommit()`  
-5. **4010** → 追赶 `GetCommits` 后**重新生成** Commit（禁止重发旧包）  
-6. DS 成功但本地合并失败 → 从 Commit 历史恢复  
+1. 生成本地 pending Commit
+2. `openMLSSubmitCommit`（带 `fromEpoch` + `idempotencyKey`）
+3. 成功 → `mergePendingCommit()`
+4. 失败 → `clearPendingCommit()`
+5. **4010** → 追赶 `GetCommits` 后**重新生成** Commit（禁止重发旧包）
+6. DS 成功但本地合并失败 → 从 Commit 历史恢复
 
-> 注意：服务端冲突时 `expectedFromEpoch` 目前可能在 errMsg 中（`expectedFromEpoch=N`）；客户端解析需兼容 message 与未来结构化 `data`。
+响应字段（成功）：`accepted` / `duplicate` / `acceptedEpoch` / `sequenceNumber`。
+
+> 注意：4010 冲突时服务端 resp body 的 `expectedFromEpoch` 会因 `errCode!=0` 被丢弃，客户端需从 errMsg（`expectedFromEpoch=N`）解析；兼容未来结构化 `data`。
 
 ---
 
@@ -147,11 +154,11 @@ E2EE 房间 JWT TTL ≤ 5 分钟。活跃通话需周期性 `signalingGetTokenBy
 
 ### P0 — MLS 基础安全（上线通话 E2EE 前置）
 
-| # | 内容 | 关键文件 |
-|---|---|---|
-| C1 | 严格模式：加密失败禁止回退明文；发送者校验 | `e2ee_adapter` / `e2ee_message_resolver` |
-| C2 | Commit：DS 成功后再 merge；4010 处理；logout 重置引擎 | `mls_controller` |
-| C3 | 去掉明文 Message/URL/JWT/密钥日志 | 全 E2EE/Call 路径 |
+| # | 内容 | 关键文件 | 状态 |
+|---|---|---|---|
+| C1 | 严格模式：加密失败禁止回退明文；发送者校验 | `e2ee_adapter` / `e2ee_message_resolver` | ⬜ |
+| C2 | Commit：DS 成功后再 merge；4010 处理；logout 重置引擎 | `mls_controller` | ⬜ |
+| C3 | 去掉明文 Message/URL/JWT/密钥日志 | 全 E2EE/Call 路径 | ⬜ |
 
 ### P1 — SDK / 协议桥
 
@@ -165,21 +172,21 @@ E2EE 房间 JWT TTL ≤ 5 分钟。活跃通话需周期性 `signalingGetTokenBy
 
 ### P2 — 通话 E2EE 核心
 
-| # | 内容 | 关键文件 |
-|---|---|---|
-| C7 | 模型/编解码：`CallEncryptionDescriptor`、能力、控制类型 | `lib/im/Call/e2ee/call_e2ee_*.dart` |
-| C8 | `exportCallMediaKey` + 严格控制消息 API | `mls_call_control` / `mls_controller` |
-| C9 | `CallE2EECoordinator`：`key_prepare/ready/activate`、epoch 屏障、换钥 | `call_e2ee_coordinator.dart` |
-| C10 | LiveKit：严格 KeyProvider、`RoomOptions.encryption`、强制 VP8 | `livekit_engine.dart` |
-| C11 | 接线：主叫/被叫/群加入/启动恢复；Token 带能力；activate 前不连房 | `call_controller` / `call_token_provider` |
-| C12 | 运行时换钥 + 失败关闭（5s 未恢复挂断；旧钥保留 ≥30s） | coordinator + engine |
+| # | 内容 | 关键文件 | 状态 |
+|---|---|---|---|
+| C7 | 模型/编解码：`CallEncryptionDescriptor`、能力、控制类型 | `lib/im/Call/e2ee/call_e2ee_*.dart` | ⬜ |
+| C8 | `exportCallMediaKey` + 严格控制消息 API | `mls_call_control` / `mls_controller` | ⬜ |
+| C9 | `CallE2EECoordinator`：`key_prepare/ready/activate`、epoch 屏障、换钥 | `call_e2ee_coordinator.dart` | ⬜ |
+| C10 | LiveKit：严格 KeyProvider、`RoomOptions.encryption`、强制 VP8 | `livekit_engine.dart` | ⬜ |
+| C11 | 接线：主叫/被叫/群加入/启动恢复；Token 带能力；activate 前不连房 | `call_controller` / `call_token_provider` | ⬜ |
+| C12 | 运行时换钥 + 失败关闭（5s 未恢复挂断；旧钥保留 ≥30s） | coordinator + engine | ⬜ |
 
 ### P3 — 验证与灰度
 
-| # | 内容 |
-|---|---|
-| C13 | 自动化 + 真机矩阵（1v1/群/踢人/周期换钥/弱网/进程恢复/旧客户端拒 Token） |
-| C14 | Feature flag：内测账号 → 1v1 音频 → 视频 → 群通话 |
+| # | 内容 | 状态 |
+|---|---|---|
+| C13 | 自动化 + 真机矩阵（1v1/群/踢人/周期换钥/弱网/进程恢复/旧客户端拒 Token） | ⬜ |
+| C14 | Feature flag：内测账号 → 1v1 音频 → 视频 → 群通话 | ⬜ |
 
 ---
 
@@ -218,13 +225,13 @@ context 绑定: protocolVersion, conversationID, callID, roomID,
 
 ## 6. 建议实施顺序（工期视角）
 
-1. **C1–C3**（不改通话 UI 也能先修 MLS 安全债）  
-2. **C4–C6**（对齐已部署服务端协议；否则无法联调）  
-3. **C7–C10**（可并行：模型/导出器 vs LiveKit）  
-4. **C11–C12**（业务接线）  
+1. **C1–C3**（不改通话 UI 也能先修 MLS 安全债）
+2. **C4–C6 的 Dart/原生剩余部分**（Go Core 已完成；对齐已部署服务端协议，否则无法联调）
+3. **C7–C10**（可并行：模型/导出器 vs LiveKit）
+4. **C11–C12**（业务接线）
 5. **C13–C14**（联调与灰度）
 
-联调前置：**服务端已就绪**；客户端至少完成 C4+C5+C9+C10+C11 最小闭环。
+联调前置：**服务端与 Go Core 已就绪**；客户端至少完成 C4+C5+C9+C10+C11 最小闭环。
 
 ---
 
@@ -242,6 +249,7 @@ context 绑定: protocolVersion, conversationID, callID, roomID,
 
 - 总计划：`音视频通话端到端加密（E2EE）实施计划.md`（任务 1–5、7–12；任务 6 服务端已完成）
 - 服务端设计：`docs/superpowers/specs/2026-07-16-call-e2ee-server-design.md`
+- 服务端修改说明：`docs/superpowers/specs/2026-07-16-call-e2ee-server-changelog.md`
 - 服务端接口：`音视频通话E2EE-服务端接口与实施方案.md`
 
 ---
