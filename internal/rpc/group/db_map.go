@@ -120,15 +120,12 @@ func UpdateGroupInfoExMap(ctx context.Context, group *pbgroup.SetGroupInfoExReq)
 	}
 	if group.AllowSendMsg != nil {
 		m["allow_send_msg"] = group.AllowSendMsg.Value
-		normalFlag = true
 	}
 	if group.AllowPinMsg != nil {
 		m["allow_pin_msg"] = group.AllowPinMsg.Value
-		normalFlag = true
 	}
 	if group.AllowAddMember != nil {
 		m["allow_add_member"] = group.AllowAddMember.Value
-		normalFlag = true
 	}
 	if group.AllowEditGroupInfo != nil {
 		m["allow_edit_group_info"] = group.AllowEditGroupInfo.Value
@@ -139,7 +136,6 @@ func UpdateGroupInfoExMap(ctx context.Context, group *pbgroup.SetGroupInfoExReq)
 	}
 	if group.AllowBurn != nil {
 		m["allow_burn"] = group.AllowBurn.Value
-		normalFlag = true
 	}
 	if group.EnableInviteLink != nil {
 		m["enable_invite_link"] = group.EnableInviteLink.Value
