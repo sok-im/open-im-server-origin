@@ -20,7 +20,7 @@
 ## 2. 现状与问题
 
 - `SetGroupInfo` / `SetGroupInfoEx`：权限字段写入后会设 `normalFlag`，最终发 `GroupInfoSetNotification`（1502），SDK 走通用 `OnGroupInfoChanged`。
-- `SetSendMessageSetting`：更新 `allow_send_msg` 后发 `GroupMutedNotification` / `GroupCancelMutedNotification`（1514/1515），语义是「全员禁言」，与「仅管理员可发消息」权限设置不对齐，且不会触发权限专用回调。
+- `SetSendMessageSetting`：更新 `allow_send_msg` 后已发 `GroupMutedNotification` / `GroupCancelMutedNotification`（1514/1515）；客户端仍依赖这两类通知做禁言 UI，**本期保留**，并额外发权限专用通知以触发 `onGroupPermissionChanged`。
 - 客户端需要专用 `onGroupPermissionChanged`，不能仅靠复用 1502。
 
 ## 3. 方案选择（已确认）
@@ -100,8 +100,8 @@ groupPermissionChanged:
 
 | 入口 | 行为 |
 |---|---|
-| `SetSendMessageSetting` | 值变化时发 `GroupPermissionChangedNotification`；**不再**发 `GroupMuted` / `GroupCancelMuted` |
-| `SetGroupInfo` / `SetGroupInfoEx` | 权限实际变化 → 发权限通知；若同请求还更新了其它「普通」字段（introduction/ex/lookMemberInfo 等）→ 另发 `GroupInfoSetNotification`；群名/公告/头像/入群审核/阅后即焚时长仍走各自专用通知 |
+| `SetSendMessageSetting` | 值变化时：**保留**现有 `GroupMuted`（1514，`allowSendMsg=1`）/ `GroupCancelMuted`（1515，`allowSendMsg=0`），并**额外**发一条 `GroupPermissionChangedNotification`（1530，`changedFields=["allowSendMsg"]`） |
+| `SetGroupInfo` / `SetGroupInfoEx` | 权限实际变化 → 发 1530；若同请求还更新了其它「普通」字段（introduction/ex/lookMemberInfo 等）→ 另发 `GroupInfoSetNotification`；群名/公告/头像/入群审核/阅后即焚时长仍走各自专用通知。经 `SetGroupInfo(Ex)` 改 `allowSendMsg` **不**发 1514/1515（仅专用入口保持禁言通知兼容） |
 
 实现要点：
 
@@ -156,7 +156,7 @@ groupPermissionChanged:
 | 一次 `SetGroupInfoEx` 改多个权限 | 一条 1530，`changedFields` 含多项 |
 | 请求值与 DB 相同 | 不发 1530 |
 | 同时改 introduction + allowPinMsg | 一条 1530 + 一条 1502 |
-| `SetSendMessageSetting` | 发 1530，不发 1514/1515 |
+| `SetSendMessageSetting` | 发 1530，且仍发 1514 或 1515（与现网一致） |
 | SDK | 解码 tips、更新缓存后触发 `OnGroupPermissionChanged` |
 
 ## 9. 非目标 / 明确不做
