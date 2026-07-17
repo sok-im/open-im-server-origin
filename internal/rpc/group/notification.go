@@ -595,6 +595,33 @@ func (g *NotificationSender) GroupNeedVerificationSetNotification(ctx context.Co
 	g.Notification(ctx, mcontext.GetOpUserID(ctx), groupID, constant.GroupNeedVerificationSetNotification, tips)
 }
 
+// GroupPermissionChangedNotification broadcasts GroupPermissionChangedNotification (1530)
+// when allowSendMsg / allowAddMember / allowPinMsg / allowMemberBurn actually change.
+func (g *NotificationSender) GroupPermissionChangedNotification(ctx context.Context, tips *sdkws.GroupPermissionChangedTips) {
+	var err error
+	defer func() {
+		if err != nil {
+			log.ZError(ctx, stringutil.GetFuncName(1)+" failed", err)
+		}
+	}()
+	if tips == nil || tips.Group == nil || len(tips.ChangedFields) == 0 {
+		return
+	}
+	if err = g.fillOpUser(ctx, &tips.OpUser, tips.Group.GroupID); err != nil {
+		return
+	}
+	g.setVersion(ctx, &tips.GroupMemberVersion, &tips.GroupMemberVersionID, database.GroupMemberVersionName, tips.Group.GroupID)
+	if tips.OperationTime == 0 {
+		tips.OperationTime = time.Now().UnixMilli()
+	}
+	log.ZInfo(ctx, "GroupPermissionChangedNotification",
+		"groupID", tips.Group.GroupID,
+		"opUserID", mcontext.GetOpUserID(ctx),
+		"changedFields", tips.ChangedFields,
+	)
+	g.Notification(ctx, mcontext.GetOpUserID(ctx), tips.Group.GroupID, constant.GroupPermissionChangedNotification, tips)
+}
+
 func (g *NotificationSender) GroupFaceURLSetNotification(ctx context.Context, tips *sdkws.GroupFaceURLSetTips) {
 	var err error
 	defer func() {
