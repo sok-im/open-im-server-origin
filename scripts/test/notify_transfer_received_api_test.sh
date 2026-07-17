@@ -9,7 +9,7 @@
 
 set -euo pipefail
 
-HOST="${HOST:-http://13.215.203.29:10002}"
+HOST="${HOST:-http://127.0.0.1:10002}"
 OPENIM_SECRET="${OPENIM_SECRET:-openIM123}"
 ADMIN_USER_ID="${ADMIN_USER_ID:-imAdmin}"
 ADMIN_TOKEN="${ADMIN_TOKEN:-}"

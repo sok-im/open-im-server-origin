@@ -435,7 +435,7 @@ type DeactivatedUserDefaults struct {
 
 const (
 	defaultDeactivatedUserNickname = "Deactivated user"
-	defaultDeactivatedUserFaceURL  = "http://13.215.203.29:10002/object/6794065114/mmexport1782219627453.jpg"
+	defaultDeactivatedUserFaceURL  = "http://127.0.0.1:10002/object/6794065114/mmexport1782219627453.jpg"
 )
 
 // FillDeactivatedUserDefaults applies defaults when nickname or faceURL is empty.

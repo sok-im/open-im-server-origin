@@ -1,7 +1,7 @@
 # URI for database connection, leave empty if using address and credential settings directly
 uri: 
 # List of MongoDB server addresses
-address: [ 13.215.203.29:37017 ]
+address: [ 127.0.0.1:37017 ]
 # Name of the database
 database: openim_v3
 # Username for database authentication
