@@ -1388,6 +1388,7 @@ func (s *groupServer) SetGroupInfo(ctx context.Context, req *pbgroup.SetGroupInf
 	if err := s.PopulateGroupMember(ctx, owner); err != nil {
 		return nil, err
 	}
+	before := group
 	update := UpdateGroupInfoMap(ctx, req.GroupInfoForSet)
 	if len(update) == 0 {
 		return &pbgroup.SetGroupInfoResp{}, nil
@@ -1407,7 +1408,21 @@ func (s *groupServer) SetGroupInfo(ctx context.Context, req *pbgroup.SetGroupInf
 	if opMember != nil {
 		tips.OpUser = s.groupMemberDB2PB(opMember, 0)
 	}
+	requestedPerm := permissionRequestedFromGroupInfoForSet(req.GroupInfoForSet)
+	changedFields := CollectGroupPermissionChangedFields(before, group, requestedPerm)
+	if len(changedFields) > 0 {
+		s.notification.GroupPermissionChangedNotification(ctx, &sdkws.GroupPermissionChangedTips{
+			Group:         tips.Group,
+			ChangedFields: changedFields,
+			OpUser:        tips.OpUser,
+		})
+	}
 	num := len(update)
+	for _, k := range []string{"allow_send_msg", "allow_pin_msg", "allow_add_member", "allow_burn"} {
+		if _, ok := update[k]; ok {
+			num--
+		}
+	}
 	if req.GroupInfoForSet.Notification != "" {
 		num -= 3
 		func() {
@@ -1523,6 +1538,7 @@ func (s *groupServer) SetGroupInfoEx(ctx context.Context, req *pbgroup.SetGroupI
 		return nil, err
 	}
 
+	before := group
 	updatedData, normalFlag, groupNameFlag, notificationFlag, err := UpdateGroupInfoExMap(ctx, req)
 	if len(updatedData) == 0 {
 		return &pbgroup.SetGroupInfoExResp{}, nil
@@ -1549,6 +1565,16 @@ func (s *groupServer) SetGroupInfoEx(ctx context.Context, req *pbgroup.SetGroupI
 
 	if opMember != nil {
 		tips.OpUser = s.groupMemberDB2PB(opMember, 0)
+	}
+
+	requestedPerm := permissionRequestedFromSetGroupInfoEx(req)
+	changedFields := CollectGroupPermissionChangedFields(before, group, requestedPerm)
+	if len(changedFields) > 0 {
+		s.notification.GroupPermissionChangedNotification(ctx, &sdkws.GroupPermissionChangedTips{
+			Group:         tips.Group,
+			ChangedFields: changedFields,
+			OpUser:        tips.OpUser,
+		})
 	}
 
 	if notificationFlag {
@@ -2352,11 +2378,33 @@ func (s *groupServer) SetSendMessageSetting(ctx context.Context, req *pbgroup.Se
 		return nil, err
 	}
 
+	// existing mute / cancel-mute kept for client UI compatibility
 	if req.AllowSendMsg == model.GroupPermAdminOnly {
 		s.notification.GroupMutedNotification(ctx, req.GroupID)
 	} else {
 		s.notification.GroupCancelMutedNotification(ctx, req.GroupID)
 	}
+
+	groupAfter, err := s.db.TakeGroup(ctx, req.GroupID)
+	if err != nil {
+		return nil, err
+	}
+	count, err := s.db.FindGroupMemberNum(ctx, req.GroupID)
+	if err != nil {
+		return nil, err
+	}
+	owner, err := s.db.TakeGroupOwner(ctx, req.GroupID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.PopulateGroupMember(ctx, owner); err != nil {
+		return nil, err
+	}
+	s.notification.GroupPermissionChangedNotification(ctx, &sdkws.GroupPermissionChangedTips{
+		Group:         s.groupDB2PB(groupAfter, owner.UserID, count),
+		ChangedFields: []string{GroupPermFieldAllowSendMsg},
+		OpUser:        &sdkws.GroupMemberFullInfo{},
+	})
 
 	return &pbgroup.SetSendMessageSettingResp{}, nil
 }
