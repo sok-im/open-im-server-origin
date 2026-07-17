@@ -102,6 +102,20 @@ func (h *RedPacketApi) RequestRefund(ctx *gin.Context) {
 	apiresp.GinSuccess(ctx, resp)
 }
 
+func (h *RedPacketApi) RefundCallback(ctx *gin.Context) {
+	req, err := a2r.ParseRequestNotCheck[pbredpacket.RefundCallbackReq](ctx)
+	if err != nil {
+		apiresp.GinError(ctx, err)
+		return
+	}
+	resp, err := h.Client.RefundCallback(ctx, req)
+	if err != nil {
+		apiresp.GinError(ctx, err)
+		return
+	}
+	apiresp.GinSuccess(ctx, resp)
+}
+
 func (h *RedPacketApi) GetRefund(ctx *gin.Context) {
 	req, err := a2r.ParseRequestNotCheck[pbredpacket.GetRefundReq](ctx)
 	if err != nil {

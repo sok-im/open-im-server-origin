@@ -1166,7 +1166,10 @@ func (s *redPacketServer) RequestRefund(ctx context.Context, req *pbredpacket.Re
 	if req.GetPacketID() == "" {
 		return nil, errs.ErrArgs.WrapMsg("packet_id is required")
 	}
-	runtime, err := s.resolveRuntime(req.GetChainKey(), req.GetChainType(), 0)
+	if strings.TrimSpace(req.GetChainKey()) == "" {
+		return nil, errs.ErrArgs.WrapMsg("chain_key is required")
+	}
+	runtime, err := s.resolveRuntime(req.GetChainKey(), "", 0)
 	if err != nil {
 		return nil, err
 	}
@@ -1245,11 +1248,81 @@ func (s *redPacketServer) RequestRefund(ctx context.Context, req *pbredpacket.Re
 	return &pbredpacket.RequestRefundResp{TxHash: txHash, Status: "REFUNDED"}, nil
 }
 
+// RefundCallback records a self-service refund whose on-chain transaction was
+// broadcast by the creator's own wallet (the contract allows the creator to
+// call refund directly). The client reports the txHash here; the backend parses
+// the PacketRefunded event, persists the refund and marks the packet REFUNDED.
+// It is the refund counterpart of ClaimResult and never submits a transaction.
+func (s *redPacketServer) RefundCallback(ctx context.Context, req *pbredpacket.RefundCallbackReq) (*pbredpacket.RefundCallbackResp, error) {
+	currentUserID := mcontext.GetOpUserID(ctx)
+	if currentUserID == "" {
+		return nil, servererrs.ErrNoPermission.WrapMsg("op user id is empty")
+	}
+	if strings.TrimSpace(req.GetPacketID()) == "" || strings.TrimSpace(req.GetTxHash()) == "" {
+		return nil, errs.ErrArgs.WrapMsg("packet_id and tx_hash are required")
+	}
+	if strings.TrimSpace(req.GetChainKey()) == "" {
+		return nil, errs.ErrArgs.WrapMsg("chain_key is required")
+	}
+	runtime, err := s.resolveRuntime(req.GetChainKey(), "", 0)
+	if err != nil {
+		return nil, err
+	}
+
+	rp, err := s.db.GetRedPacketByChainKeyAndPacketID(ctx, runtime.ChainKey, req.GetPacketID())
+	if err != nil {
+		return nil, err
+	}
+	if rp.CreatorUserID != currentUserID {
+		return nil, errs.ErrNoPermission.WrapMsg("only the creator can refund")
+	}
+	if rp.Status == "REFUNDED" {
+		return &pbredpacket.RefundCallbackResp{TxHash: req.GetTxHash(), Status: "REFUNDED"}, nil
+	}
+
+	txSuccess, events, parseErr := s.parseChainReceiptWithStatus(ctx, rp, req.GetTxHash())
+	if parseErr != nil {
+		log.ZWarn(ctx, "parse refund callback receipt failed, fallback to async indexer", parseErr, "packetID", rp.PacketID, "txHash", req.GetTxHash())
+		return &pbredpacket.RefundCallbackResp{TxHash: req.GetTxHash(), Status: "PENDING"}, nil
+	}
+	if !txSuccess {
+		return &pbredpacket.RefundCallbackResp{TxHash: req.GetTxHash(), Status: "FAILED"}, nil
+	}
+
+	refundedEvent, err := resolveRefundedEventFromParsedEvents(rp, events)
+	if err != nil {
+		log.ZWarn(ctx, "resolve refund callback event failed, fallback to async indexer", err, "packetID", rp.PacketID, "txHash", req.GetTxHash())
+		return &pbredpacket.RefundCallbackResp{TxHash: req.GetTxHash(), Status: "PENDING"}, nil
+	}
+	if refundedEvent == nil {
+		return &pbredpacket.RefundCallbackResp{TxHash: req.GetTxHash(), Status: "PENDING"}, nil
+	}
+
+	if err := s.db.SaveRefund(ctx, &model.RedPacketRefund{
+		ChainKey:  rp.ChainKey,
+		ChainType: rp.ChainType,
+		PacketID:  rp.PacketID,
+		RefundTo:  refundedEvent.RefundTo,
+		TxHash:    req.GetTxHash(),
+		Amount:    refundedEvent.Amount,
+		CreatedAt: time.Now(),
+	}); err != nil {
+		return nil, err
+	}
+	if err := s.db.UpdateRedPacketStatus(ctx, rp.ChainKey, rp.PacketID, "REFUNDED"); err != nil {
+		return nil, err
+	}
+	return &pbredpacket.RefundCallbackResp{TxHash: req.GetTxHash(), Status: "REFUNDED"}, nil
+}
+
 func (s *redPacketServer) GetRefund(ctx context.Context, req *pbredpacket.GetRefundReq) (*pbredpacket.GetRefundResp, error) {
 	if req.GetPacketID() == "" {
 		return nil, errs.ErrArgs.WrapMsg("packet_id is required")
 	}
-	runtime, err := s.resolveRuntime(req.GetChainKey(), req.GetChainType(), 0)
+	if strings.TrimSpace(req.GetChainKey()) == "" {
+		return nil, errs.ErrArgs.WrapMsg("chain_key is required")
+	}
+	runtime, err := s.resolveRuntime(req.GetChainKey(), "", 0)
 	if err != nil {
 		return nil, err
 	}
