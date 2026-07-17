@@ -49,18 +49,20 @@ GroupPermissionChangedNotification = 1530
 
 ```protobuf
 // OnGroupPermissionChanged()
+// changedFields: only fields that actually changed; key is API name
+// (allowSendMsg / allowAddMember / allowPinMsg / allowMemberBurn),
+// value is the new value after update. One change → one entry; many → many.
 message GroupPermissionChangedTips {
   GroupMemberFullInfo opUser = 1;
   GroupInfo group = 2;
-  // changedFields: API 语义名，如 allowSendMsg / allowAddMember / allowPinMsg / allowMemberBurn
-  repeated string changedFields = 3;
+  map<string, int32> changedFields = 3;
   int64 operationTime = 4;
   uint64 groupMemberVersion = 5;
   string groupMemberVersionID = 6;
 }
 ```
 
-`changedFields` 固定使用 API 名（与 HTTP JSON 一致）；服务端内部 `AllowBurn` 映射为 `allowMemberBurn`。
+`changedFields` 仅包含实际变化的字段；key 为 API 名，value 为更新后的新值。服务端内部 `AllowBurn` 映射为 key `allowMemberBurn`。
 
 ### 4.3 通知配置
 
@@ -100,7 +102,7 @@ groupPermissionChanged:
 
 | 入口 | 行为 |
 |---|---|
-| `SetSendMessageSetting` | 值变化时：**保留**现有 `GroupMuted`（1514，`allowSendMsg=1`）/ `GroupCancelMuted`（1515，`allowSendMsg=0`），并**额外**发一条 `GroupPermissionChangedNotification`（1530，`changedFields=["allowSendMsg"]`） |
+| `SetSendMessageSetting` | 值变化时：**保留**现有 `GroupMuted`（1514，`allowSendMsg=1`）/ `GroupCancelMuted`（1515，`allowSendMsg=0`），并**额外**发一条 `GroupPermissionChangedNotification`（1530，`changedFields={"allowSendMsg": <newValue>}`） |
 | `SetGroupInfo` / `SetGroupInfoEx` | 权限实际变化 → 发 1530；若同请求还更新了其它「普通」字段（introduction/ex/lookMemberInfo 等）→ 另发 `GroupInfoSetNotification`；群名/公告/头像/入群审核/阅后即焚时长仍走各自专用通知。经 `SetGroupInfo(Ex)` 改 `allowSendMsg` **不**发 1514/1515（仅专用入口保持禁言通知兼容） |
 
 实现要点：
@@ -152,11 +154,11 @@ groupPermissionChanged:
 
 | 用例 | 期望 |
 |---|---|
-| 单独改 `allowSendMsg` / `allowAddMember` / `allowPinMsg` / `allowMemberBurn` | 各发一条 1530，`changedFields` 仅含对应名 |
-| 一次 `SetGroupInfoEx` 改多个权限 | 一条 1530，`changedFields` 含多项 |
+| 单独改 `allowSendMsg` / `allowAddMember` / `allowPinMsg` / `allowMemberBurn` | 各发一条 1530，`changedFields` 仅含对应 key→新值 |
+| 一次 `SetGroupInfoEx` 改多个权限 | 一条 1530，`changedFields` 含多项 key→新值 |
 | 请求值与 DB 相同 | 不发 1530 |
 | 同时改 introduction + allowPinMsg | 一条 1530 + 一条 1502 |
-| `SetSendMessageSetting` | 发 1530，且仍发 1514 或 1515（与现网一致） |
+| `SetSendMessageSetting` | 发 1530（`{"allowSendMsg": <new>}`），且仍发 1514 或 1515（与现网一致） |
 | SDK | 解码 tips、更新缓存后触发 `OnGroupPermissionChanged` |
 
 ## 9. 非目标 / 明确不做

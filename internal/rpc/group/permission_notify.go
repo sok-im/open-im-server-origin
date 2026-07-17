@@ -14,14 +14,14 @@ const (
 	GroupPermFieldAllowMemberBurn = "allowMemberBurn"
 )
 
-// CollectGroupPermissionChangedFields returns API field names whose values
-// actually changed among the requested permission fields.
-// Order is stable: allowSendMsg, allowAddMember, allowPinMsg, allowMemberBurn.
-func CollectGroupPermissionChangedFields(before, after *model.Group, requested map[string]bool) []string {
+// CollectGroupPermissionChangedFields returns a map of API field name → new value
+// for permission fields that were requested and actually changed.
+// Stable insert order: allowSendMsg, allowAddMember, allowPinMsg, allowMemberBurn.
+func CollectGroupPermissionChangedFields(before, after *model.Group, requested map[string]bool) map[string]int32 {
 	if before == nil || after == nil || len(requested) == 0 {
 		return nil
 	}
-	var out []string
+	out := make(map[string]int32)
 	type pair struct {
 		name string
 		old  int32
@@ -38,8 +38,11 @@ func CollectGroupPermissionChangedFields(before, after *model.Group, requested m
 			continue
 		}
 		if c.old != c.new {
-			out = append(out, c.name)
+			out[c.name] = c.new
 		}
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }

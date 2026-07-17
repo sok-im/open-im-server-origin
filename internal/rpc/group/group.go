@@ -2403,9 +2403,11 @@ func (s *groupServer) SetSendMessageSetting(ctx context.Context, req *pbgroup.Se
 		return &pbgroup.SetSendMessageSettingResp{}, nil
 	}
 	s.notification.GroupPermissionChangedNotification(ctx, &sdkws.GroupPermissionChangedTips{
-		Group:         s.groupDB2PB(group, owner.UserID, count),
-		ChangedFields: []string{GroupPermFieldAllowSendMsg},
-		OpUser:        &sdkws.GroupMemberFullInfo{},
+		Group: s.groupDB2PB(group, owner.UserID, count),
+		ChangedFields: map[string]int32{
+			GroupPermFieldAllowSendMsg: req.AllowSendMsg,
+		},
+		OpUser: &sdkws.GroupMemberFullInfo{},
 	})
 
 	return &pbgroup.SetSendMessageSettingResp{}, nil
