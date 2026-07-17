@@ -2385,23 +2385,25 @@ func (s *groupServer) SetSendMessageSetting(ctx context.Context, req *pbgroup.Se
 		s.notification.GroupCancelMutedNotification(ctx, req.GroupID)
 	}
 
-	groupAfter, err := s.db.TakeGroup(ctx, req.GroupID)
-	if err != nil {
-		return nil, err
-	}
+	// DB update already succeeded: reuse in-memory group for 1530 tips.
+	// Fetch failures must not fail the RPC (retry would hit same-value early return and skip 1530 forever).
+	group.AllowSendMsg = req.AllowSendMsg
 	count, err := s.db.FindGroupMemberNum(ctx, req.GroupID)
 	if err != nil {
-		return nil, err
+		log.ZWarn(ctx, "SetSendMessageSetting FindGroupMemberNum for 1530 failed", err, "groupID", req.GroupID)
+		return &pbgroup.SetSendMessageSettingResp{}, nil
 	}
 	owner, err := s.db.TakeGroupOwner(ctx, req.GroupID)
 	if err != nil {
-		return nil, err
+		log.ZWarn(ctx, "SetSendMessageSetting TakeGroupOwner for 1530 failed", err, "groupID", req.GroupID)
+		return &pbgroup.SetSendMessageSettingResp{}, nil
 	}
 	if err := s.PopulateGroupMember(ctx, owner); err != nil {
-		return nil, err
+		log.ZWarn(ctx, "SetSendMessageSetting PopulateGroupMember for 1530 failed", err, "groupID", req.GroupID)
+		return &pbgroup.SetSendMessageSettingResp{}, nil
 	}
 	s.notification.GroupPermissionChangedNotification(ctx, &sdkws.GroupPermissionChangedTips{
-		Group:         s.groupDB2PB(groupAfter, owner.UserID, count),
+		Group:         s.groupDB2PB(group, owner.UserID, count),
 		ChangedFields: []string{GroupPermFieldAllowSendMsg},
 		OpUser:        &sdkws.GroupMemberFullInfo{},
 	})
