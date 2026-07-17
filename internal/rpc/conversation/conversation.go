@@ -313,7 +313,7 @@ func (c *conversationServer) notifySingleChatPrivateSettings(ctx context.Context
 	}
 	for _, userID := range ownerUserIDs {
 		if peerUserID != "" && userID != peerUserID {
-			log.ZDebug(ctx, "notifySingleChatPrivateSettings", "userID", userID, "peerUserID", peerUserID, "isPrivateChat", isPrivateChat, "conversationID", conversationID)
+			log.ZError(ctx, "notifySingleChatPrivateSettings", nil, "userID", userID, "peerUserID", peerUserID, "isPrivateChat", isPrivateChat, "conversationID", conversationID)
 			c.conversationNotificationSender.ConversationSetPrivateNotification(ctx, userID, peerUserID, isPrivateChat, conversationID)
 		}
 	}
