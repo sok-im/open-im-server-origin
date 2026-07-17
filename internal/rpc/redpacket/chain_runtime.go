@@ -17,6 +17,7 @@ type chainRuntime struct {
 	ChainType       string
 	ChainID         int64
 	ContractAddress string
+	NativeSymbol    string
 	SignerKey       *ecdsa.PrivateKey
 	EVMClient       *chain.ChainClient
 	TronClient      *chain.TronClient

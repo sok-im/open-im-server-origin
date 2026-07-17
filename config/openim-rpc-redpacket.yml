@@ -16,6 +16,9 @@ chains:
     chainType: EVM
     chainID: 11155111
     isTestnet: true
+    # Native coin ticker. Required per chain because chainType=EVM covers many
+    # chains with different native coins; empty falls back to ETH (EVM) / TRX (TRON).
+    nativeSymbol: ETH
     rpcURL: "https://ethereum-sepolia-rpc.publicnode.com"
     contractAddress: "0x5F1D92a7b421907b640a038B5C9C725bCD3498BC"
     signerPrivateKey: "e9f6a5f3a3c3a97099ca31e7f44151e529c0a4f8a91d5d4232c7282f2b798df4"
@@ -25,6 +28,7 @@ chains:
     chainType: EVM
     chainID: 97
     isTestnet: true
+    nativeSymbol: BNB
     rpcURL: "https://data-seed-prebsc-1-s1.bnbchain.org:8545"
     contractAddress: "0x9f2e22F5D0cf8d8127E319D38b3EDDaE43bb4DC0"
     signerPrivateKey: "e9f6a5f3a3c3a97099ca31e7f44151e529c0a4f8a91d5d4232c7282f2b798df4"
@@ -34,6 +38,7 @@ chains:
     chainType: TRON
     chainID: 3448148188
     isTestnet: true
+    nativeSymbol: TRX
     fullNodeURL: "https://nile.trongrid.io"
     contractBase58: "TTLFvSEyH6BAUp3cVGygWyTVGPBqdLw81M"
     ownerBase58: "TJG6ZbEUZNVAQzFQTZehfQJniVJtTBdZ2e"

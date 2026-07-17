@@ -141,7 +141,7 @@ type CronTask struct {
 	// BurnClearMaxLoop 单次定时触发内最多循环轮数；<=0 时默认 10000。
 	BurnClearMaxLoop int `mapstructure:"burnClearMaxLoop"`
 	// ChatAPI 是 chat HTTP API 服务的访问配置，用于调用 /account/del 等需要管理员权限的接口。
-	ChatAPI ChatAPI `mapstructure:"chatAPI"`
+	ChatAPI    ChatAPI `mapstructure:"chatAPI"`
 	Prometheus struct {
 		Enable bool  `mapstructure:"enable"`
 		Ports  []int `mapstructure:"ports"`
@@ -673,9 +673,14 @@ type RedPacket struct {
 }
 
 type RedPacketChainRuntime struct {
-	ChainType             string `mapstructure:"chainType"`
-	ChainID               int64  `mapstructure:"chainID"`
-	IsTestnet             bool   `mapstructure:"isTestnet"`
+	ChainType string `mapstructure:"chainType"`
+	ChainID   int64  `mapstructure:"chainID"`
+	IsTestnet bool   `mapstructure:"isTestnet"`
+	// NativeSymbol is the ticker of this chain's native coin (e.g. ETH / BNB /
+	// POL / TRX). It is per-deployment because a single "EVM" chainType covers
+	// many chains whose native coins differ. Empty falls back to a generic
+	// default (ETH for EVM, TRX for TRON).
+	NativeSymbol          string `mapstructure:"nativeSymbol"`
 	RPCURL                string `mapstructure:"rpcURL"`
 	ContractAddress       string `mapstructure:"contractAddress"`
 	SignerPrivateKey      string `mapstructure:"signerPrivateKey"`

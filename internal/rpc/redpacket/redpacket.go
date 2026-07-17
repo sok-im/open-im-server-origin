@@ -85,6 +85,7 @@ func Start(ctx context.Context, conf *Config, registry discovery.SvcDiscoveryReg
 			ChainType:       chainType,
 			ChainID:         runtimeCfg.ChainID,
 			ContractAddress: runtimeCfg.ContractAddress,
+			NativeSymbol:    strings.TrimSpace(runtimeCfg.NativeSymbol),
 		}
 		switch chainType {
 		case "EVM":
