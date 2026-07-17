@@ -284,6 +284,16 @@ groupNeedVerificationSet:
     desc: join approval updated
     ext: join approval updated
 
+groupPermissionChanged:
+  isSendMsg: true
+  reliabilityLevel: 2
+  unreadCount: false
+  offlinePush:
+    enable: false
+    title: group permission updated
+    desc: group permission updated
+    ext: group permission updated
+
 groupE2EE:
   isSendMsg: true
   reliabilityLevel: 2
