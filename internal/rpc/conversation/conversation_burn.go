@@ -71,5 +71,7 @@ func (c *conversationServer) syncSenderConversationBurnOnCreateSingleChat(
 	); err != nil {
 		log.ZWarn(ctx, "syncSenderConversationBurnOnCreateSingleChat syncSingleChatPrivateSettings failed", err,
 			"sendID", sendID, "recvID", recvID, "conversationID", conversationID, "burnDuration", burnDuration)
+	} else {
+		log.ZDebug(ctx, "lintao syncSenderConversationBurnOnCreateSingleChat success", "sendID", sendID, "recvID", recvID, "conversationID", conversationID, "burnDuration", burnDuration)
 	}
 }

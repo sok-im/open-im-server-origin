@@ -313,7 +313,7 @@ func (c *conversationServer) notifySingleChatPrivateSettings(ctx context.Context
 	}
 	for _, userID := range ownerUserIDs {
 		if peerUserID != "" && userID != peerUserID {
-			log.ZError(ctx, "notifySingleChatPrivateSettings", nil, "userID", userID, "peerUserID", peerUserID, "isPrivateChat", isPrivateChat, "conversationID", conversationID)
+			log.ZDebug(ctx, "lintao notifySingleChatPrivateSettings", "userID", userID, "peerUserID", peerUserID, "isPrivateChat", isPrivateChat, "conversationID", conversationID)
 			c.conversationNotificationSender.ConversationSetPrivateNotification(ctx, userID, peerUserID, isPrivateChat, conversationID)
 		}
 	}
@@ -513,6 +513,8 @@ func (c *conversationServer) SetConversations(ctx context.Context, req *pbconver
 			req.Conversation.BurnDuration != nil,
 		); err != nil {
 			return nil, err
+		} else {
+			log.ZDebug(ctx, "lintao syncSingleChatPrivateSettings success", "req", req)
 		}
 	}
 
@@ -531,6 +533,17 @@ func (c *conversationServer) CreateSingleChatConversations(ctx context.Context,
 	switch req.ConversationType {
 	case constant.SingleChatType:
 		burnDuration := c.senderMsgBurnDuration(ctx, req.SendID)
+		// send 路径的 ensureSenderSingleChatBurn 会抢先 SetConversations 并下发 1701。
+		// 此处若再 sync+notify，同一条首条消息会收到两条阅后即焚通知。
+		burnAlreadySynced := false
+		if burnDuration > 0 {
+			if existing, err := c.conversationDatabase.FindConversations(ctx, req.SendID, []string{req.ConversationID}); err != nil {
+				log.ZWarn(ctx, "CreateSingleChatConversations find existing burn failed", err,
+					"sendID", req.SendID, "conversationID", req.ConversationID)
+			} else if len(existing) > 0 && existing[0].BurnDuration > 0 {
+				burnAlreadySynced = true
+			}
+		}
 
 		var conversation dbModel.Conversation
 		conversation.ConversationID = req.ConversationID
@@ -551,7 +564,9 @@ func (c *conversationServer) CreateSingleChatConversations(ctx context.Context,
 		if err != nil {
 			log.ZWarn(ctx, "create conversation failed", err, "conversation2", conversation)
 		}
-		c.syncSenderConversationBurnOnCreateSingleChat(ctx, req.SendID, req.RecvID, req.ConversationID, burnDuration)
+		if !burnAlreadySynced {
+			c.syncSenderConversationBurnOnCreateSingleChat(ctx, req.SendID, req.RecvID, req.ConversationID, burnDuration)
+		}
 		// 跳过 sendID==recvID：避免自聊会话再次下发 1705（见 ConversationE2EENotification 注释）。
 		//if req.SendID != req.RecvID {
 		//	c.conversationNotificationSender.ConversationE2EENotification(ctx, req.SendID, req.RecvID, req.ConversationID)
@@ -858,6 +873,8 @@ func (c *conversationServer) UpdateConversation(ctx context.Context, req *pbconv
 			if err := c.syncSingleChatPrivateSettings(ctx, req.UserIDs, conv.UserID, req.ConversationID, conv.ConversationType, conv, req.BurnDuration != nil); err != nil {
 				return nil, err
 			}
+			log.ZDebug(ctx, "lintao UpdateConversation success", "req", req)
+
 		}
 	}
 	if req.BurnDuration != nil && convBefore != nil &&
@@ -1140,6 +1157,7 @@ func (c *conversationServer) SetConversationBurn(ctx context.Context, req *pbcon
 	); err != nil {
 		return nil, err
 	}
+	log.ZDebug(ctx, "lintao SetConversationBurn success", "req", req)
 	return &pbconversation.SetConversationBurnResp{}, nil
 }
 
