@@ -1,0 +1,165 @@
+# Inventory for per-module Grafana dashboards.
+# Regenerate: go run ./config/grafana-dashboards/
+
+domains:
+  - id: auth
+    title: Auth
+    apiModule: auth
+    rpcName: auth
+  - id: user
+    title: User
+    apiModule: user
+    rpcName: user
+  - id: friend
+    title: Friend
+    apiModule: friend
+    rpcName: friend
+  - id: group
+    title: Group
+    apiModule: group
+    rpcName: group
+  - id: conversation
+    title: Conversation
+    apiModule: conversation
+    rpcName: conversation
+  - id: msg
+    title: Message
+    apiModule: msg
+    rpcName: msg
+  - id: rtc
+    title: RTC
+    apiModule: rtc
+    rpcName: rtc
+  - id: third
+    title: Third
+    apiModule: third
+    rpcName: third
+  - id: object
+    title: Object
+    apiModule: object
+    rpcName: ""
+  - id: crypto
+    title: Crypto
+    apiModule: crypto/v1
+    rpcName: crypto
+  - id: openmls
+    title: OpenMLS
+    apiModule: openmls/v1
+    rpcName: openMLS
+  - id: redpacket
+    title: RedPacket
+    apiModule: redpacket
+    rpcName: redPacket
+  - id: captcha
+    title: Captcha
+    apiModule: ""
+    rpcName: captcha
+  - id: totp
+    title: TOTP
+    apiModule: ""
+    rpcName: totp
+  - id: virgil
+    title: Virgil Security
+    apiModule: ""
+    rpcName: virgilSecurity
+  - id: statistics
+    title: Statistics
+    apiModule: statistics
+    rpcName: ""
+
+services:
+  - id: api
+    title: API
+    job: openimserver-openim-api
+    kind: api
+    extras: []
+  - id: msggateway
+    title: MsgGateway
+    job: openimserver-openim-msggateway
+    kind: gateway
+    extras: []
+  - id: msgtransfer
+    title: MsgTransfer
+    job: openimserver-openim-msgtransfer
+    kind: transfer
+    extras: []
+  - id: push
+    title: Push
+    job: openimserver-openim-push
+    kind: push
+    extras: []
+  - id: crontask
+    title: CronTask
+    job: openimserver-openim-crontask
+    kind: cron
+    extras: []
+  - id: rpc-auth
+    title: rpc-auth
+    job: openimserver-openim-rpc-auth
+    kind: rpc
+    extras: [user_login]
+  - id: rpc-user
+    title: rpc-user
+    job: openimserver-openim-rpc-user
+    kind: rpc
+    extras: [user_register]
+  - id: rpc-friend
+    title: rpc-friend
+    job: openimserver-openim-rpc-friend
+    kind: rpc
+    extras: []
+  - id: rpc-group
+    title: rpc-group
+    job: openimserver-openim-rpc-group
+    kind: rpc
+    extras: []
+  - id: rpc-conversation
+    title: rpc-conversation
+    job: openimserver-openim-rpc-conversation
+    kind: rpc
+    extras: []
+  - id: rpc-msg
+    title: rpc-msg
+    job: openimserver-openim-rpc-msg
+    kind: rpc
+    extras: [msg_process]
+  - id: rpc-third
+    title: rpc-third
+    job: openimserver-openim-rpc-third
+    kind: rpc
+    extras: []
+  - id: rpc-rtc
+    title: rpc-rtc
+    job: openimserver-openim-rpc-rtc
+    kind: rpc
+    extras: []
+  - id: rpc-crypto
+    title: rpc-crypto
+    job: openimserver-openim-rpc-crypto
+    kind: rpc
+    extras: []
+  - id: rpc-openmls
+    title: rpc-openmls
+    job: openimserver-openim-rpc-openmls
+    kind: rpc
+    extras: []
+  - id: rpc-virgilsecurity
+    title: rpc-virgilsecurity
+    job: openimserver-openim-rpc-virgilsecurity
+    kind: rpc
+    extras: []
+  - id: rpc-captcha
+    title: rpc-captcha
+    job: openimserver-openim-rpc-captcha
+    kind: rpc
+    extras: []
+  - id: rpc-totp
+    title: rpc-totp
+    job: openimserver-openim-rpc-totp
+    kind: rpc
+    extras: []
+  - id: rpc-redpacket
+    title: rpc-redpacket
+    job: openimserver-openim-rpc-redpacket
+    kind: rpc
+    extras: []
