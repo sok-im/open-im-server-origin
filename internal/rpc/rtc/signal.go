@@ -1612,15 +1612,21 @@ func (s *rtcServer) IsCallEndedByRoomID(ctx context.Context, req *rtc.IsCallEnde
 }
 
 // GetSignalInvitationInfoStartApp retrieves a pending invitation for a user when the app starts.
+// No pending invitation is a normal cold-start outcome: return an empty success response
+// (same pattern as SignalGetRoomByGroupID) instead of RecordNotFound, to avoid WARN noise.
 func (s *rtcServer) GetSignalInvitationInfoStartApp(ctx context.Context, req *rtc.GetSignalInvitationInfoStartAppReq) (*rtc.GetSignalInvitationInfoStartAppResp, error) {
 	inv, err := s.db.GetInvitationByInviteeUserID(ctx, req.UserID)
 	if err != nil {
+		if errs.ErrRecordNotFound.Is(err) {
+			log.ZDebug(ctx, "GetSignalInvitationInfoStartApp: no invitation", "userID", req.UserID)
+			return &rtc.GetSignalInvitationInfoStartAppResp{}, nil
+		}
 		return nil, err
 	}
 	if !s.isInvitationPending(ctx, inv) {
 		s.finalizeStaleInvitation(ctx, inv)
 		log.ZDebug(ctx, "GetSignalInvitationInfoStartApp: invitation not found or expired", "inv", inv)
-		return nil, errs.ErrRecordNotFound.WrapMsg("invitation not found or expired", "userID", req.UserID)
+		return &rtc.GetSignalInvitationInfoStartAppResp{}, nil
 	}
 
 	log.ZDebug(ctx, "GetSignalInvitationInfoStartApp: invitation found", "inv", inv)
