@@ -2,6 +2,8 @@ auth_enabled: false
 
 server:
   http_listen_port: 3100
+  # Default is 9095; host network often collides with other processes. Grafana/Promtail use HTTP :3100 only.
+  grpc_listen_port: 19095
 
 common:
   path_prefix: /loki
