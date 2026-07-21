@@ -13,7 +13,7 @@ import (
 )
 
 // syncOwnerConversationBurnOnCreateGroup 群主若已设置个人阅后即焚（用户全局 MsgBurnDuration），
-// 创建群后为群主同步群会话级 BurnDuration，供 msgtransfer recordGroupBurnOnSend 读取。
+// 建群后为群主同步群会话级 BurnDuration。群级 MsgBurnDuration 与 1524 由 CreateGroup 负责。
 func (s *groupServer) syncOwnerConversationBurnOnCreateGroup(ctx context.Context, groupID, ownerUserID string, owner *sdkws.UserInfo) {
 	if owner == nil || owner.MsgBurnDuration <= 0 {
 		return
@@ -25,6 +25,7 @@ func (s *groupServer) syncOwnerConversationBurnOnCreateGroup(ctx context.Context
 		BurnDuration:     &wrapperspb.Int32Value{Value: owner.MsgBurnDuration},
 	}
 	// 服务端内部同步，使用 admin 身份绕过阅后即焚权限校验（操作者未必是群主）。
+	// 新建会话不发 1524；CreateGroup 会在 1501 后以群主身份下发。
 	adminCtx := ctx
 	if len(s.config.Share.IMAdminUserID) > 0 {
 		adminCtx = mcontext.WithOpUserIDContext(ctx, s.config.Share.IMAdminUserID[0])

@@ -504,12 +504,23 @@ func (c *conversationServer) SetConversations(ctx context.Context, req *pbconver
 		for _, v := range needUpdateUsersList {
 			c.conversationNotificationSender.ConversationChangeNotification(ctx, v, []string{req.Conversation.ConversationID})
 		}
+		// 群阅后即焚 1524：仅当目标用户此前已有该会话时下发。
+		// 新建群会话（含建群时同步个人 burn）只写字段，由 CreateGroup 用群主身份发 1524，避免 imAdmin 误通知。
 		if req.Conversation.BurnDuration != nil &&
 			(req.Conversation.ConversationType == constant.ReadGroupChatType ||
 				req.Conversation.ConversationType == constant.WriteGroupChatType) &&
 			req.Conversation.GroupID != "" {
-			c.conversationNotificationSender.GroupBurnDurationSetNotification(
-				ctx, req.Conversation.GroupID, req.Conversation.BurnDuration.Value)
+			notifyGroupBurn := false
+			for _, userID := range req.UserIDs {
+				if _, ok := conversationMap[userID]; ok {
+					notifyGroupBurn = true
+					break
+				}
+			}
+			if notifyGroupBurn {
+				c.conversationNotificationSender.GroupBurnDurationSetNotification(
+					ctx, req.Conversation.GroupID, req.Conversation.BurnDuration.Value)
+			}
 		}
 	}
 	if req.Conversation.ConversationType == constant.SingleChatType &&
