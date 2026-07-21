@@ -350,10 +350,7 @@ func (s *groupServer) CreateGroup(ctx context.Context, req *pbgroup.CreateGroupR
 		group.NeedVerification = constant.Directly
 		req.GroupInfo.NeedVerification = constant.Directly
 	}
-	// 群主已开个人阅后即焚时，建群同步写入群级时长，供设置页 / 1501 / msgtransfer 使用。
-	if owner := userMap[req.OwnerUserID]; owner != nil && owner.MsgBurnDuration > 0 {
-		group.MsgBurnDuration = owner.MsgBurnDuration
-	}
+	// 群阅后即焚不从个人设置继承，由前端显式 set_group_info_ex / set_msg_burn_duration 设置。
 	if err := s.GenGroupID(ctx, &group.GroupID); err != nil {
 		return nil, err
 	}
@@ -393,7 +390,6 @@ func (s *groupServer) CreateGroup(ctx context.Context, req *pbgroup.CreateGroupR
 	if err := s.saveGroupInviteLink(ctx, newPermanentGroupInviteLink(group.GroupID, req.OwnerUserID)); err != nil {
 		return nil, err
 	}
-	s.syncOwnerConversationBurnOnCreateGroup(ctx, group.GroupID, req.OwnerUserID, userMap[req.OwnerUserID])
 	// Trigger server-side MLS group initialization: notify the creator's
 	// devices to fetch key packages and create the MLS group via the DS.
 	// Fire-and-return: MLS setup failure must not block the group creation
@@ -416,11 +412,6 @@ func (s *groupServer) CreateGroup(ctx context.Context, req *pbgroup.CreateGroupR
 		}
 	}
 	s.notification.GroupCreatedNotification(ctx, tips, req.SendMessage)
-
-	// 建群带入阅后即焚时，在 1501 之后由群主身份下发 1524（会话静默同步不再发，避免 imAdmin 重复通知）。
-	if group.MsgBurnDuration > 0 {
-		s.notification.GroupBurnDurationSetNotification(ctx, group.GroupID, group.MsgBurnDuration)
-	}
 
 	if req.GroupInfo.Notification != "" {
 		notificationFlag := true
