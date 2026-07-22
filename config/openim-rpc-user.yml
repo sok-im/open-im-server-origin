@@ -21,9 +21,10 @@ phoneSearchVisibility: false
 
 # Default call ringtone for newly registered users (used when the field is not provided in the register request).
 callRingtoneDefaults:
-  url: https://sok-wallet.s3.ap-southeast-1.amazonaws.com/20250430/207387952bc74b979b454b4be116e06a.mp3
-  name: 索爱经典铃音
-  cover: https://sok-wallet.s3.ap-southeast-1.amazonaws.com/20250430/3549b49c7c764c20a8d610d07e1d3e17.png
+  url: https://sok-wallet.s3.ap-southeast-1.amazonaws.com/20250430/a0d1b06187fe490eae93f148be7c3a65.mp3
+  name: Default
+  cover: https://sok-wallet.s3.ap-southeast-1.amazonaws.com/20250430/9bc674832d9c451da89963941058e3d9.png
+  author: sok
 
 # 用户首次上线时，由官方服务号推送的欢迎通知（每个用户仅发一次）。
 welcomeNotification:
