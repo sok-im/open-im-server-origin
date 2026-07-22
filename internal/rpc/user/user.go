@@ -822,6 +822,7 @@ func (s *userServer) UserRegister(ctx context.Context, req *pbuser.UserRegisterR
 			FullName:                   fullName,
 			Phone:                      user.Phone,
 			AreaCode:                   user.AreaCode,
+			Language:                   user.Language,
 			CallRingtoneURL:            user.CallRingtoneURL,
 			CallRingtoneName:           user.CallRingtoneName,
 			CallRingtoneCover:          user.CallRingtoneCover,
@@ -841,6 +842,12 @@ func (s *userServer) UserRegister(ctx context.Context, req *pbuser.UserRegisterR
 	}
 
 	prommetrics.UserRegisterCounter.Add(float64(len(users)))
+
+	if s.welcomeSender != nil {
+		for _, u := range users {
+			s.welcomeSender.SendAfterRegister(ctx, u.UserID, u.Language)
+		}
+	}
 
 	s.webhookAfterUserRegister(ctx, &s.config.WebhooksConfig.AfterUserRegister, req)
 	return resp, nil
