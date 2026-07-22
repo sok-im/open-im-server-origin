@@ -11,6 +11,7 @@
 | **mongodb.yml**                 | MongoDB用户名、密码、地址等配置                              |
 | **log.yml**                     | 日志级别及存储目录等配置                                     |
 | **notification.yml**            | 添加好友、创建群组等事件通知配置                             |
+| **welcome_service_notification.yml** | 用户注册后一次性发送的欢迎服务号卡片模板配置                 |
 | **share.yml**                   | OpenIM各服务所需的公共配置，如secret等                       |
 | **webhooks.yml**                | Webhook中URL等配置                                           |
 | **local-cache.yml**             | 本地缓存配置                                                 |
