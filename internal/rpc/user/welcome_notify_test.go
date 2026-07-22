@@ -1,8 +1,12 @@
 package user
 
 import (
+	"context"
 	"testing"
 
+	"github.com/openimsdk/open-im-server/v3/pkg/common/config"
+	"github.com/openimsdk/protocol/constant"
+	"github.com/openimsdk/protocol/msg"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -96,4 +100,38 @@ func TestWelcomeClientMsgIDStable(t *testing.T) {
 	assert.NotEmpty(t, a)
 	assert.Equal(t, a, b)
 	assert.NotEqual(t, a, c)
+}
+
+func TestWelcomeSenderDisabledDoesNotSend(t *testing.T) {
+	called := false
+	w := &welcomeSender{
+		cfg: config.WelcomeServiceNotification{Enable: false},
+		sendMsg: func(ctx context.Context, req *msg.SendMsgReq) (*msg.SendMsgResp, error) {
+			called = true
+			return &msg.SendMsgResp{}, nil
+		},
+	}
+	w.sendSync(context.Background(), "u1", "zh-CN")
+	assert.False(t, called)
+}
+
+func TestBuildWelcomeSendMsgReqFields(t *testing.T) {
+	cfg := config.WelcomeServiceNotification{
+		Enable:          true,
+		SendUserID:      "service_notification_bot",
+		DefaultLanguage: "en",
+		SubType:         2,
+		Templates: map[string]config.WelcomeServiceNotificationTemplate{
+			"en": {Title: "Welcome to SOK", Content: "EN body"},
+		},
+	}
+	req, err := buildWelcomeSendMsgReq(cfg, "u1", "en")
+	assert.NoError(t, err)
+	assert.Equal(t, "service_notification_bot", req.MsgData.SendID)
+	assert.Equal(t, "u1", req.MsgData.RecvID)
+	assert.Equal(t, int32(constant.NotificationChatType), req.MsgData.SessionType)
+	assert.Equal(t, int32(constant.ServiceNotification), req.MsgData.ContentType)
+	assert.Equal(t, int32(constant.SysMsgType), req.MsgData.MsgFrom)
+	assert.Equal(t, WelcomeClientMsgID("u1"), req.MsgData.ClientMsgID)
+	assert.NotEmpty(t, req.MsgData.Content)
 }
