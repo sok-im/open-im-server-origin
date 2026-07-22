@@ -30,10 +30,10 @@ import (
 	"github.com/openimsdk/tools/utils/timeutil"
 )
 
-// welcome 语言桶键
+// welcome 语言桶键（小写，与 Viper 将 YAML map key 小写化后的结果一致）
 const (
-	welcomeBucketZhHans = "zh-Hans"
-	welcomeBucketZhHant = "zh-Hant"
+	welcomeBucketZhHans = "zh-hans"
+	welcomeBucketZhHant = "zh-hant"
 )
 
 // tryFirstOnlineWelcome 在用户「首次上线」时，由官方服务号推送一条欢迎通知（每个用户仅发一次）。
@@ -120,19 +120,37 @@ func (s *userServer) sendWelcomeNotification(ctx context.Context, userID string,
 }
 
 // resolveWelcomeText 将用户语言归一化到文案桶并返回对应文案。
-// 归一化规则：zh-CN/zh-Hans/zh/zh-SG -> zh-Hans；zh-TW/zh-HK/zh-MO/zh-Hant -> zh-Hant；其余 -> defaultLanguage。
+// 归一化规则：zh-CN/zh-Hans/zh/zh-SG -> zh-hans；zh-TW/zh-HK/zh-MO/zh-Hant -> zh-hant；其余 -> defaultLanguage。
+// 查找时大小写不敏感（兼容 Viper 将 YAML map key 小写化，如 zh-Hans → zh-hans）。
 // 若归一化后的桶不存在，则回退到 defaultLanguage；仍不存在则返回 ok=false。
 func resolveWelcomeText(cfg config.WelcomeNotification, language string) (config.WelcomeNotificationText, string, bool) {
 	bucket := normalizeWelcomeLanguage(language, cfg.DefaultLanguage)
-	if text, ok := cfg.Languages[bucket]; ok {
+	if text, ok := findWelcomeText(cfg.Languages, bucket); ok {
 		return text, bucket, true
 	}
-	if cfg.DefaultLanguage != "" && cfg.DefaultLanguage != bucket {
-		if text, ok := cfg.Languages[cfg.DefaultLanguage]; ok {
-			return text, cfg.DefaultLanguage, true
+	if cfg.DefaultLanguage != "" && !strings.EqualFold(cfg.DefaultLanguage, bucket) {
+		if text, ok := findWelcomeText(cfg.Languages, cfg.DefaultLanguage); ok {
+			return text, strings.ToLower(cfg.DefaultLanguage), true
 		}
 	}
 	return config.WelcomeNotificationText{}, bucket, false
+}
+
+// findWelcomeText 按大小写不敏感匹配 languages map key，且要求 title/content 非空。
+func findWelcomeText(languages map[string]config.WelcomeNotificationText, key string) (config.WelcomeNotificationText, bool) {
+	if key == "" || len(languages) == 0 {
+		return config.WelcomeNotificationText{}, false
+	}
+	if text, ok := languages[key]; ok && text.Title != "" && text.Content != "" {
+		return text, true
+	}
+	want := strings.ToLower(key)
+	for k, text := range languages {
+		if strings.ToLower(k) == want && text.Title != "" && text.Content != "" {
+			return text, true
+		}
+	}
+	return config.WelcomeNotificationText{}, false
 }
 
 // normalizeWelcomeLanguage 归一化语言标签到文案桶键；大小写不敏感、兼容下划线。

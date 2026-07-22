@@ -36,12 +36,13 @@ welcomeNotification:
   # 语言未匹配/未设置时使用的兜底桶键
   defaultLanguage: en
   # 各语言文案。用户 language（如 zh-CN/zh-TW/en-US）会归一化到以下桶键：
-  #   zh-CN/zh-Hans/zh/zh-SG -> zh-Hans；zh-TW/zh-HK/zh-MO/zh-Hant -> zh-Hant；其余 -> defaultLanguage
+  #   zh-CN/zh-Hans/zh/zh-SG -> zh-hans；zh-TW/zh-HK/zh-MO/zh-Hant -> zh-hant；其余 -> defaultLanguage
+  # 注意：Viper 会把 map key 小写化，因此这里直接使用小写桶键。
   languages:
-    zh-Hans:
+    zh-hans:
       title: SOK
       content: 欢迎来到 SOK！端到端加密，无人可读。我是官方服务号，负责推送通知与安全提醒。请放心，这里只有你和TA。
-    zh-Hant:
+    zh-hant:
       title: SOK
       content: 歡迎來到 SOK！端到端加密，無人可讀。我是官方服務號，負責推送通知與安全提醒。請放心，這裡只有你和 TA。
     en:
