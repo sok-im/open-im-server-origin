@@ -84,6 +84,9 @@ func (s *userServer) SetUserOnlineStatus(ctx context.Context, req *pbuser.SetUse
 			return nil, err
 		}
 		s.updateOfflineRecord(ctx, status.UserID, len(status.Offline) > 0, len(status.Online) > 0)
+		if len(status.Online) > 0 {
+			s.tryFirstOnlineWelcome(ctx, status.UserID)
+		}
 	}
 	return &pbuser.SetUserOnlineStatusResp{}, nil
 }

@@ -24,3 +24,26 @@ callRingtoneDefaults:
   url: https://sok-wallet.s3.ap-southeast-1.amazonaws.com/20250430/207387952bc74b979b454b4be116e06a.mp3
   name: 索爱经典铃音
   cover: https://sok-wallet.s3.ap-southeast-1.amazonaws.com/20250430/3549b49c7c764c20a8d610d07e1d3e17.png
+
+# 用户首次上线时，由官方服务号推送的欢迎通知（每个用户仅发一次）。
+welcomeNotification:
+  # 是否启用
+  enable: true
+  # 发送方服务号账号，必须是通知账号（AppMangerLevel>=3）
+  sendID: service_notification_bot
+  # 服务通知分类：1安全 2账号 3系统 4版本更新
+  subType: 3
+  # 语言未匹配/未设置时使用的兜底桶键
+  defaultLanguage: en
+  # 各语言文案。用户 language（如 zh-CN/zh-TW/en-US）会归一化到以下桶键：
+  #   zh-CN/zh-Hans/zh/zh-SG -> zh-Hans；zh-TW/zh-HK/zh-MO/zh-Hant -> zh-Hant；其余 -> defaultLanguage
+  languages:
+    zh-Hans:
+      title: SOK
+      content: 欢迎来到 SOK！端到端加密，无人可读。我是官方服务号，负责推送通知与安全提醒。请放心，这里只有你和TA。
+    zh-Hant:
+      title: SOK
+      content: 歡迎來到 SOK！端到端加密，無人可讀。我是官方服務號，負責推送通知與安全提醒。請放心，這裡只有你和 TA。
+    en:
+      title: SOK
+      content: "Welcome to SOK! End-to-end encrypted—no one else can read your chats. I'm the official service account for notifications and security alerts. Rest assured, it's just you and them here."

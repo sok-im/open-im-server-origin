@@ -107,6 +107,28 @@ func (u *UserMgo) Find(ctx context.Context, userIDs []string) (users []*model.Us
 	return mongoutil.Find[*model.User](ctx, u.coll, bson.M{"user_id": bson.M{"$in": userIDs}})
 }
 
+// MarkWelcomeNotificationSent 原子将 welcome_notification_sent 置为 true，仅当其此前不为 true。
+// 依赖 MongoDB 单文档更新的原子性实现 compare-and-set：MatchedCount==1 即本次抢占成功。
+func (u *UserMgo) MarkWelcomeNotificationSent(ctx context.Context, userID string) (bool, error) {
+	filter := bson.M{
+		"user_id":                   userID,
+		"welcome_notification_sent": bson.M{"$ne": true},
+	}
+	update := bson.M{"$set": bson.M{"welcome_notification_sent": true}}
+	res, err := mongoutil.UpdateOneResult(ctx, u.coll, filter, update)
+	if err != nil {
+		return false, err
+	}
+	return res.MatchedCount == 1, nil
+}
+
+// SetWelcomeNotificationSent 直接设置 welcome_notification_sent（发送失败时回滚）。
+func (u *UserMgo) SetWelcomeNotificationSent(ctx context.Context, userID string, sent bool) error {
+	filter := bson.M{"user_id": userID}
+	update := bson.M{"$set": bson.M{"welcome_notification_sent": sent}}
+	return mongoutil.UpdateOne(ctx, u.coll, filter, update, false)
+}
+
 func (u *UserMgo) Take(ctx context.Context, userID string) (user *model.User, err error) {
 	return mongoutil.FindOne[*model.User](ctx, u.coll, bson.M{"user_id": userID})
 }

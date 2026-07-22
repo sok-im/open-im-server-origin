@@ -127,6 +127,8 @@ type User struct {
 	AvCallRingtone int32 `bson:"av_call_ringtone"`
 	// PlayCalleeRingtoneOnAnswer 接听时播放对方铃声开关
 	PlayCalleeRingtoneOnAnswer int32 `bson:"play_callee_ringtone_on_answer"`
+	// WelcomeNotificationSent 首次上线欢迎服务号是否已发送（一次性标记，保证欢迎语每人仅发一次）
+	WelcomeNotificationSent bool `bson:"welcome_notification_sent"`
 }
 
 func (u *User) GetNickname() string {

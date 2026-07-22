@@ -465,6 +465,28 @@ type User struct {
 	PhoneSearchVisibility bool `mapstructure:"phoneSearchVisibility"`
 	// CallRingtoneDefaults 注册时未传入的铃声字段将使用此处配置；留空则不填充。
 	CallRingtoneDefaults CallRingtoneDefaults `mapstructure:"callRingtoneDefaults"`
+	// WelcomeNotification 用户首次上线时由官方服务号推送的欢迎通知配置。
+	WelcomeNotification WelcomeNotification `mapstructure:"welcomeNotification"`
+}
+
+// WelcomeNotification 首次上线欢迎服务号通知配置。
+type WelcomeNotification struct {
+	// Enable 是否启用首次上线欢迎通知。
+	Enable bool `mapstructure:"enable"`
+	// SendID 发送方账号，必须是通知账号（AppMangerLevel>=3）。
+	SendID string `mapstructure:"sendID"`
+	// SubType 服务通知分类：1安全 2账号 3系统 4版本更新。
+	SubType int32 `mapstructure:"subType"`
+	// DefaultLanguage 语言未匹配/未设置时使用的兜底桶键（如 en）。
+	DefaultLanguage string `mapstructure:"defaultLanguage"`
+	// Languages 各语言桶（zh-Hans / zh-Hant / en）对应的文案。
+	Languages map[string]WelcomeNotificationText `mapstructure:"languages"`
+}
+
+// WelcomeNotificationText 单一语言的欢迎通知文案。
+type WelcomeNotificationText struct {
+	Title   string `mapstructure:"title"`
+	Content string `mapstructure:"content"`
 }
 
 type Redis struct {
