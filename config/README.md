@@ -12,6 +12,7 @@ title: 'OpenIM Configuration Files and Common Configuration Item Modifications G
 | **mongodb.yml**                 | Configurations for MongoDB username, password, address, etc. |
 | **log.yml**                     | Configurations for log level and storage directory.          |
 | **notification.yml**            | Configurations for events like adding friends, creating groups, etc. |
+| **welcome_service_notification.yml** | Welcome service-account card templates sent once after user registration. |
 | **share.yml**                   | Common configurations needed by various OpenIM services, such as secret. |
 | **webhooks.yml**                | Configurations for URLs in Webhook.                          |
 | **local-cache.yml**             | Local cache configurations.                                  |

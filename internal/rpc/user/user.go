@@ -76,15 +76,16 @@ type userServer struct {
 }
 
 type Config struct {
-	RpcConfig          config.User
-	RedisConfig        config.Redis
-	MongodbConfig      config.Mongo
-	KafkaConfig        config.Kafka
-	NotificationConfig config.Notification
-	Share              config.Share
-	WebhooksConfig     config.Webhooks
-	LocalCacheConfig   config.LocalCache
-	Discovery          config.Discovery
+	RpcConfig                        config.User
+	RedisConfig                      config.Redis
+	MongodbConfig                    config.Mongo
+	KafkaConfig                      config.Kafka
+	NotificationConfig               config.Notification
+	Share                            config.Share
+	WebhooksConfig                   config.Webhooks
+	LocalCacheConfig                 config.LocalCache
+	Discovery                        config.Discovery
+	WelcomeServiceNotificationConfig config.WelcomeServiceNotification
 }
 
 func Start(ctx context.Context, config *Config, client registry.SvcDiscoveryRegistry, server *grpc.Server) error {
