@@ -42,6 +42,7 @@ const (
 func (s *userServer) tryFirstOnlineWelcome(ctx context.Context, userID string) {
 	cfg := s.config.RpcConfig.WelcomeNotification
 	if !cfg.Enable || cfg.SendID == "" || len(cfg.Languages) == 0 {
+		log.ZInfo(ctx, "welcome notification: not enabled", "userID", userID)
 		return
 	}
 	// 快路径：读缓存，已发送则直接返回（续约高频调用不打库）。
@@ -51,10 +52,12 @@ func (s *userServer) tryFirstOnlineWelcome(ctx context.Context, userID string) {
 		return
 	}
 	if user.WelcomeNotificationSent {
+		log.ZInfo(ctx, "welcome notification: already sent", "userID", userID)
 		return
 	}
 	// 不给服务号/通知/机器人等系统账号发送欢迎语。
 	if user.AppMangerLevel >= constant.AppNotificationAdmin {
+		log.ZInfo(ctx, "welcome notification: app manager level is greater than or equal to admin", "userID", userID, "appMangerLevel", user.AppMangerLevel)
 		return
 	}
 	text, bucket, ok := resolveWelcomeText(cfg, user.Language)
@@ -69,11 +72,12 @@ func (s *userServer) tryFirstOnlineWelcome(ctx context.Context, userID string) {
 		return
 	}
 	if !claimed {
+		log.ZInfo(ctx, "welcome notification: already sent", "userID", userID)
 		return
 	}
 	// 异步发送，避免阻塞在线状态主链路；使用 detached context 防止随本次 RPC 结束被取消。
 	detachedCtx := mcontext.NewCtx("welcome_" + mcontext.GetOperationID(ctx))
-	go s.sendWelcomeNotification(detachedCtx, userID, cfg, bucket, text)
+	s.sendWelcomeNotification(detachedCtx, userID, cfg, bucket, text)
 }
 
 // sendWelcomeNotification 发送欢迎服务号消息；失败时回滚已发送标记，允许下次上线重试。
