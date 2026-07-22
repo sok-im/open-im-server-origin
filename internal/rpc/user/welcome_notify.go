@@ -35,12 +35,21 @@ func PickWelcomeTemplate(lang, defaultLanguage string, templates map[string]Welc
 	if templates == nil {
 		return "", WelcomeTemplate{}, false
 	}
-	try := func(key string) (string, WelcomeTemplate, bool) {
-		if key == "" {
+	// Exact key first, then normalized map-key match (Viper lowercases YAML keys: zh-CN → zh-cn).
+	try := func(wantedKey string) (string, WelcomeTemplate, bool) {
+		if wantedKey == "" {
 			return "", WelcomeTemplate{}, false
 		}
-		if t, ok := templates[key]; ok && t.Title != "" && t.Content != "" {
-			return key, t, true
+		if t, ok := templates[wantedKey]; ok && t.Title != "" && t.Content != "" {
+			return wantedKey, t, true
+		}
+		for mapKey, t := range templates {
+			if t.Title == "" || t.Content == "" {
+				continue
+			}
+			if NormalizeWelcomeLanguage(mapKey) == wantedKey {
+				return mapKey, t, true
+			}
 		}
 		return "", WelcomeTemplate{}, false
 	}

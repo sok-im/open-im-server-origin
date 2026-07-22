@@ -58,6 +58,37 @@ func TestPickWelcomeTemplate(t *testing.T) {
 	assert.False(t, ok)
 }
 
+// Viper lowercases YAML map keys (zh-CN → zh-cn); lookup must still resolve via NormalizeWelcomeLanguage.
+func TestPickWelcomeTemplateViperLowercasedKeys(t *testing.T) {
+	templates := map[string]WelcomeTemplate{
+		"zh-cn": {Title: "欢迎来到 SOK", Content: "简中正文"},
+		"zh-tw": {Title: "歡迎來到 SOK", Content: "繁中正文"},
+		"en":    {Title: "Welcome to SOK", Content: "EN body"},
+	}
+
+	key, tmpl, ok := PickWelcomeTemplate("zh-CN", "en", templates)
+	assert.True(t, ok)
+	assert.Equal(t, "zh-cn", key)
+	assert.Equal(t, "简中正文", tmpl.Content)
+
+	key, tmpl, ok = PickWelcomeTemplate("zh-HK", "en", templates)
+	assert.True(t, ok)
+	assert.Equal(t, "zh-tw", key)
+	assert.Equal(t, "繁中正文", tmpl.Content)
+
+	key, tmpl, ok = PickWelcomeTemplate("zh-TW", "en", templates)
+	assert.True(t, ok)
+	assert.Equal(t, "zh-tw", key)
+
+	key, tmpl, ok = PickWelcomeTemplate("zh-Hans", "en", templates)
+	assert.True(t, ok)
+	assert.Equal(t, "zh-cn", key)
+
+	key, tmpl, ok = PickWelcomeTemplate("fr", "en", templates)
+	assert.True(t, ok)
+	assert.Equal(t, "en", key)
+}
+
 func TestWelcomeClientMsgIDStable(t *testing.T) {
 	a := WelcomeClientMsgID("userA")
 	b := WelcomeClientMsgID("userA")
