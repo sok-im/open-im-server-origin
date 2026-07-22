@@ -42,8 +42,9 @@ func NewUserRpcCmd() *UserRpcCmd {
 		ShareFileName:            &userConfig.Share,
 		NotificationFileName:     &userConfig.NotificationConfig,
 		WebhooksConfigFileName:   &userConfig.WebhooksConfig,
-		LocalCacheConfigFileName: &userConfig.LocalCacheConfig,
-		DiscoveryConfigFilename:  &userConfig.Discovery,
+		LocalCacheConfigFileName:           &userConfig.LocalCacheConfig,
+		DiscoveryConfigFilename:            &userConfig.Discovery,
+		WelcomeServiceNotificationFileName: &userConfig.WelcomeServiceNotificationConfig,
 	}
 	ret.RootCmd = NewRootCmd(program.GetProcessName(), WithConfigMap(ret.configMap))
 	ret.ctx = context.WithValue(context.Background(), "version", version.Version)

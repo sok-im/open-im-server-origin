@@ -1,0 +1,15 @@
+# Welcome service-account card sent once after UserRegister.
+enable: true
+sendUserID: service_notification_bot
+defaultLanguage: en
+subType: 2 # ServiceNotificationSubTypeAccount
+templates:
+  zh-CN:
+    title: 欢迎来到 SOK
+    content: 欢迎来到 SOK！端到端加密，无人可读。我是官方服务号，负责推送通知与安全提醒。请放心，这里只有你和TA。
+  zh-TW:
+    title: 歡迎來到 SOK
+    content: 歡迎來到 SOK！端對端加密，無人可讀。我是官方服務號，負責推送通知與安全提醒。請放心，這裡只有你和TA。
+  en:
+    title: Welcome to SOK
+    content: Welcome to SOK! End-to-end encrypted — unread by anyone else. I'm the official service account for notifications and security alerts. Rest assured, it's just you and them here.

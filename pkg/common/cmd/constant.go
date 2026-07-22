@@ -43,6 +43,7 @@ var (
 	OpenIMRPCMsgCfgFileName          string
 	OpenIMRPCThirdCfgFileName        string
 	OpenIMRPCUserCfgFileName         string
+	WelcomeServiceNotificationFileName string
 	OpenIMRPCRtcCfgFileName          string
 	OpenIMRPCCryptoCfgFileName       string
 	OpenIMRPCRedPacketCfgFileName      string
@@ -79,6 +80,7 @@ func init() {
 	OpenIMRPCMsgCfgFileName = "openim-rpc-msg.yml"
 	OpenIMRPCThirdCfgFileName = "openim-rpc-third.yml"
 	OpenIMRPCUserCfgFileName = "openim-rpc-user.yml"
+	WelcomeServiceNotificationFileName = "welcome_service_notification.yml"
 	OpenIMRPCRtcCfgFileName = "openim-rpc-rtc.yml"
 	OpenIMRPCCryptoCfgFileName = "openim-rpc-crypto.yml"
 	OpenIMRPCRedPacketCfgFileName = "openim-rpc-redpacket.yml"
@@ -95,7 +97,7 @@ func init() {
 		OpenIMAPICfgFileName, OpenIMCronTaskCfgFileName, OpenIMMsgGatewayCfgFileName,
 		OpenIMMsgTransferCfgFileName, OpenIMPushCfgFileName, OpenIMCaptchaCfgFileName, OpenIMRPCAuthCfgFileName, OpenIMRPCCaptchaCfgFileName,
 		OpenIMRPCConversationCfgFileName, OpenIMRPCFriendCfgFileName, OpenIMRPCGroupCfgFileName,
-		OpenIMRPCMsgCfgFileName, OpenIMRPCThirdCfgFileName, OpenIMRPCUserCfgFileName, OpenIMRPCRtcCfgFileName, OpenIMRPCCryptoCfgFileName,
+		OpenIMRPCMsgCfgFileName, OpenIMRPCThirdCfgFileName, OpenIMRPCUserCfgFileName, WelcomeServiceNotificationFileName, OpenIMRPCRtcCfgFileName, OpenIMRPCCryptoCfgFileName,
 		OpenIMRPCRedPacketCfgFileName, OpenIMRPCVirgilSecurityCfgFileName,
 		OpenIMRPCOpenMLSCfgFileName, OpenIMRPCTotpCfgFileName, DiscoveryConfigFilename,
 	}

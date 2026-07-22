@@ -45,6 +45,7 @@ import (
 	"github.com/openimsdk/open-im-server/v3/pkg/common/servererrs"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/controller"
 	"github.com/openimsdk/protocol/constant"
+	"github.com/openimsdk/protocol/msg"
 	"github.com/openimsdk/protocol/sdkws"
 	pbuser "github.com/openimsdk/protocol/user"
 	"github.com/openimsdk/tools/db/mongoutil"
@@ -66,6 +67,7 @@ type userServer struct {
 	db                       controller.UserDatabase
 	friendNotificationSender *relation.FriendNotificationSender
 	userNotificationSender   *UserNotificationSender
+	welcomeSender            *welcomeSender
 	RegisterCenter           registry.SvcDiscoveryRegistry
 	config                   *Config
 	webhookClient            *webhook.Client
@@ -76,15 +78,16 @@ type userServer struct {
 }
 
 type Config struct {
-	RpcConfig          config.User
-	RedisConfig        config.Redis
-	MongodbConfig      config.Mongo
-	KafkaConfig        config.Kafka
-	NotificationConfig config.Notification
-	Share              config.Share
-	WebhooksConfig     config.Webhooks
-	LocalCacheConfig   config.LocalCache
-	Discovery          config.Discovery
+	RpcConfig                        config.User
+	RedisConfig                      config.Redis
+	MongodbConfig                    config.Mongo
+	KafkaConfig                      config.Kafka
+	NotificationConfig               config.Notification
+	Share                            config.Share
+	WebhooksConfig                   config.Webhooks
+	LocalCacheConfig                 config.LocalCache
+	Discovery                        config.Discovery
+	WelcomeServiceNotificationConfig config.WelcomeServiceNotification
 }
 
 func Start(ctx context.Context, config *Config, client registry.SvcDiscoveryRegistry, server *grpc.Server) error {
@@ -129,12 +132,22 @@ func Start(ctx context.Context, config *Config, client registry.SvcDiscoveryRegi
 		return err
 	}
 	localcache.InitLocalCache(&config.LocalCacheConfig)
+	welcome := newWelcomeSender(
+		config.WelcomeServiceNotificationConfig,
+		func(ctx context.Context, userID string) (*tablerelation.User, error) {
+			return database.GetUserByID(ctx, userID)
+		},
+		func(ctx context.Context, req *msg.SendMsgReq) (*msg.SendMsgResp, error) {
+			return msgClient.SendMsg(ctx, req)
+		},
+	)
 	u := &userServer{
 		online:                   redis.NewUserOnline(rdb),
 		db:                       database,
 		RegisterCenter:           client,
 		friendNotificationSender: relation.NewFriendNotificationSender(&config.NotificationConfig, msgClient, relation.WithDBFunc(database.FindWithError)),
 		userNotificationSender:   NewUserNotificationSender(config, msgClient, WithUserFunc(database.FindWithError)),
+		welcomeSender:            welcome,
 		config:                   config,
 		webhookClient:            webhook.NewWebhookClient(config.WebhooksConfig.URL),
 
@@ -809,6 +822,7 @@ func (s *userServer) UserRegister(ctx context.Context, req *pbuser.UserRegisterR
 			FullName:                   fullName,
 			Phone:                      user.Phone,
 			AreaCode:                   user.AreaCode,
+			Language:                   user.Language,
 			CallRingtoneURL:            user.CallRingtoneURL,
 			CallRingtoneName:           user.CallRingtoneName,
 			CallRingtoneCover:          user.CallRingtoneCover,
@@ -828,6 +842,12 @@ func (s *userServer) UserRegister(ctx context.Context, req *pbuser.UserRegisterR
 	}
 
 	prommetrics.UserRegisterCounter.Add(float64(len(users)))
+
+	if s.welcomeSender != nil {
+		for _, u := range users {
+			s.welcomeSender.SendAfterRegister(ctx, u.UserID, u.Language)
+		}
+	}
 
 	s.webhookAfterUserRegister(ctx, &s.config.WebhooksConfig.AfterUserRegister, req)
 	return resp, nil

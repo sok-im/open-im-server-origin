@@ -427,6 +427,19 @@ type CallRingtoneDefaults struct {
 	Author string `mapstructure:"author"`
 }
 
+type WelcomeServiceNotificationTemplate struct {
+	Title   string `mapstructure:"title"`
+	Content string `mapstructure:"content"`
+}
+
+type WelcomeServiceNotification struct {
+	Enable          bool                                          `mapstructure:"enable"`
+	SendUserID      string                                        `mapstructure:"sendUserID"`
+	DefaultLanguage string                                        `mapstructure:"defaultLanguage"`
+	SubType         int32                                         `mapstructure:"subType"`
+	Templates       map[string]WelcomeServiceNotificationTemplate `mapstructure:"templates"`
+}
+
 // DeactivatedUserDefaults 已注销用户在好友列表中的占位展示信息。
 type DeactivatedUserDefaults struct {
 	Nickname string `mapstructure:"nickname"`
@@ -925,6 +938,7 @@ var (
 	OpenIMRPCMsgCfgFileName            = "openim-rpc-msg.yml"
 	OpenIMRPCThirdCfgFileName          = "openim-rpc-third.yml"
 	OpenIMRPCUserCfgFileName           = "openim-rpc-user.yml"
+	WelcomeServiceNotificationFileName = "welcome_service_notification.yml"
 	OpenIMRPCRtcCfgFileName            = "openim-rpc-rtc.yml"
 	OpenIMRPCCryptoCfgFileName         = "openim-rpc-crypto.yml"
 	OpenIMRPCRedPacketCfgFileName      = "openim-rpc-redpacket.yml"
