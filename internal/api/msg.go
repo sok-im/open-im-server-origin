@@ -503,19 +503,21 @@ func (m *MessageApi) BatchSendServiceNotification(c *gin.Context) {
 		return
 	}
 	if !authverify.IsAppManagerUid(c, m.imAdminUserID) {
+		log.ZWarn(c, "BatchSendServiceNotification failed", errs.ErrNoPermission.WrapMsg("only app manager can send notification"))
 		apiresp.GinError(c, errs.ErrNoPermission.WrapMsg("only app manager can send notification"))
 		return
 	}
 	if err := m.userClient.GetNotificationByID(c, req.SendUserID); err != nil {
+		log.ZWarn(c, "BatchSendServiceNotification failed", err, "sendUserID", req.SendUserID)
 		apiresp.GinError(c, err)
 		return
 	}
 	recvIDs, err := m.collectBatchRecvUserIDs(c, req.IsSendAll, req.RecvIDs)
 	if err != nil {
+		log.ZWarn(c, "BatchSendServiceNotification failed", err, "isSendAll", req.IsSendAll, "recvIDs", req.RecvIDs)
 		apiresp.GinError(c, err)
 		return
 	}
-	log.ZInfo(c, "BatchSendServiceNotification", "nums", len(recvIDs), "isSendAll", req.IsSendAll)
 	opUserID := mcontext.GetOpUserID(c)
 	offlinePushInfo := resolveServiceNotificationOfflinePush(req.Content, req.OfflinePushInfo)
 	for _, recvID := range recvIDs {
@@ -529,11 +531,13 @@ func (m *MessageApi) BatchSendServiceNotification(c *gin.Context) {
 		)
 		if err != nil {
 			apiresp.GinError(c, err)
+			log.ZWarn(c, "BatchSendServiceNotification failed", err, "recvID", recvID)
 			return
 		}
 		rpcResp, err := m.Client.SendMsg(c, sendMsgReq)
 		if err != nil {
 			resp.FailedIDs = append(resp.FailedIDs, recvID)
+			log.ZWarn(c, "BatchSendServiceNotification failed", err, "recvID", recvID, "sendMsgReq", sendMsgReq)
 			continue
 		}
 		resp.Results = append(resp.Results, &apistruct.SingleReturnResult{
@@ -543,6 +547,8 @@ func (m *MessageApi) BatchSendServiceNotification(c *gin.Context) {
 			RecvID:      recvID,
 		})
 	}
+	log.ZInfo(c, "BatchSendServiceNotification", "nums", len(recvIDs), "isSendAll", req.IsSendAll, "resp", resp)
+
 	apiresp.GinSuccess(c, resp)
 }
 
