@@ -160,7 +160,7 @@ type PaymentNotificationContent struct {
 	PacketID        string                     `json:"packetId,omitempty"`
 	ChainKey        string                     `json:"chainKey,omitempty"` // 链 ID，如 ethereum
 	SendUserID      string                     `json:"sendUserID" validate:"required"`
-	RecvUserID      string                     `json:"recvUserID" validate:"required"`
+	RecvUserID      string                     `json:"recvUserID,omitempty" `
 	GroupID         string                     `json:"groupID,omitempty"`
 }
 
