@@ -502,6 +502,9 @@ func (m *MessageApi) BatchSendServiceNotification(c *gin.Context) {
 		apiresp.GinError(c, errs.ErrArgs.WithDetail(err.Error()).Wrap())
 		return
 	}
+
+	log.ZDebug(c, "BatchSendServiceNotification", "req", req)
+
 	if !authverify.IsAppManagerUid(c, m.imAdminUserID) {
 		log.ZWarn(c, "BatchSendServiceNotification failed", errs.ErrNoPermission.WrapMsg("only app manager can send notification"))
 		apiresp.GinError(c, errs.ErrNoPermission.WrapMsg("only app manager can send notification"))
