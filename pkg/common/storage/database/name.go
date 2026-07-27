@@ -31,4 +31,5 @@ const (
 	UserMuteName            = "user_mute"
 	UserTotpName            = "user_totp"
 	UserTotpRecoveryName    = "user_totp_recovery"
+	PaymentNotificationName = "payment_notification"
 )
