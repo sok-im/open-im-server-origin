@@ -2,18 +2,18 @@
 
 ## 背景与目标
 
-`POST /msg/send_payment_notification` 当前只通过 `sendNotificationChatMsg` 下发钱包通知卡片，支付信息不单独持久化，无法按发送者回溯历史。
+`POST /msg/send_payment_notification` 当前只通过 `sendNotificationChatMsg` 下发钱包通知卡片，支付信息不单独持久化。
 
 目标：
 
-1. 发送支付通知前，将支付信息写入 Mongo（权威源）
-2. 提供 HTTP 查询接口，**仅按 `sendUserID` 过滤并分页**（不支持按 recv 查询）
+1. 在现有发送流程上，**仅增加**将支付信息写入 Mongo
+2. `SendPaymentNotification` 的请求结构、校验、发通知、响应等**其他逻辑保持不动**
+3. 另提供 HTTP 查询接口，**仅按 `sendUserID` 过滤并分页**（见开放问题：是否本轮一起做）
 
 ## 现状关键事实
 
 - API：`internal/api/msg.go` → `SendPaymentNotification` → `sendNotificationChatMsg` → msg RPC `SendMsg`
-- Content：`apistruct.PaymentNotificationContent`，其中 **`RecvUserID` 为 `string`（保持不变，不改为数组）**
-- 请求顶层另有 `sendUserID` / `recvUserID`（string）；当前发通知使用顶层字段
+- 现有请求：顶层 `sendUserID` / `recvUserID` + `content`（`PaymentNotificationContent`，`RecvUserID` 为 string）
 - `api/router.go` 已持有 Mongo 连接，并存在 API 直连存储层先例（如 `user_global_black`）
 - 尚无 `payment_notification` collection / model / 查询接口
 
@@ -21,44 +21,39 @@
 
 | 决策点 | 结论 |
 |--------|------|
-| 目的 | 可按发送者查历史（不只审计） |
-| 本轮范围 | 写入 + HTTP 查询一起做 |
-| 写/发顺序 | 先写 Mongo，成功后再发通知；写失败整次请求失败 |
-| 实现路径 | API 直连 Mongo 存储层（方案 1），不新增 RPC |
-| 接收人类型 | `content.recvUserID` **保持 string**，不做数组展开 |
-| 收发权威源 | **顶层** `req.sendUserID` / `req.recvUserID`（与现有 `sendNotificationChatMsg` 一致） |
-| content 内收发 | `content.sendUserID` / `content.recvUserID` 仅作业务附加字段一并入库，不驱动发送 |
-| 查询维度 | **仅** `send_user_id`（顶层 `sendUserID`）；不按 `recv_user_id` 过滤 |
-| 多条语义 | 同一发送方可累积多条支付通知；无唯一约束 |
-| 幂等 | 本轮不做 orderNo/bizID 唯一约束；重复调用可产生多条 |
-| 发通知失败 | Mongo 已写入不回滚（可「有库无通知」） |
-| 查询鉴权 | 仅 admin |
+| Send 改动范围 | **只增加 Mongo 写入**；BindJSON、鉴权/通知账号校验、`sendNotificationChatMsg`、响应结构均不改 |
+| 写/发顺序 | 先写 Mongo，成功后再走现有 `sendNotificationChatMsg`；写失败整次请求失败（不发通知） |
+| 实现路径 | API 直连 Mongo 存储层，不新增 RPC |
+| 收发字段 | 与现有一致：顶层 `req.sendUserID` / `req.recvUserID` 驱动发送；content 字段一并入库 |
+| content.recvUserID | 保持 string，不改为数组 |
+| 查询维度 | **仅** `send_user_id`（顶层 `sendUserID`） |
+| 多条语义 | 同一发送方可累积多条；无唯一约束 |
+| 幂等 | 本轮不做 |
+| 发通知失败 | Mongo 已写入不回滚 |
 | Cache | 无；Mongo 为权威源 |
 
 ## 架构与数据流
 
-### 写路径（单接收人）
+### 写路径（最小改动）
 
 ```
-POST /msg/send_payment_notification
-  1. BindJSON + 校验（顶层 sendUserID、recvUserID、content 必填）
-  2. 校验 sendUserID 为通知账号（GetNotificationByID）
-  3. 组装一条 model.PaymentNotification → Create（InsertOne）
+POST /msg/send_payment_notification   // 行为相对现状：仅多一步落库
+  1. BindJSON（现有：sendUserID / recvUserID / content）—— 不动
+  2. 组装 model.PaymentNotification → Create（InsertOne）  【新增】
      —— SendUserID/RecvUserID 取自顶层 req
-     —— Content 字段（含 content.sendUserID / content.recvUserID）一并落库
-     —— 失败 → GinError，不发通知
-  4. sendNotificationChatMsg(req.SendUserID, req.RecvUserID, ...)
-     —— 失败 → GinError（库记录保留）
-  5. GinSuccess（对齐现有单条发送响应）
+     —— Content 全量字段落库
+     —— 失败 → GinError，return（不调用后续发送）
+  3. sendNotificationChatMsg(req.SendUserID, req.RecvUserID, PaymentNotification, content, false)
+     —— 与现有完全一致（内部含通知账号校验、SendMsg、GinSuccess/GinError）
 ```
 
 说明：
 
-- 每次请求写 **1 条** Mongo、发 **1 条** 通知
-- 同一收发方在不同请求中可多次出现 → 多条历史记录（允许）
-- 不强制 `req.recvUserID == content.recvUserID`
+- **不**改请求 JSON 契约、**不**改响应、**不**抽离/重写 `sendNotificationChatMsg`
+- 写库插在 `BindJSON` 成功之后、`sendNotificationChatMsg` 之前
+- 同一收发方可多次调用 → 多条历史（允许）
 
-### 读路径
+### 读路径（若本轮包含）
 
 ```
 POST /msg/get_payment_notifications
@@ -72,13 +67,11 @@ POST /msg/get_payment_notifications
 
 **Collection**：`payment_notification`（常量 `database.PaymentNotificationName`）
 
-每条文档对应 **一次发送请求 / 一个接收人**。
-
 ```go
 type PaymentNotification struct {
 	ID                primitive.ObjectID         `bson:"_id,omitempty"`
-	SendUserID        string                     `bson:"send_user_id"` // 顶层 sendUserID（通知账号）；查询键
-	RecvUserID        string                     `bson:"recv_user_id"` // 顶层 recvUserID（通知接收方）；仅存储，不作为查询条件
+	SendUserID        string                     `bson:"send_user_id"` // 顶层 sendUserID；查询键
+	RecvUserID        string                     `bson:"recv_user_id"` // 顶层 recvUserID；仅存储
 	Title             string                     `bson:"title"`
 	Amount            string                     `bson:"amount"`
 	TransactionType   string                     `bson:"transaction_type"`
@@ -94,8 +87,8 @@ type PaymentNotification struct {
 	PacketID          string                     `bson:"packet_id,omitempty"`
 	ChainKey          string                     `bson:"chain_key,omitempty"`
 	GroupID           string                     `bson:"group_id,omitempty"`
-	ContentSendUserID string                     `bson:"content_send_user_id,omitempty"` // content.sendUserID
-	ContentRecvUserID string                     `bson:"content_recv_user_id,omitempty"` // content.recvUserID
+	ContentSendUserID string                     `bson:"content_send_user_id,omitempty"`
+	ContentRecvUserID string                     `bson:"content_recv_user_id,omitempty"`
 	CreateTime        time.Time                  `bson:"create_time"`
 }
 
@@ -105,51 +98,34 @@ type PaymentNotificationAction struct {
 }
 ```
 
-**索引**（无唯一索引；本轮查询仅按 send）：
-
-- `{send_user_id: 1, create_time: -1}`
+**索引**：`{send_user_id: 1, create_time: -1}`（无唯一索引）
 
 ## 组件与改动清单
 
 1. **model**：`pkg/common/storage/model/payment_notification.go`
-2. **database 接口**：`pkg/common/storage/database/payment_notification.go`
-   - `Create(ctx, *model.PaymentNotification) error`
-   - `FindPage(ctx, sendUserID string, pagination) (total int64, list []*model.PaymentNotification, err error)`
-3. **mgo 实现**：`pkg/common/storage/database/mgo/payment_notification.go`
-4. **name**：`database/name.go` 增加 `PaymentNotificationName = "payment_notification"`
-5. **MessageApi**：注入 DB；`SendPaymentNotification` 先写后发；新增 `GetPaymentNotifications`
-6. **router**：初始化 Mongo、注入、注册 `POST /msg/get_payment_notifications`
-7. **apistruct**：`PaymentNotificationContent.RecvUserID` **保持 `string`**；查询 req/resp（仅 sendUserID）
+2. **database 接口**：`Create` +（若本轮含查询）`FindPage`
+3. **mgo 实现** + `database/name.go` 常量
+4. **MessageApi**：注入 DB；`SendPaymentNotification` 在现有调用前插入 Create
+5. **router**：初始化 Mongo 并注入 MessageApi
+6. （可选）注册 `GetPaymentNotifications` + apistruct 查询 req/resp
 
-不新增 controller 层。
+不新增 controller 层；不修改 `sendNotificationChatMsg` / Content 类型定义（除已有字段外）。
 
 ## HTTP 契约
 
-### Send（行为变更：增加落库）
+### Send（仅内部多一步写库；对外契约不变）
 
-`POST /msg/send_payment_notification`
+`POST /msg/send_payment_notification` — 请求/响应与现状相同：
 
 ```json
 {
   "sendUserID": "notification_account",
   "recvUserID": "u1",
-  "content": {
-    "sendUserID": "biz_sender",
-    "recvUserID": "biz_receiver",
-    "title": "...",
-    "amount": "...",
-    "transactionType": "...",
-    "transactionTime": "...",
-    "currency": "..."
-  }
+  "content": { "...": "PaymentNotificationContent 不变" }
 }
 ```
 
-- 顶层 `sendUserID` / `recvUserID` **必填**，驱动通知会话；`sendUserID` 同时为 Mongo 查询键
-- `content.recvUserID` 类型为 **string**（不改为数组），可选业务字段
-- 成功：1 条 Mongo + 1 条通知；响应保持现有单条发送结构
-
-### Get（新增）
+### Get（若本轮包含）
 
 `POST /msg/get_payment_notifications`
 
@@ -160,37 +136,33 @@ type PaymentNotificationAction struct {
 }
 ```
 
-仅按顶层语义的 `send_user_id` 过滤；**不接受 / 不使用 recvUserID 查询参数**。
-
-响应：`{ "total", "notifications": [...] }`，`createTime` 为 Unix 毫秒。
+响应：`{ "total", "notifications": [...] }`，`createTime` 为 Unix 毫秒。仅 admin。
 
 ## 错误与容错
 
 | 场景 | 行为 |
 |------|------|
-| 顶层 send/recv 或 content 缺失 | `ErrArgs`；不写库、不发通知 |
-| Create 失败 | 返回错误；不发通知 |
-| SendMsg 失败 | 已写库保留；返回错误 |
-| 查询缺 sendUserID | `ErrArgs` |
-| 非 admin 查询 | `ErrNoPermission` |
-
-日志关键字段：`sendUserID`、`recvUserID`、`orderNo`、`bizID`。
+| BindJSON 失败 | 与现有一致 |
+| Create 失败 | GinError；**不**调用 `sendNotificationChatMsg` |
+| 发送失败 | 与现有一致（库记录保留） |
 
 ## 非目标（本轮不做）
 
-- 按 `recvUserID` 查询 / 复合过滤
-- `content.recvUserID` 改为数组 / 多人 fan-out
-- 强制顶层与 content 收发人相等
-- orderNo / bizID 幂等去重 / 唯一索引
-- RPC 封装 / 多服务复用
-- Cache、搜索旁路
-- 发通知失败后的 Mongo 回滚
-- 接收人自查（仅 admin）
+- 改 `SendPaymentNotification` 的请求/响应结构或发送行为
+- `content.recvUserID` 改为数组 / fan-out
+- 按 `recvUserID` 查询
+- 幂等 / 唯一索引 / 发失败回滚
+- RPC / Cache
 
 ## 测试建议
 
-- 单次请求 → Mongo 1 条（send/recv 为顶层），SendMsg 1 次
-- 同一 sendUserID 连续两次请求 → 查询返回 2 条（create_time DESC）
-- 写库失败时不调用 SendMsg
-- 缺 sendUserID 查询失败；有 sendUserID 时返回该发送方全部记录（含不同 recv）
-- 分页与权限校验
+- 成功路径：Mongo 多 1 条，通知行为与改前一致
+- Create 失败：无 SendMsg，接口报错
+- （若含查询）按 sendUserID 分页返回该发送方全部记录
+
+## 开放问题
+
+本轮是否一并实现 `get_payment_notifications`？
+
+- **A.** 一起做（写入 + 按 sendUserID 查询）
+- **B.** 本轮只做写入；查询接口后续再加（storage 层可先只实现 `Create`，或预留 `FindPage`）
