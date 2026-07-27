@@ -104,6 +104,10 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 	if err != nil {
 		return nil, err
 	}
+	paymentNotificationDB, err := mgo.NewPaymentNotificationMongo(mgocli.GetDB())
+	if err != nil {
+		return nil, err
+	}
 	rdb, err := redisutil.NewRedisClient(ctx, config.RedisConfig.Build())
 	if err != nil {
 		return nil, err
@@ -193,7 +197,7 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 		GinParseToken(rpcli.NewAuthClient(authConn)),
 	)
 	u := NewUserApi(user.NewUserClient(userConn), client, config.Share.RpcRegisterName, config.Share.IMAdminUserID)
-	m := NewMessageApi(msg.NewMsgClient(msgConn), rpcli.NewUserClient(userConn), rpcli.NewRelationClient(friendConn), config.Share.IMAdminUserID)
+	m := NewMessageApi(msg.NewMsgClient(msgConn), rpcli.NewUserClient(userConn), rpcli.NewRelationClient(friendConn), config.Share.IMAdminUserID, paymentNotificationDB)
 	cp := NewCaptchaApi(pbcaptcha.NewCaptchaClient(captchaConn))
 	bl := NewUserGlobalBlackApi(blacklistCtrl, userDB, config.Share.IMAdminUserID, rpcli.NewAuthClient(authConn))
 	du := NewDeleteUserApi(userDB, userDatabase, friendDB, phoneSNDB, totpDB, totpRecoveryDB, rpcli.NewAuthClient(authConn), group.NewGroupClient(groupConn), relation.NewFriendClient(friendConn), config.Share.IMAdminUserID)

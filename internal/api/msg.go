@@ -21,6 +21,7 @@ import (
 	"github.com/openimsdk/open-im-server/v3/pkg/apistruct"
 	"github.com/openimsdk/open-im-server/v3/pkg/authverify"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/config"
+	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/database"
 	"github.com/openimsdk/open-im-server/v3/pkg/msgprocessor"
 	"github.com/openimsdk/open-im-server/v3/pkg/rpcli"
 	"github.com/openimsdk/protocol/constant"
@@ -38,15 +39,23 @@ import (
 )
 
 type MessageApi struct {
-	Client         msg.MsgClient
-	userClient     *rpcli.UserClient
-	relationClient *rpcli.RelationClient
-	imAdminUserID  []string
-	validate       *validator.Validate
+	Client                msg.MsgClient
+	userClient            *rpcli.UserClient
+	relationClient        *rpcli.RelationClient
+	imAdminUserID         []string
+	validate              *validator.Validate
+	paymentNotificationDB database.PaymentNotification
 }
 
-func NewMessageApi(client msg.MsgClient, userClient *rpcli.UserClient, relationClient *rpcli.RelationClient, imAdminUserID []string) MessageApi {
-	return MessageApi{Client: client, userClient: userClient, relationClient: relationClient, imAdminUserID: imAdminUserID, validate: validator.New()}
+func NewMessageApi(client msg.MsgClient, userClient *rpcli.UserClient, relationClient *rpcli.RelationClient, imAdminUserID []string, paymentNotificationDB database.PaymentNotification) MessageApi {
+	return MessageApi{
+		Client:                client,
+		userClient:            userClient,
+		relationClient:        relationClient,
+		imAdminUserID:         imAdminUserID,
+		validate:              validator.New(),
+		paymentNotificationDB: paymentNotificationDB,
+	}
 }
 
 func (*MessageApi) SetOptions(options map[string]bool, value bool) {
@@ -568,8 +577,14 @@ func (m *MessageApi) SendPaymentNotification(c *gin.Context) {
 
 	log.ZDebug(c, "SendPaymentNotification", "req", req)
 
-	//req.Content.RecvUserID = req.RecvUserID
-	//req.Content.SendUserID = req.SendUserID
+	doc := buildPaymentNotification(req.SendUserID, req.RecvUserID, req.Content)
+	if err := m.paymentNotificationDB.Create(c, doc); err != nil {
+		log.ZError(c, "SendPaymentNotification create mongo failed", err,
+			"sendUserID", req.SendUserID, "recvUserID", req.RecvUserID,
+			"orderNo", req.Content.OrderNo, "bizID", req.Content.BizID)
+		apiresp.GinError(c, err)
+		return
+	}
 
 	m.sendNotificationChatMsg(c, req.SendUserID, req.RecvUserID, constant.PaymentNotification, req.Content, false)
 }
