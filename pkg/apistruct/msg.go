@@ -14,6 +14,10 @@
 
 package apistruct
 
+import (
+	"github.com/openimsdk/protocol/sdkws"
+)
+
 type PictureBaseInfo struct {
 	UUID   string `mapstructure:"uuid"`
 	Type   string `mapstructure:"type"   validate:"required"`
@@ -162,6 +166,40 @@ type PaymentNotificationContent struct {
 	SendUserID      string                     `json:"sendUserID" validate:"required"`
 	RecvUserID      string                     `json:"recvUserID,omitempty" `
 	GroupID         string                     `json:"groupID,omitempty"`
+}
+
+type GetPaymentNotificationsReq struct {
+	SendUserID string                   `json:"sendUserID" binding:"required"`
+	Pagination *sdkws.RequestPagination `json:"pagination" binding:"required"`
+}
+
+type PaymentNotificationItem struct {
+	ID                string                     `json:"id"`
+	SendUserID        string                     `json:"sendUserID"`
+	RecvUserID        string                     `json:"recvUserID"`
+	Title             string                     `json:"title"`
+	Amount            string                     `json:"amount"`
+	TransactionType   string                     `json:"transactionType"`
+	TransactionTime   string                     `json:"transactionTime"`
+	Currency          string                     `json:"currency"`
+	CurrencyIconURL   string                     `json:"currencyIconURL,omitempty"`
+	DetailURL         string                     `json:"detailURL,omitempty"`
+	DetailText        string                     `json:"detailText,omitempty"`
+	SecondaryAction   *PaymentNotificationAction `json:"secondaryAction,omitempty"`
+	OrderNo           string                     `json:"orderNo,omitempty"`
+	BizID             string                     `json:"bizID,omitempty"`
+	ChainID           string                     `json:"chainId,omitempty"`
+	PacketID          string                     `json:"packetId,omitempty"`
+	ChainKey          string                     `json:"chainKey,omitempty"`
+	GroupID           string                     `json:"groupID,omitempty"`
+	ContentSendUserID string                     `json:"contentSendUserID,omitempty"`
+	ContentRecvUserID string                     `json:"contentRecvUserID,omitempty"`
+	CreateTime        int64                      `json:"createTime"` // Unix ms
+}
+
+type GetPaymentNotificationsResp struct {
+	Total         int64                      `json:"total"`
+	Notifications []*PaymentNotificationItem `json:"notifications"`
 }
 
 type OANotificationElem struct {

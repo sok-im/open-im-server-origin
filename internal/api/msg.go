@@ -589,6 +589,59 @@ func (m *MessageApi) SendPaymentNotification(c *gin.Context) {
 	m.sendNotificationChatMsg(c, req.SendUserID, req.RecvUserID, constant.PaymentNotification, req.Content, false)
 }
 
+func (m *MessageApi) GetPaymentNotifications(c *gin.Context) {
+	var req apistruct.GetPaymentNotificationsReq
+	if err := c.BindJSON(&req); err != nil {
+		apiresp.GinError(c, errs.ErrArgs.WithDetail(err.Error()).Wrap())
+		return
+	}
+	if err := authverify.CheckAdmin(c, m.imAdminUserID); err != nil {
+		apiresp.GinError(c, err)
+		return
+	}
+	total, list, err := m.paymentNotificationDB.FindPage(c, req.SendUserID, req.Pagination)
+	if err != nil {
+		apiresp.GinError(c, err)
+		return
+	}
+	items := make([]*apistruct.PaymentNotificationItem, 0, len(list))
+	for _, n := range list {
+		item := &apistruct.PaymentNotificationItem{
+			ID:                n.ID.Hex(),
+			SendUserID:        n.SendUserID,
+			RecvUserID:        n.RecvUserID,
+			Title:             n.Title,
+			Amount:            n.Amount,
+			TransactionType:   n.TransactionType,
+			TransactionTime:   n.TransactionTime,
+			Currency:          n.Currency,
+			CurrencyIconURL:   n.CurrencyIconURL,
+			DetailURL:         n.DetailURL,
+			DetailText:        n.DetailText,
+			OrderNo:           n.OrderNo,
+			BizID:             n.BizID,
+			ChainID:           n.ChainID,
+			PacketID:          n.PacketID,
+			ChainKey:          n.ChainKey,
+			GroupID:           n.GroupID,
+			ContentSendUserID: n.ContentSendUserID,
+			ContentRecvUserID: n.ContentRecvUserID,
+			CreateTime:        n.CreateTime.UnixMilli(),
+		}
+		if n.SecondaryAction != nil {
+			item.SecondaryAction = &apistruct.PaymentNotificationAction{
+				Text: n.SecondaryAction.Text,
+				URL:  n.SecondaryAction.URL,
+			}
+		}
+		items = append(items, item)
+	}
+	apiresp.GinSuccess(c, &apistruct.GetPaymentNotificationsResp{
+		Total:         total,
+		Notifications: items,
+	})
+}
+
 func (m *MessageApi) BatchSendMsg(c *gin.Context) {
 	var (
 		req  apistruct.BatchSendMsgReq

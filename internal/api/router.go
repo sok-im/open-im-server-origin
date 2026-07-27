@@ -410,6 +410,7 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 		msgGroup.POST("/send_service_notification", m.SendServiceNotification)
 		msgGroup.POST("/batch_send_service_notification", m.BatchSendServiceNotification)
 		msgGroup.POST("/send_payment_notification", m.SendPaymentNotification)
+		msgGroup.POST("/get_payment_notifications", m.GetPaymentNotifications)
 		msgGroup.POST("/notify_red_packet_claimed", m.NotifyRedPacketClaimed)
 		msgGroup.POST("/notify_transfer_received", m.NotifyTransferReceived)
 		msgGroup.POST("/notify_red_packet_expired", m.NotifyRedPacketExpired)
