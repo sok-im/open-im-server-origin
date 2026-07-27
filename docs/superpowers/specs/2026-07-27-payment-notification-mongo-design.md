@@ -8,7 +8,7 @@
 
 1. 在现有发送流程上，**仅增加**将支付信息写入 Mongo
 2. `SendPaymentNotification` 的请求结构、校验、发通知、响应等**其他逻辑保持不动**
-3. 另提供 HTTP 查询接口，**仅按 `sendUserID` 过滤并分页**（见开放问题：是否本轮一起做）
+3. 本轮一并提供 HTTP 查询接口，**仅按 `sendUserID` 过滤并分页**
 
 ## 现状关键事实
 
@@ -21,12 +21,14 @@
 
 | 决策点 | 结论 |
 |--------|------|
+| 本轮范围 | **写入 + 按 sendUserID 查询一起做** |
 | Send 改动范围 | **只增加 Mongo 写入**；BindJSON、鉴权/通知账号校验、`sendNotificationChatMsg`、响应结构均不改 |
 | 写/发顺序 | 先写 Mongo，成功后再走现有 `sendNotificationChatMsg`；写失败整次请求失败（不发通知） |
 | 实现路径 | API 直连 Mongo 存储层，不新增 RPC |
 | 收发字段 | 与现有一致：顶层 `req.sendUserID` / `req.recvUserID` 驱动发送；content 字段一并入库 |
 | content.recvUserID | 保持 string，不改为数组 |
-| 查询维度 | **仅** `send_user_id`（顶层 `sendUserID`） |
+| 查询维度 | **仅** `send_user_id`（顶层 `sendUserID`）；不按 recv 过滤 |
+| 查询鉴权 | 仅 admin |
 | 多条语义 | 同一发送方可累积多条；无唯一约束 |
 | 幂等 | 本轮不做 |
 | 发通知失败 | Mongo 已写入不回滚 |
@@ -53,7 +55,7 @@ POST /msg/send_payment_notification   // 行为相对现状：仅多一步落库
 - 写库插在 `BindJSON` 成功之后、`sendNotificationChatMsg` 之前
 - 同一收发方可多次调用 → 多条历史（允许）
 
-### 读路径（若本轮包含）
+### 读路径
 
 ```
 POST /msg/get_payment_notifications
@@ -103,13 +105,13 @@ type PaymentNotificationAction struct {
 ## 组件与改动清单
 
 1. **model**：`pkg/common/storage/model/payment_notification.go`
-2. **database 接口**：`Create` +（若本轮含查询）`FindPage`
-3. **mgo 实现** + `database/name.go` 常量
-4. **MessageApi**：注入 DB；`SendPaymentNotification` 在现有调用前插入 Create
-5. **router**：初始化 Mongo 并注入 MessageApi
-6. （可选）注册 `GetPaymentNotifications` + apistruct 查询 req/resp
+2. **database 接口**：`Create` + `FindPage(ctx, sendUserID, pagination)`
+3. **mgo 实现** + `database/name.go` 常量 `PaymentNotificationName`
+4. **MessageApi**：注入 DB；`SendPaymentNotification` 在现有调用前插入 Create；新增 `GetPaymentNotifications`
+5. **router**：初始化 Mongo、注入 MessageApi、注册 `POST /msg/get_payment_notifications`
+6. **apistruct**：查询 req/resp（`sendUserID` + pagination）
 
-不新增 controller 层；不修改 `sendNotificationChatMsg` / Content 类型定义（除已有字段外）。
+不新增 controller 层；不修改 `sendNotificationChatMsg` / `PaymentNotificationContent` 类型定义。
 
 ## HTTP 契约
 
@@ -125,7 +127,7 @@ type PaymentNotificationAction struct {
 }
 ```
 
-### Get（若本轮包含）
+### Get（新增）
 
 `POST /msg/get_payment_notifications`
 
@@ -145,6 +147,10 @@ type PaymentNotificationAction struct {
 | BindJSON 失败 | 与现有一致 |
 | Create 失败 | GinError；**不**调用 `sendNotificationChatMsg` |
 | 发送失败 | 与现有一致（库记录保留） |
+| 查询缺 sendUserID | `ErrArgs` |
+| 非 admin 查询 | `ErrNoPermission` |
+
+日志关键字段：`sendUserID`、`recvUserID`、`orderNo`、`bizID`。
 
 ## 非目标（本轮不做）
 
@@ -158,11 +164,5 @@ type PaymentNotificationAction struct {
 
 - 成功路径：Mongo 多 1 条，通知行为与改前一致
 - Create 失败：无 SendMsg，接口报错
-- （若含查询）按 sendUserID 分页返回该发送方全部记录
-
-## 开放问题
-
-本轮是否一并实现 `get_payment_notifications`？
-
-- **A.** 一起做（写入 + 按 sendUserID 查询）
-- **B.** 本轮只做写入；查询接口后续再加（storage 层可先只实现 `Create`，或预留 `FindPage`）
+- 按 sendUserID 分页返回该发送方全部记录（含不同 recv）
+- 缺 sendUserID / 非 admin 查询失败
