@@ -42,9 +42,6 @@ func (m *msgServer) ReportSpam(ctx context.Context, req *msg.ReportSpamReq) (*ms
 	if req.ReportedUserID == "" {
 		return nil, errs.ErrArgs.WrapMsg("reportedUserID is required")
 	}
-	if req.ReasonType <= 0 {
-		return nil, errs.ErrArgs.WrapMsg("reasonType must be positive")
-	}
 
 	reporterUserID := mcontext.GetOpUserID(ctx)
 
