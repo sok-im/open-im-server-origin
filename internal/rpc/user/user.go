@@ -676,6 +676,9 @@ func (s *userServer) GetUsersByNickname(ctx context.Context, req *pbuser.GetUser
 			"opUserID", viewerID, "count", len(users))
 		return nil, err
 	}
+
+	log.ZDebug(ctx, "GetUsersByNickname: success", "opUserID", viewerID, "req", req, "users", pbUsers)
+
 	return &pbuser.GetUsersByNicknameResp{UsersInfo: pbUsers}, nil
 }
 
