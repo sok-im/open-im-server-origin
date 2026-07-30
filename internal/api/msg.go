@@ -595,10 +595,6 @@ func (m *MessageApi) GetPaymentNotifications(c *gin.Context) {
 		apiresp.GinError(c, errs.ErrArgs.WithDetail(err.Error()).Wrap())
 		return
 	}
-	if err := authverify.CheckAdmin(c, m.imAdminUserID); err != nil {
-		apiresp.GinError(c, err)
-		return
-	}
 	total, list, err := m.paymentNotificationDB.FindPage(c, req.SendUserID, req.Pagination)
 	if err != nil {
 		apiresp.GinError(c, err)
