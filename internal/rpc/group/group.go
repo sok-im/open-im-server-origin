@@ -779,11 +779,7 @@ func (s *groupServer) GetGroupMemberList(ctx context.Context, req *pbgroup.GetGr
 	if req.Keyword == "" {
 		total, members, err = s.db.PageGetGroupMember(ctx, req.GroupID, req.Pagination)
 	} else {
-		keyword := strings.TrimSpace(req.Keyword)
-		if strings.HasPrefix(keyword, "@") {
-			keyword = strings.TrimSpace(keyword[1:])
-		}
-		total, members, err = s.db.SearchGroupMember(ctx, req.GroupID, keyword, req.Pagination)
+		total, members, err = s.db.SearchGroupMember(ctx, req.GroupID, req.Keyword, req.Pagination)
 	}
 	if err != nil {
 		return nil, err

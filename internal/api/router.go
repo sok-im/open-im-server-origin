@@ -250,9 +250,9 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 		userRouterGroup.POST("/get_user_notification_settings", u.GetUserNotificationSettings)
 		// 根据手机号精确查找用户（phoneSearchVisibility=true 时遵守 phone_visibility 设置）
 		userRouterGroup.POST("/get_user_by_phone", u.GetUserByPhone)
-		// 根据昵称精确查询用户（可多结果；首字符为 @ 时去掉后再查）
+		// 根据昵称精确查询用户（可多结果，与 getPaginationUsers 模糊搜索不同）
 		userRouterGroup.POST("/get_users_by_nickname", u.GetUsersByNickname)
-		// 检查昵称是否已被占用（精确匹配；首字符为 @ 时去掉后再查；可选 excludeUserID 排除本人）
+		// 检查昵称是否已被占用（精确匹配，可选 excludeUserID 排除本人）
 		userRouterGroup.POST("/check_nickname", u.CheckNickname)
 		// 检查指定 userID 的用户是否存在
 		userRouterGroup.POST("/check_user_exist", u.CheckUserExist)

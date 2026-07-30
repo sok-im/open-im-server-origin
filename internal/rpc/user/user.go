@@ -60,15 +60,6 @@ import (
 // 规则：纯数字，长度 5-20 位，允许可选的 + 前缀（如 +86...）。
 var phoneRe = regexp.MustCompile(`^\+?\d{5,20}$`)
 
-// stripLeadingAt 搜索词首字符为 @ 时去掉后再返回（兼容 @nickname / @userID 输入）。
-func stripLeadingAt(s string) string {
-	s = strings.TrimSpace(s)
-	if strings.HasPrefix(s, "@") {
-		return strings.TrimSpace(s[1:])
-	}
-	return s
-}
-
 type userServer struct {
 	pbuser.UnimplementedUserServer
 	online                   cache.OnlineCache
@@ -572,22 +563,21 @@ func (s *userServer) GetUserPrivacySettings(ctx context.Context, req *pbuser.Get
 // 当目标用户 MsgReceiveSetting=2（不接受任何人消息）时，对非本人搜索者不可见。
 // 返回空 userInfo 并不代表错误，调用方应以 nil userInfo 判断"未找到"。
 func (s *userServer) GetUserByPhone(ctx context.Context, req *pbuser.GetUserByPhoneReq) (*pbuser.GetUserByPhoneResp, error) {
-	phone := stripLeadingAt(req.Phone)
-	if phone == "" {
+	if req.Phone == "" {
 		return nil, errs.ErrArgs.WrapMsg("phone is required")
 	}
-	if !phoneRe.MatchString(phone) {
+	if !phoneRe.MatchString(req.Phone) {
 		return nil, errs.ErrArgs.WrapMsg("phone must contain digits only (5-20 digits), optionally prefixed with +")
 	}
 
-	dbUser, err := s.db.FindByPhone(ctx, phone)
+	dbUser, err := s.db.FindByPhone(ctx, req.Phone)
 	if err != nil {
 		if errs.ErrRecordNotFound.Is(err) {
 			// 手机号未注册，返回空响应而非错误
 			return &pbuser.GetUserByPhoneResp{}, nil
 		}
 		log.ZError(ctx, "GetUserByPhone: FindByPhone failed", err,
-			"opUserID", mcontext.GetOpUserID(ctx), "phone", phone)
+			"opUserID", mcontext.GetOpUserID(ctx), "phone", req.Phone)
 		return nil, err
 	}
 
@@ -608,11 +598,10 @@ func (s *userServer) GetUserByPhone(ctx context.Context, req *pbuser.GetUserByPh
 }
 
 // GetUsersByNickname 按昵称精确匹配查询普通用户（app_manger_level 与分页拉取用户一致）。
-// 若 nickname 首字符为 @，则去掉后再查找（兼容 @nickname 输入）。
 // 全局黑名单用户会被过滤；手机号字段按 phone_visibility 与 getDesignateUsers 相同规则处理。
 // MsgReceiveSetting=2 的用户对非本人搜索者不可见。
 func (s *userServer) GetUsersByNickname(ctx context.Context, req *pbuser.GetUsersByNicknameReq) (*pbuser.GetUsersByNicknameResp, error) {
-	nickname := stripLeadingAt(req.Nickname)
+	nickname := strings.TrimSpace(req.Nickname)
 	if nickname == "" {
 		return nil, errs.ErrArgs.WrapMsg("nickname is required")
 	}
@@ -680,10 +669,9 @@ func (s *userServer) GetUsersByNickname(ctx context.Context, req *pbuser.GetUser
 }
 
 // CheckNickname 检查昵称是否已被普通用户占用（精确匹配，与 GetUsersByNickname 用户范围一致）。
-// 若 nickname 首字符为 @，则去掉后再检查。
 // excludeUserID 用于修改昵称时排除本人；不做隐私过滤，仅判断是否存在占用。
 func (s *userServer) CheckNickname(ctx context.Context, req *pbuser.CheckNicknameReq) (*pbuser.CheckNicknameResp, error) {
-	nickname := stripLeadingAt(req.Nickname)
+	nickname := strings.TrimSpace(req.Nickname)
 	if nickname == "" {
 		return nil, errs.ErrArgs.WrapMsg("nickname is required")
 	}
@@ -714,7 +702,7 @@ func (s *userServer) CheckNickname(ctx context.Context, req *pbuser.CheckNicknam
 
 // CheckUserExist 检查指定 userID 的用户是否存在。
 func (s *userServer) CheckUserExist(ctx context.Context, req *pbuser.CheckUserExistReq) (*pbuser.CheckUserExistResp, error) {
-	userID := stripLeadingAt(req.UserID)
+	userID := strings.TrimSpace(req.UserID)
 	if userID == "" {
 		return nil, errs.ErrArgs.WrapMsg("userID is required")
 	}
@@ -756,20 +744,21 @@ func (s *userServer) AccountCheck(ctx context.Context, req *pbuser.AccountCheckR
 }
 
 func (s *userServer) GetPaginationUsers(ctx context.Context, req *pbuser.GetPaginationUsersReq) (resp *pbuser.GetPaginationUsersResp, err error) {
-	userID := stripLeadingAt(req.UserID)
-	nickName := stripLeadingAt(req.NickName)
-	if userID == "" && nickName == "" {
+	if req.UserID == "" && req.NickName == "" {
 		total, users, err := s.db.PageFindUser(ctx, constant.IMOrdinaryUser, constant.AppOrdinaryUsers, req.Pagination)
 		if err != nil {
 			return nil, err
 		}
 		return &pbuser.GetPaginationUsersResp{Total: int32(total), Users: convert.UsersDB2Pb(users)}, err
+	} else {
+		total, users, err := s.db.PageFindUserWithKeyword(ctx, constant.IMOrdinaryUser, constant.AppOrdinaryUsers, req.UserID, req.NickName, req.Pagination)
+		if err != nil {
+			return nil, err
+		}
+		return &pbuser.GetPaginationUsersResp{Total: int32(total), Users: convert.UsersDB2Pb(users)}, err
+
 	}
-	total, users, err := s.db.PageFindUserWithKeyword(ctx, constant.IMOrdinaryUser, constant.AppOrdinaryUsers, userID, nickName, req.Pagination)
-	if err != nil {
-		return nil, err
-	}
-	return &pbuser.GetPaginationUsersResp{Total: int32(total), Users: convert.UsersDB2Pb(users)}, err
+
 }
 
 func (s *userServer) UserRegister(ctx context.Context, req *pbuser.UserRegisterReq) (resp *pbuser.UserRegisterResp, err error) {
@@ -1090,11 +1079,10 @@ func (s *userServer) SearchNotificationAccount(ctx context.Context, req *pbuser.
 	var users []*tablerelation.User
 	var err error
 
-	// If a keyword is provided in the request（首字符 @ 会去掉后再查）
-	keyword := stripLeadingAt(req.Keyword)
-	if keyword != "" {
+	// If a keyword is provided in the request
+	if req.Keyword != "" {
 		// Find users by keyword
-		users, err = s.db.Find(ctx, []string{keyword})
+		users, err = s.db.Find(ctx, []string{req.Keyword})
 		if err != nil {
 			return nil, err
 		}
@@ -1106,7 +1094,7 @@ func (s *userServer) SearchNotificationAccount(ctx context.Context, req *pbuser.
 		}
 
 		// Find users by nickname if no users found by keyword
-		users, err = s.db.FindByNickname(ctx, keyword)
+		users, err = s.db.FindByNickname(ctx, req.Keyword)
 		if err != nil {
 			return nil, err
 		}
