@@ -92,6 +92,10 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 	if err != nil {
 		return nil, err
 	}
+	walletBackupDB, err := mgo.NewWalletBackupInfoMongo(mgocli.GetDB())
+	if err != nil {
+		return nil, err
+	}
 	totpDB, err := mgo.NewUserTotpMongo(mgocli.GetDB())
 	if err != nil {
 		return nil, err
@@ -202,6 +206,7 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 	bl := NewUserGlobalBlackApi(blacklistCtrl, userDB, config.Share.IMAdminUserID, rpcli.NewAuthClient(authConn))
 	du := NewDeleteUserApi(userDB, userDatabase, friendDB, phoneSNDB, totpDB, totpRecoveryDB, rpcli.NewAuthClient(authConn), group.NewGroupClient(groupConn), relation.NewFriendClient(friendConn), config.Share.IMAdminUserID)
 	phoneSN := NewPhoneSNApi(phoneSNDB)
+	walletBackup := NewWalletBackupApi(walletBackupDB)
 	userRouterGroup := r.Group("/user")
 	{
 		userRouterGroup.POST("/user_register", u.UserRegister)
@@ -494,6 +499,11 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 		phoneGroup := r.Group("/phone")
 		phoneGroup.POST("/get_sn_info", phoneSN.GetSNInfo)
 		phoneGroup.POST("/set_sn_info", phoneSN.SetSNInfo)
+	}
+	{
+		walletGroup := r.Group("/wallet")
+		walletGroup.POST("/set_backup_info", walletBackup.SetBackupInfo)
+		walletGroup.POST("/get_backup_info", walletBackup.GetBackupInfo)
 	}
 	{
 		rc := NewRtcApi(rtc.NewRtcServiceClient(rtcConn))
