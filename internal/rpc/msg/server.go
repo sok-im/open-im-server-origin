@@ -69,6 +69,7 @@ type msgServer struct {
 	msgNotificationSender  *MsgNotificationSender           // RPC client for sending msg notifications.
 	config                 *Config                          // Global configuration settings.
 	webhookClient          *webhook.Client
+	chatbotWebhook         *webhook.Client
 	conversationClient     *rpcli.ConversationClient
 	relationClient         *rpcli.RelationClient
 	spamReportDB           database.SpamReport
@@ -149,6 +150,11 @@ func Start(ctx context.Context, config *Config, client discovery.SvcDiscoveryReg
 		return err
 	}
 
+	chatbotURL := config.Share.Chatbot.CallbackURL
+	if chatbotURL == "" {
+		chatbotURL = config.WebhooksConfig.URL
+	}
+
 	s := &msgServer{
 		MsgDatabase:            msgDatabase,
 		RegisterCenter:         client,
@@ -158,6 +164,7 @@ func Start(ctx context.Context, config *Config, client discovery.SvcDiscoveryReg
 		FriendLocalCache:       rpccache.NewFriendLocalCache(rpcli.NewRelationClient(friendConn), &config.LocalCacheConfig, rdb),
 		config:                 config,
 		webhookClient:          webhook.NewWebhookClient(config.WebhooksConfig.URL),
+		chatbotWebhook:         webhook.NewWebhookClient(chatbotURL),
 		conversationClient:     conversationClient,
 		relationClient:         rpcli.NewRelationClient(friendConn),
 		spamReportDB:           spamReportDB,

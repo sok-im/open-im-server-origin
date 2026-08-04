@@ -1,9 +1,14 @@
 package msg
 
 import (
+	"context"
+
+	cbapi "github.com/openimsdk/open-im-server/v3/pkg/callbackstruct"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/config"
 	"github.com/openimsdk/protocol/constant"
+	pbchat "github.com/openimsdk/protocol/msg"
 	"github.com/openimsdk/protocol/sdkws"
+	"github.com/openimsdk/tools/log"
 	"github.com/openimsdk/tools/utils/datautil"
 )
 
@@ -31,4 +36,28 @@ func chatbotHit(cfg config.Chatbot, msg *sdkws.MsgData) bool {
 	default:
 		return false
 	}
+}
+
+func (m *msgServer) webhookAfterSendMsgToChatBot(ctx context.Context, req *pbchat.SendMsgReq) {
+	cfg := m.config.Share.Chatbot
+	if !chatbotHit(cfg, req.MsgData) {
+		return
+	}
+	timeout := cfg.Timeout
+	if timeout <= 0 {
+		timeout = 5
+	}
+	cbReq := &cbapi.CallbackAfterSendMsgToBotReq{
+		CommonCallbackReq: toCommonCallback(ctx, req, cbapi.CallbackAfterSendMsgToBotCommand),
+	}
+	switch req.MsgData.SessionType {
+	case constant.SingleChatType:
+		cbReq.RecvID = req.MsgData.RecvID
+	case constant.ReadGroupChatType:
+		cbReq.GroupID = req.MsgData.GroupID
+	}
+	log.ZDebug(ctx, "webhookAfterSendMsgToChatBot", "sendID", req.MsgData.SendID,
+		"recvID", cbReq.RecvID, "groupID", cbReq.GroupID, "clientMsgID", req.MsgData.ClientMsgID, "seq", req.MsgData.Seq)
+	m.chatbotWebhook.AsyncPost(ctx, cbReq.GetCallbackCommand(), cbReq,
+		&cbapi.CallbackAfterSendMsgToBotResp{}, &config.AfterConfig{Enable: true, Timeout: timeout})
 }
