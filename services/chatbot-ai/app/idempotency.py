@@ -36,10 +36,11 @@ class MemoryIdempotencyStore:
         return True
 
     def confirm(self, client_msg_id: str) -> None:
+        """Always rewrite long TTL (even if short TTL already expired / purged)."""
         now = time.monotonic()
         self._purge_expired(now)
-        if client_msg_id in self._entries:
-            self._entries[client_msg_id] = now + self._long_ttl
+        # Spec: 或重写 — unconditional; do not no-op after purge.
+        self._entries[client_msg_id] = now + self._long_ttl
 
 
 def build_idempotency(settings: Settings) -> IdempotencyStore:

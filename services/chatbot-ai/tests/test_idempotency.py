@@ -17,6 +17,24 @@ def test_confirm_keeps_block():
     assert s.try_acquire("m2") is False
 
 
+def test_confirm_survives_short_ttl():
+    """After confirm, sleeping past short_ttl must still block re-acquire."""
+    s = MemoryIdempotencyStore(short_ttl=1, long_ttl=86400)
+    assert s.try_acquire("m2b") is True
+    s.confirm("m2b")
+    time.sleep(1.1)
+    assert s.try_acquire("m2b") is False
+
+
+def test_confirm_after_short_ttl_expired():
+    """acquire → wait short expire → confirm → still blocked (rewrite long TTL)."""
+    s = MemoryIdempotencyStore(short_ttl=1, long_ttl=86400)
+    assert s.try_acquire("m2c") is True
+    time.sleep(1.1)
+    s.confirm("m2c")
+    assert s.try_acquire("m2c") is False
+
+
 def test_short_ttl_expires():
     s = MemoryIdempotencyStore(short_ttl=1, long_ttl=86400)
     assert s.try_acquire("m3") is True
