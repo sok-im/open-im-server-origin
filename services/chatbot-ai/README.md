@@ -36,16 +36,17 @@ OpenIM 会把 command 拼到 URL 后，实际请求：
 
 ### 对接要点
 
-1. **Admin token 回写**：机器人账号不能自取用户 token。本服务用 `OPENIM_ADMIN_USER` + `OPENIM_ADMIN_SECRET`（或预设 `OPENIM_ADMIN_TOKEN`）拿 IMAdmin token，以 `sendID=BOT_USER_ID` 调 `/msg/send_msg` 发回复。
+1. **Admin token 回写**：机器人账号不能自取用户 token。本服务用 `OPENIM_ADMIN_USER` + `OPENIM_ADMIN_SECRET`（或预设 `OPENIM_ADMIN_TOKEN`）拿 IMAdmin token，以 `sendID=BOT_USER_ID` 调 `/msg/send_msg` 发回复。Token 按 `expireTimeSeconds` 缓存并提前约 60s 刷新；`send_msg` 遇 HTTP 401 / OpenIM token errCode 时清缓存并重试一次。
 2. **回调尽力一次**：OpenIM 侧异步回调可能丢弃或重放；本服务按 `clientMsgID` 幂等，同一 ID 不会二次回复。
 3. **`callbackURL`**：指向本服务根地址（如 `http://127.0.0.1:8000`），无尾部 path/command。
+4. **可选回调密钥**：若设置环境变量 `CALLBACK_SECRET`，则要求请求头 `X-Callback-Secret` 与之相等，否则 401；未设置时不校验（便于本地开发）。OpenIM 侧需自行在回调 HTTP 头里带上该值（或在网关注入）。
 
 ## 幂等
 
 - Key：`clientMsgID`
 - 拿到短 TTL 锁才处理；成功 `confirm` 后延长到长 TTL（约 24h）
 - 失败保留短 TTL，抑制风暴重试
-- 默认 `IDEMPOTENCY_BACKEND=memory`（单实例）；多实例需后续 redis
+- **仅 `IDEMPOTENCY_BACKEND=memory` 已实现**（进程内，单实例）。`redis` 会 `NotImplementedError`，多实例部署暂不可用。
 
 ## 知识库重建
 

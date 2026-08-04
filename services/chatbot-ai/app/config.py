@@ -25,7 +25,8 @@ class Settings(BaseSettings):
     knowledge_dir: str = "./knowledge"
     similarity_top_k: int = 4
     admin_reindex_token: str = "change-me"
-    idempotency_backend: str = "memory"  # memory | redis
+    callback_secret: str = ""  # 非空则校验 X-Callback-Secret；空则跳过（dev）
+    idempotency_backend: str = "memory"  # memory only; redis → NotImplementedError
     redis_url: str = "redis://127.0.0.1:6379/0"
 
     fallback_no_hit: str = "暂未查到相关说明，请换个问法或联系人工客服。"
@@ -38,6 +39,14 @@ class Settings(BaseSettings):
     @property
     def effective_embed_api_key(self) -> str:
         return self.embed_api_key or self.llm_api_key
+
+
+def callback_secret_ok(settings: Settings, header_value: str | None) -> bool:
+    """If CALLBACK_SECRET is set, require matching X-Callback-Secret; else allow."""
+    expected = (settings.callback_secret or "").strip()
+    if not expected:
+        return True
+    return (header_value or "") == expected
 
 
 @lru_cache

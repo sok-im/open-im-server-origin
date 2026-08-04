@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Any
@@ -84,6 +85,29 @@ def _extract_text(raw: str) -> str | None:
     return None
 
 
+def resolve_session_target(payload: dict) -> tuple[int, str, str] | None:
+    """Return (sessionType, recv_user_id, group_id) when payload is sendable.
+
+    Single chat (1) requires sendID (reply target). Group (3) requires groupID.
+    Other sessionType values are unsupported.
+    """
+    try:
+        st = int(payload.get("sessionType") or 0)
+    except (TypeError, ValueError):
+        return None
+    if st == _SESSION_TYPE_SINGLE:
+        recv = str(payload.get("sendID") or "").strip()
+        if not recv:
+            return None
+        return st, recv, ""
+    if st == _SESSION_TYPE_GROUP:
+        gid = str(payload.get("groupID") or "").strip()
+        if not gid:
+            return None
+        return st, "", gid
+    return None
+
+
 async def handle_bot_message(payload: dict, app_state: AppState) -> None:
     """Acquire idempotency, RAG answer, send bot reply, then confirm long TTL."""
     cid = payload.get("clientMsgID") or ""
@@ -93,33 +117,33 @@ async def handle_bot_message(payload: dict, app_state: AppState) -> None:
         q = parse_user_question(payload)
         if not q:
             return
-        text = answer_question(app_state.settings, app_state.index, q)
-        st = int(payload.get("sessionType") or 0)
+
+        # Validate session before RAG. Return without confirm so the short
+        # idempotency lock expires and OpenIM can retry with a fixed payload.
+        target = resolve_session_target(payload)
+        if target is None:
+            logger.warning(
+                "unsupported or incomplete session clientMsgID=%s sessionType=%s",
+                cid,
+                payload.get("sessionType"),
+            )
+            return
+
+        st, recv_user_id, group_id = target
+        text = await asyncio.to_thread(
+            answer_question, app_state.settings, app_state.index, q
+        )
         async with httpx.AsyncClient(timeout=30) as client:
             token = await ensure_admin_token(client, app_state.settings)
-            if st == _SESSION_TYPE_SINGLE:
-                await send_bot_text(
-                    client,
-                    app_state.settings,
-                    token=token,
-                    text=text,
-                    session_type=_SESSION_TYPE_SINGLE,
-                    recv_user_id=str(payload.get("sendID") or ""),
-                )
-            elif st == _SESSION_TYPE_GROUP:
-                await send_bot_text(
-                    client,
-                    app_state.settings,
-                    token=token,
-                    text=text,
-                    session_type=_SESSION_TYPE_GROUP,
-                    group_id=str(payload.get("groupID") or ""),
-                )
-            else:
-                logger.warning(
-                    "unsupported sessionType=%s clientMsgID=%s", st, cid
-                )
-                return
+            await send_bot_text(
+                client,
+                app_state.settings,
+                token=token,
+                text=text,
+                session_type=st,
+                recv_user_id=recv_user_id,
+                group_id=group_id,
+            )
         app_state.idem.confirm(cid)
     except Exception:
         logger.exception("bot pipeline failed clientMsgID=%s", cid)

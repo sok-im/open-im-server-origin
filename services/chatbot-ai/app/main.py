@@ -9,7 +9,7 @@ from typing import Any
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
 
 from app.callback import AppState, handle_bot_message
-from app.config import get_settings
+from app.config import callback_secret_ok, get_settings
 from app.idempotency import build_idempotency
 from app.rag.index import get_or_create_index
 
@@ -38,15 +38,18 @@ async def healthz() -> dict[str, bool]:
 async def callback_after_send_msg_to_bot(
     request: Request,
     background_tasks: BackgroundTasks,
+    x_callback_secret: str | None = Header(default=None, alias="X-Callback-Secret"),
 ) -> dict[str, int]:
     """Quick ACK for OpenIM; RAG + send_msg run in BackgroundTasks."""
+    state: AppState = request.app.state.bot
+    if not callback_secret_ok(state.settings, x_callback_secret):
+        raise HTTPException(status_code=401, detail="invalid callback secret")
     try:
         payload: dict[str, Any] = await request.json()
     except Exception:
         payload = {}
     if not isinstance(payload, dict):
         payload = {}
-    state: AppState = request.app.state.bot
     background_tasks.add_task(handle_bot_message, payload, state)
     return {"actionCode": 0}
 
