@@ -15,9 +15,9 @@ from app.rag.index import build_llm
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = (
+SYSTEM_PROMPT_TEMPLATE = (
     "你是在线客服助手。只依据检索到的资料回答用户问题；"
-    "若资料中没有足够依据，直接回复「暂未查到相关说明」，不要编造。"
+    "若资料中没有足够依据，直接回复「{fallback_no_hit}」，不要编造。"
 )
 
 QA_PROMPT = PromptTemplate(
@@ -62,9 +62,10 @@ def answer_question(settings: Settings, index: VectorStoreIndex, question: str) 
         return fallback
 
     llm = build_llm(settings)
+    system_prompt = SYSTEM_PROMPT_TEMPLATE.format(fallback_no_hit=settings.fallback_no_hit)
     synthesizer = get_response_synthesizer(
         llm=llm,
-        text_qa_template=QA_PROMPT.partial_format(system_prompt=SYSTEM_PROMPT),
+        text_qa_template=QA_PROMPT.partial_format(system_prompt=system_prompt),
     )
     query_engine = RetrieverQueryEngine(retriever=retriever, response_synthesizer=synthesizer)
     try:

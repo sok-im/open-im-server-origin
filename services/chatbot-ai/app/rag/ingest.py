@@ -23,12 +23,19 @@ def ingest_knowledge(settings: Settings, *, force_rebuild: bool = True) -> int:
     if not knowledge_dir.is_dir():
         raise FileNotFoundError(f"knowledge_dir not found: {knowledge_dir}")
 
-    documents = SimpleDirectoryReader(
-        input_dir=str(knowledge_dir),
-        required_exts=[".md", ".txt"],
-    ).load_data()
+    try:
+        documents = SimpleDirectoryReader(
+            input_dir=str(knowledge_dir),
+            required_exts=[".md", ".txt"],
+        ).load_data()
+    except ValueError:
+        # LlamaIndex raises when the directory has no matching files.
+        documents = []
     if not documents:
         logger.warning("no documents found under %s", knowledge_dir)
+        # Empty knowledge dir must still clear Chroma when rebuilding.
+        if force_rebuild:
+            build_vector_store(settings, force_rebuild=True)
         return 0
 
     embed_model = build_embed_model(settings)

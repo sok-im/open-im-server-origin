@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 
 import chromadb
-from llama_index.core import StorageContext, VectorStoreIndex
+from llama_index.core import VectorStoreIndex
 from llama_index.embeddings.openai import OpenAIEmbedding
 from llama_index.llms.openai_like import OpenAILike
 from llama_index.vector_stores.chroma import ChromaVectorStore
