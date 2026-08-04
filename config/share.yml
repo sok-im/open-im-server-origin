@@ -27,3 +27,15 @@ multiLogin:
 rpcMaxBodySize:
   requestMaxBodySize: 8388608
   responseMaxBodySize: 8388608
+
+# 客服机器人：enable 后 openim-rpc-user 启动时自动创建 userID 账号，
+# 用户单聊该账号或群内 @它时，openim-rpc-msg 异步回调 callbackURL。
+# callbackURL 为空则回退到 webhooks.yml 的全局 url。
+chatbot:
+  enable: false
+  userID: "openIMChatbot"
+  nickname: "在线客服"
+  faceURL: ""
+  callbackURL: ""
+  timeout: 5
+  deniedTypes: [ ]

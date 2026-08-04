@@ -521,6 +521,19 @@ type Share struct {
 	IMAdminUserID   []string        `mapstructure:"imAdminUserID"`
 	MultiLogin      MultiLogin      `mapstructure:"multiLogin"`
 	RPCMaxBodySize  MaxRequestBody  `mapstructure:"rpcMaxBodySize"`
+	Chatbot         Chatbot         `mapstructure:"chatbot"`
+}
+
+// Chatbot 客服机器人配置：机器人账号身份 + 回调外部 AI 后端。
+// 被 openim-rpc-user（启动自动建号）与 openim-rpc-msg（消息回调）共同读取。
+type Chatbot struct {
+	Enable      bool    `mapstructure:"enable"`
+	UserID      string  `mapstructure:"userID"`
+	Nickname    string  `mapstructure:"nickname"`
+	FaceURL     string  `mapstructure:"faceURL"`
+	CallbackURL string  `mapstructure:"callbackURL"`
+	Timeout     int     `mapstructure:"timeout"`
+	DeniedTypes []int32 `mapstructure:"deniedTypes"`
 }
 
 // ChatAPI 是 chat HTTP API 服务的访问配置。
