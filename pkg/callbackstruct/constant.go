@@ -49,6 +49,7 @@ const (
 	CallbackAfterSendSingleMsgCommand       = "callbackAfterSendSingleMsgCommand"
 	CallbackBeforeSendGroupMsgCommand       = "callbackBeforeSendGroupMsgCommand"
 	CallbackAfterSendGroupMsgCommand        = "callbackAfterSendGroupMsgCommand"
+	CallbackAfterSendMsgToBotCommand        = "callbackAfterSendMsgToBotCommand"
 	CallbackAfterUserOnlineCommand          = "callbackAfterUserOnlineCommand"
 	CallbackAfterUserOfflineCommand         = "callbackAfterUserOfflineCommand"
 	CallbackAfterUserKickOffCommand         = "callbackAfterUserKickOffCommand"
