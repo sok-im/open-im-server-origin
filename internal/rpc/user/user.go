@@ -102,6 +102,14 @@ func Start(ctx context.Context, config *Config, client registry.SvcDiscoveryRegi
 	for _, v := range config.Share.IMAdminUserID {
 		users = append(users, &tablerelation.User{UserID: v, Nickname: v, AppMangerLevel: constant.AppNotificationAdmin})
 	}
+	if config.Share.Chatbot.Enable && config.Share.Chatbot.UserID != "" {
+		users = append(users, &tablerelation.User{
+			UserID:         config.Share.Chatbot.UserID,
+			Nickname:       config.Share.Chatbot.Nickname,
+			FaceURL:        config.Share.Chatbot.FaceURL,
+			AppMangerLevel: constant.AppRobotAdmin,
+		})
+	}
 	userDB, err := mgo.NewUserMongo(mgocli.GetDB())
 	if err != nil {
 		return err
