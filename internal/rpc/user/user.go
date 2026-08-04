@@ -1128,7 +1128,7 @@ func (s *userServer) GetNotificationAccount(ctx context.Context, req *pbuser.Get
 	if err != nil {
 		return nil, servererrs.ErrUserIDNotFound.Wrap()
 	}
-	if user.AppMangerLevel == constant.AppAdmin || user.AppMangerLevel >= constant.AppNotificationAdmin {
+	if (user.AppMangerLevel == constant.AppAdmin || user.AppMangerLevel >= constant.AppNotificationAdmin) && user.AppMangerLevel != constant.AppRobotAdmin {
 		return &pbuser.GetNotificationAccountResp{Account: &pbuser.NotificationAccountInfo{
 			UserID:         user.UserID,
 			FaceURL:        user.FaceURL,
@@ -1159,7 +1159,7 @@ func (s *userServer) userModelToResp(users []*tablerelation.User, pagination pag
 	accounts := make([]*pbuser.NotificationAccountInfo, 0)
 	var total int64
 	for _, v := range users {
-		if v.AppMangerLevel >= constant.AppNotificationAdmin && !datautil.Contain(v.UserID, s.config.Share.IMAdminUserID...) {
+		if v.AppMangerLevel >= constant.AppNotificationAdmin && v.AppMangerLevel != constant.AppRobotAdmin && !datautil.Contain(v.UserID, s.config.Share.IMAdminUserID...) {
 			temp := &pbuser.NotificationAccountInfo{
 				UserID:         v.UserID,
 				FaceURL:        v.FaceURL,
