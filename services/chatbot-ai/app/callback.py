@@ -1,14 +1,42 @@
-"""OpenIM chatbot callback helpers: filter and extract user question text."""
+"""OpenIM chatbot callback helpers: filter, extract question, and process pipeline."""
 
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
+
+import httpx
+from llama_index.core import VectorStoreIndex
+
+from app.config import Settings
+from app.idempotency import IdempotencyStore
+from app.openim_client import ensure_admin_token, send_bot_text
+from app.rag.query import answer_question
+
+logger = logging.getLogger(__name__)
 
 # OpenIM protocol/constant: Text=101, AtText=106
 _CONTENT_TYPE_TEXT = 101
 _CONTENT_TYPE_AT_TEXT = 106
 _ALLOWED_CONTENT_TYPES = {_CONTENT_TYPE_TEXT, _CONTENT_TYPE_AT_TEXT}
+
+_SESSION_TYPE_SINGLE = 1
+_SESSION_TYPE_GROUP = 3
+
+
+class AppState:
+    """Shared runtime state for the FastAPI app (settings, idempotency, index)."""
+
+    def __init__(
+        self,
+        settings: Settings,
+        idem: IdempotencyStore,
+        index: VectorStoreIndex,
+    ) -> None:
+        self.settings = settings
+        self.idem = idem
+        self.index = index
 
 
 def parse_user_question(payload: dict) -> str | None:
@@ -54,3 +82,44 @@ def _extract_text(raw: str) -> str | None:
     if isinstance(parsed, str):
         return parsed
     return None
+
+
+async def handle_bot_message(payload: dict, app_state: AppState) -> None:
+    """Acquire idempotency, RAG answer, send bot reply, then confirm long TTL."""
+    cid = payload.get("clientMsgID") or ""
+    if not cid or not app_state.idem.try_acquire(cid):
+        return
+    try:
+        q = parse_user_question(payload)
+        if not q:
+            return
+        text = answer_question(app_state.settings, app_state.index, q)
+        st = int(payload.get("sessionType") or 0)
+        async with httpx.AsyncClient(timeout=30) as client:
+            token = await ensure_admin_token(client, app_state.settings)
+            if st == _SESSION_TYPE_SINGLE:
+                await send_bot_text(
+                    client,
+                    app_state.settings,
+                    token=token,
+                    text=text,
+                    session_type=_SESSION_TYPE_SINGLE,
+                    recv_user_id=str(payload.get("sendID") or ""),
+                )
+            elif st == _SESSION_TYPE_GROUP:
+                await send_bot_text(
+                    client,
+                    app_state.settings,
+                    token=token,
+                    text=text,
+                    session_type=_SESSION_TYPE_GROUP,
+                    group_id=str(payload.get("groupID") or ""),
+                )
+            else:
+                logger.warning(
+                    "unsupported sessionType=%s clientMsgID=%s", st, cid
+                )
+                return
+        app_state.idem.confirm(cid)
+    except Exception:
+        logger.exception("bot pipeline failed clientMsgID=%s", cid)
