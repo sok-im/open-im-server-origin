@@ -61,3 +61,11 @@ func (w *walletBackupInfoMgo) GetByUID(ctx context.Context, uid string) (*model.
 	}
 	return doc, nil
 }
+
+func (w *walletBackupInfoMgo) DeleteByUID(ctx context.Context, uid string) error {
+	if uid == "" {
+		return nil
+	}
+	_, err := w.coll.DeleteOne(ctx, bson.M{"uid": uid})
+	return errs.Wrap(err)
+}

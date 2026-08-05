@@ -22,9 +22,9 @@ func NewWalletBackupApi(db database.WalletBackupInfo) *WalletBackupApi {
 
 type walletSetBackupInfoReq struct {
 	UID        string `json:"uid" binding:"required"`
-	BackupTime int64  `json:"backupTime" binding:"required"`
+	BackupTime int64  `json:"backupTime"`
 	FileSize   int64  `json:"fileSize"`
-	Name       string `json:"name" binding:"required"`
+	Name       string `json:"name"`
 }
 
 type walletGetBackupInfoReq struct {
@@ -45,9 +45,17 @@ func requireSelfUID(opUserID, uid string) error {
 	return nil
 }
 
+// isClearBackupInfo 表示客户端请求清空备份：BackupTime=0、FileSize=0、name 为空。
+func isClearBackupInfo(name string, backupTime, fileSize int64) bool {
+	return backupTime == 0 && fileSize == 0 && strings.TrimSpace(name) == ""
+}
+
 func validateSetBackupInfo(uid, name string, backupTime, fileSize int64) error {
 	if strings.TrimSpace(uid) == "" {
 		return errs.ErrArgs.WrapMsg("uid is empty")
+	}
+	if isClearBackupInfo(name, backupTime, fileSize) {
+		return nil
 	}
 	if strings.TrimSpace(name) == "" {
 		return errs.ErrArgs.WrapMsg("name is empty")
@@ -62,6 +70,7 @@ func validateSetBackupInfo(uid, name string, backupTime, fileSize int64) error {
 }
 
 // SetBackupInfo POST /wallet/set_backup_info
+// 当 BackupTime=0、FileSize=0、name="" 时删除该 uid 的备份记录。
 func (a *WalletBackupApi) SetBackupInfo(c *gin.Context) {
 	var req walletSetBackupInfoReq
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -76,6 +85,15 @@ func (a *WalletBackupApi) SetBackupInfo(c *gin.Context) {
 	}
 	if err := requireSelfUID(mcontext.GetOpUserID(c), uid); err != nil {
 		apiresp.GinError(c, err)
+		return
+	}
+	if isClearBackupInfo(name, req.BackupTime, req.FileSize) {
+		if err := a.db.DeleteByUID(c, uid); err != nil {
+			log.ZError(c, "SetBackupInfo delete", err, "uid", uid)
+			apiresp.GinError(c, err)
+			return
+		}
+		apiresp.GinSuccess(c, nil)
 		return
 	}
 	if err := a.db.Upsert(c, &model.WalletBackupInfo{
