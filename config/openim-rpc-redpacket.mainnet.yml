@@ -1,3 +1,12 @@
+## ============================================================
+##  红包 RPC 服务 —— 主网正式配置模板
+##  上线时：用本文件内容替换（或覆盖）同目录下的 openim-rpc-redpacket.yml
+##  （后端只按固定文件名 openim-rpc-redpacket.yml 加载，见 config.go）
+##
+##  ⚠️ 本文件含私钥占位符。填入真实私钥后【不要提交到 git】。
+##  ⚠️ 三条链请各用【独立】的 signer / configAdmin 私钥，
+##     绝不要复用测试网那把 e9f6... ！
+## ============================================================
 rpc:
   registerIP: ""
   listenIP: 0.0.0.0
@@ -8,43 +17,9 @@ prometheus:
   enable: false
   ports: [12560]
 
-# Multi-chain runtime configuration.
-# Frontend should select one chainKey per environment, for example:
-#   eth-sepolia / bsc-testnet / tron-nile
+# 多链运行时配置。前端每个环境选择一个 chainKey：
+#   ethereum@mainnet / bsc@mainnet / tron@mainnet
 chains:
-  ethereum@testnet:
-    chainType: EVM
-    chainID: 11155111
-    isTestnet: true
-    # Native coin ticker. Required per chain because chainType=EVM covers many
-    # chains with different native coins; empty falls back to ETH (EVM) / TRX (TRON).
-    nativeSymbol: ETH
-    rpcURL: "https://ethereum-sepolia-rpc.publicnode.com"
-    contractAddress: "0x5F1D92a7b421907b640a038B5C9C725bCD3498BC"
-    signerPrivateKey: "e9f6a5f3a3c3a97099ca31e7f44151e529c0a4f8a91d5d4232c7282f2b798df4"
-    configAdminPrivateKey: "e9f6a5f3a3c3a97099ca31e7f44151e529c0a4f8a91d5d4232c7282f2b798df4"
-
-  bsc@testnet:
-    chainType: EVM
-    chainID: 97
-    isTestnet: true
-    nativeSymbol: BNB
-    rpcURL: "https://data-seed-prebsc-1-s1.bnbchain.org:8545"
-    contractAddress: "0x9f2e22F5D0cf8d8127E319D38b3EDDaE43bb4DC0"
-    signerPrivateKey: "e9f6a5f3a3c3a97099ca31e7f44151e529c0a4f8a91d5d4232c7282f2b798df4"
-    configAdminPrivateKey: "e9f6a5f3a3c3a97099ca31e7f44151e529c0a4f8a91d5d4232c7282f2b798df4"
-
-  tron@testnet:
-    chainType: TRON
-    chainID: 3448148188
-    isTestnet: true
-    nativeSymbol: TRX
-    fullNodeURL: "https://nile.trongrid.io"
-    contractBase58: "TTLFvSEyH6BAUp3cVGygWyTVGPBqdLw81M"
-    ownerBase58: "TJG6ZbEUZNVAQzFQTZehfQJniVJtTBdZ2e"
-    privateKeyHex: "e9f6a5f3a3c3a97099ca31e7f44151e529c0a4f8a91d5d4232c7282f2b798df4"
-    feeLimit: 150000000
-
   ethereum@mainnet:
     chainType: EVM
     chainID: 1
@@ -83,7 +58,7 @@ chains:
     privateKeyHex: "340937a4edc4502b3e9fe34022045b4b7954c660db46bc15f584ad099c4c6d8f"
     feeLimit: 1500000000
 
-# Legacy single-chain fields are still supported as a fallback during migration.
+# 迁移期遗留的单链字段，主网留空即可。
 chain:
   rpcURL: ""
   contractAddress: ""
@@ -96,11 +71,11 @@ tron:
   contractBase58: ""
   ownerBase58: ""
   privateKeyHex: ""
-  feeLimit: 150000000
+  feeLimit: 1000000000
 
-# Indexer polling interval (in seconds). Used by both EVM and TRON event indexers.
-# Set to 0 or negative to disable block scanning completely and rely on tx-hash parsing paths.
+# 事件索引器轮询间隔（秒）。主网必须开启（>0），
+# 否则 PacketCreated / PacketClaimed / PacketRefunded 无法自动对账落库。
 indexer:
-  pollInterval: 0
-  # EVM only: max block span per eth_getLogs request (0 = default 2000). Increase if your node allows larger ranges.
+  pollInterval: 5
+  # EVM 单次 eth_getLogs 最大区块跨度（0 = 默认 2000）
   maxBlocksPerPoll: 2000
