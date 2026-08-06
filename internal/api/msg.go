@@ -595,7 +595,7 @@ func (m *MessageApi) GetPaymentNotifications(c *gin.Context) {
 		apiresp.GinError(c, errs.ErrArgs.WithDetail(err.Error()).Wrap())
 		return
 	}
-	total, list, err := m.paymentNotificationDB.FindPage(c, req.SendUserID, req.Pagination)
+	total, list, err := m.paymentNotificationDB.FindPage(c, mcontext.GetOpUserID(c), req.Pagination)
 	if err != nil {
 		apiresp.GinError(c, err)
 		return
