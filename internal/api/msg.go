@@ -636,7 +636,7 @@ func (m *MessageApi) GetPaymentNotifications(c *gin.Context) {
 		Total:         total,
 		Notifications: items,
 	})
-	log.ZDebug(c, "GetPaymentNotifications", "total", total, "items", len(items))
+	log.ZDebug(c, "GetPaymentNotifications", "req", req, "total", total, "items", len(items))
 	return
 }
 
