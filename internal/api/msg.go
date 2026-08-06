@@ -577,10 +577,10 @@ func (m *MessageApi) SendPaymentNotification(c *gin.Context) {
 
 	log.ZDebug(c, "SendPaymentNotification", "req", req)
 
-	doc := buildPaymentNotification(req.SendUserID, req.RecvUserID, req.Content)
+	doc := buildPaymentNotification(req.Content.SendUserID, req.Content.RecvUserID, req.Content)
 	if err := m.paymentNotificationDB.Create(c, doc); err != nil {
 		log.ZError(c, "SendPaymentNotification create mongo failed", err,
-			"sendUserID", req.SendUserID, "recvUserID", req.RecvUserID,
+			"sendUserID", req.Content.SendUserID, "recvUserID", req.Content.RecvUserID,
 			"orderNo", req.Content.OrderNo, "bizID", req.Content.BizID)
 		apiresp.GinError(c, err)
 		return
