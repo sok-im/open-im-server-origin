@@ -48,6 +48,10 @@ type UserDatabase interface {
 	Create(ctx context.Context, users []*model.User) (err error)
 	// UpdateByMap update (zero value) external guarantee userID exists
 	UpdateByMap(ctx context.Context, userID string, args map[string]any) (err error)
+	// MarkWelcomeNotificationSent 原子抢占首次上线欢迎语的发送权；claimed=true 表示由本次调用负责发送
+	MarkWelcomeNotificationSent(ctx context.Context, userID string) (claimed bool, err error)
+	// SetWelcomeNotificationSent 设置欢迎语已发送标记（发送失败回滚为 false）
+	SetWelcomeNotificationSent(ctx context.Context, userID string, sent bool) error
 	// FindUser
 	PageFindUser(ctx context.Context, level1 int64, level2 int64, pagination pagination.Pagination) (count int64, users []*model.User, err error)
 	// FindUser with keyword
@@ -175,6 +179,28 @@ func (u *userDatabase) UpdateByMap(ctx context.Context, userID string, args map[
 		}
 		return u.cache.DelUsersInfo(userID).ChainExecDel(ctx)
 	})
+}
+
+// MarkWelcomeNotificationSent 原子抢占欢迎语发送权，成功后失效缓存以保证读一致。
+func (u *userDatabase) MarkWelcomeNotificationSent(ctx context.Context, userID string) (claimed bool, err error) {
+	claimed, err = u.userDB.MarkWelcomeNotificationSent(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	if claimed {
+		if err = u.cache.DelUsersInfo(userID).ChainExecDel(ctx); err != nil {
+			return false, err
+		}
+	}
+	return claimed, nil
+}
+
+// SetWelcomeNotificationSent 设置欢迎语标记并失效缓存。
+func (u *userDatabase) SetWelcomeNotificationSent(ctx context.Context, userID string, sent bool) error {
+	if err := u.userDB.SetWelcomeNotificationSent(ctx, userID, sent); err != nil {
+		return err
+	}
+	return u.cache.DelUsersInfo(userID).ChainExecDel(ctx)
 }
 
 // Page Gets, returns no error if not found.

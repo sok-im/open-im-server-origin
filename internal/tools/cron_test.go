@@ -16,6 +16,7 @@ import (
 )
 
 func TestName(t *testing.T) {
+	t.Skip("manual integration test requiring local etcd/rpc services")
 	conf := &config.Discovery{
 		Enable: config.ETCD,
 		Etcd: config.Etcd{
@@ -23,7 +24,7 @@ func TestName(t *testing.T) {
 			Address:       []string{"localhost:12379"},
 		},
 	}
-	client, err := kdisc.NewDiscoveryRegister(conf, "source")
+	client, err := kdisc.NewDiscoveryRegister(conf, &config.Share{}, nil)
 	if err != nil {
 		panic(err)
 	}

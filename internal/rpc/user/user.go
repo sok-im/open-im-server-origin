@@ -73,6 +73,7 @@ type userServer struct {
 	relationClient           *rpcli.RelationClient
 	globalBlackDB            controller.UserGlobalBlackDatabase
 	userOfflineRecord        database.UserOfflineRecord
+	msgClient                *rpcli.MsgClient
 }
 
 type Config struct {
@@ -142,6 +143,7 @@ func Start(ctx context.Context, config *Config, client registry.SvcDiscoveryRegi
 		relationClient:    rpcli.NewRelationClient(friendConn),
 		globalBlackDB:     controller.NewUserGlobalBlackDatabase(globalBlackMgo),
 		userOfflineRecord: userOfflineRecordDB,
+		msgClient:         msgClient,
 	}
 	pbuser.RegisterUserServer(server, u)
 	return u.db.InitOnce(context.Background(), users)
@@ -809,6 +811,7 @@ func (s *userServer) UserRegister(ctx context.Context, req *pbuser.UserRegisterR
 			FullName:                   fullName,
 			Phone:                      user.Phone,
 			AreaCode:                   user.AreaCode,
+			Language:                   user.Language,
 			CallRingtoneURL:            user.CallRingtoneURL,
 			CallRingtoneName:           user.CallRingtoneName,
 			CallRingtoneCover:          user.CallRingtoneCover,

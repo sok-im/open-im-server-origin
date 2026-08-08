@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/openimsdk/open-im-server/v3/pkg/rpcli"
 	pbAuth "github.com/openimsdk/protocol/auth"
@@ -29,6 +30,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 	"github.com/go-playground/validator/v10"
+	"github.com/openimsdk/open-im-server/v3/pkg/common/otelx"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/prommetrics"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/servererrs"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/cache/redis"
@@ -52,17 +54,25 @@ const (
 
 func prommetricsGin() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		start := time.Now()
 		c.Next()
-		path := c.FullPath()
-		if c.Writer.Status() == http.StatusNotFound {
-			prommetrics.HttpCall("<404>", c.Request.Method, c.Writer.Status())
-		} else {
-			prommetrics.HttpCall(path, c.Request.Method, c.Writer.Status())
-		}
-		if resp := apiresp.GetGinApiResponse(c); resp != nil {
-			prommetrics.APICall(path, c.Request.Method, resp.ErrCode)
-		}
+
+		status := c.Writer.Status()
+		path := prommetrics.NormalizeMetricPath(c.FullPath(), c.Request.URL.Path, status)
+		module := prommetrics.APIModuleFromPath(path)
+		prommetrics.HttpCall(module, path, c.Request.Method, status)
+		prommetrics.APIObserveCtx(c.Request.Context(), module, path, c.Request.Method, apiCodeFromContext(c, status), time.Since(start))
 	}
+}
+
+func apiCodeFromContext(c *gin.Context, status int) int {
+	if resp := apiresp.GetGinApiResponse(c); resp != nil {
+		return resp.ErrCode
+	}
+	if status == http.StatusOK {
+		return 0
+	}
+	return status
 }
 
 func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, config *Config) (*gin.Engine, error) {
@@ -82,6 +92,10 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 	if err != nil {
 		return nil, err
 	}
+	walletBackupDB, err := mgo.NewWalletBackupInfoMongo(mgocli.GetDB())
+	if err != nil {
+		return nil, err
+	}
 	totpDB, err := mgo.NewUserTotpMongo(mgocli.GetDB())
 	if err != nil {
 		return nil, err
@@ -91,6 +105,10 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 		return nil, err
 	}
 	friendDB, err := mgo.NewFriendMongo(mgocli.GetDB())
+	if err != nil {
+		return nil, err
+	}
+	paymentNotificationDB, err := mgo.NewPaymentNotificationMongo(mgocli.GetDB())
 	if err != nil {
 		return nil, err
 	}
@@ -172,13 +190,23 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 	case BestSpeed:
 		r.Use(gzip.Gzip(gzip.BestSpeed))
 	}
-	r.Use(prommetricsGin(), gin.RecoveryWithWriter(gin.DefaultErrorWriter, mw.GinPanicErr), mw.CorsHandler(), mw.GinParseOperationID(), GinParseToken(rpcli.NewAuthClient(authConn)))
+	r.Use(
+		prommetricsGin(),
+		gin.RecoveryWithWriter(gin.DefaultErrorWriter, mw.GinPanicErr),
+		// Trace span should wrap auth/parse (not just the handler) and expose
+		// its trace_id to prommetricsGin's exemplar recording (which runs outermost).
+		otelx.GinMiddleware("openim-api"),
+		mw.CorsHandler(),
+		mw.GinParseOperationID(),
+		GinParseToken(rpcli.NewAuthClient(authConn)),
+	)
 	u := NewUserApi(user.NewUserClient(userConn), client, config.Share.RpcRegisterName, config.Share.IMAdminUserID)
-	m := NewMessageApi(msg.NewMsgClient(msgConn), rpcli.NewUserClient(userConn), rpcli.NewRelationClient(friendConn), config.Share.IMAdminUserID)
+	m := NewMessageApi(msg.NewMsgClient(msgConn), rpcli.NewUserClient(userConn), rpcli.NewRelationClient(friendConn), config.Share.IMAdminUserID, paymentNotificationDB)
 	cp := NewCaptchaApi(pbcaptcha.NewCaptchaClient(captchaConn))
 	bl := NewUserGlobalBlackApi(blacklistCtrl, userDB, config.Share.IMAdminUserID, rpcli.NewAuthClient(authConn))
 	du := NewDeleteUserApi(userDB, userDatabase, friendDB, phoneSNDB, totpDB, totpRecoveryDB, rpcli.NewAuthClient(authConn), group.NewGroupClient(groupConn), relation.NewFriendClient(friendConn), config.Share.IMAdminUserID)
 	phoneSN := NewPhoneSNApi(phoneSNDB)
+	walletBackup := NewWalletBackupApi(walletBackupDB)
 	userRouterGroup := r.Group("/user")
 	{
 		userRouterGroup.POST("/user_register", u.UserRegister)
@@ -387,6 +415,7 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 		msgGroup.POST("/send_service_notification", m.SendServiceNotification)
 		msgGroup.POST("/batch_send_service_notification", m.BatchSendServiceNotification)
 		msgGroup.POST("/send_payment_notification", m.SendPaymentNotification)
+		msgGroup.POST("/get_payment_notifications", m.GetPaymentNotifications)
 		msgGroup.POST("/notify_red_packet_claimed", m.NotifyRedPacketClaimed)
 		msgGroup.POST("/notify_transfer_received", m.NotifyTransferReceived)
 		msgGroup.POST("/notify_red_packet_expired", m.NotifyRedPacketExpired)
@@ -472,6 +501,11 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 		phoneGroup.POST("/set_sn_info", phoneSN.SetSNInfo)
 	}
 	{
+		walletGroup := r.Group("/wallet")
+		walletGroup.POST("/set_backup_info", walletBackup.SetBackupInfo)
+		walletGroup.POST("/get_backup_info", walletBackup.GetBackupInfo)
+	}
+	{
 		rc := NewRtcApi(rtc.NewRtcServiceClient(rtcConn))
 		rtcGroup := r.Group("/rtc")
 		rtcGroup.POST("/signal_message_assemble", rc.SignalMessageAssemble)
@@ -543,7 +577,10 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 		redpacketGroup.POST("/detail", rp.GetDetail)
 		redpacketGroup.POST("/issue_claim_sign", rp.IssueClaimSign)
 		redpacketGroup.POST("/claim_result", rp.ClaimResult)
-		redpacketGroup.POST("/request_refund", rp.RequestRefund)
+		// 后端代发退款（管理员账户发起并代付 gas）暂不对外开放，改由前端自发退款 + refund_callback 回传。
+		// 保留 handler / RPC / proto 定义，如需恢复取消下面这行注释即可。
+		// redpacketGroup.POST("/request_refund", rp.RequestRefund)
+		redpacketGroup.POST("/refund_callback", rp.RefundCallback)
 		redpacketGroup.POST("/get_refund", rp.GetRefund)
 		redpacketGroup.POST("/wallet_bind/challenge", rp.IssueWalletBindChallenge)
 		redpacketGroup.POST("/wallet_bind/confirm", rp.ConfirmWalletBind)
@@ -589,6 +626,12 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, co
 		proDiscoveryGroup.GET("/msg_gateway", pd.MessageGateway)
 		proDiscoveryGroup.GET("/msg_transfer", pd.MessageTransfer)
 		proDiscoveryGroup.GET("/rtc", pd.Rtc)
+		proDiscoveryGroup.GET("/crypto", pd.Crypto)
+		proDiscoveryGroup.GET("/open_mls", pd.OpenMLS)
+		proDiscoveryGroup.GET("/virgil_security", pd.VirgilSecurity)
+		proDiscoveryGroup.GET("/captcha", pd.Captcha)
+		proDiscoveryGroup.GET("/totp", pd.Totp)
+		proDiscoveryGroup.GET("/red_packet", pd.RedPacket)
 	}
 	return r, nil
 }

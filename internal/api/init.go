@@ -20,6 +20,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	kdisc "github.com/openimsdk/open-im-server/v3/pkg/common/discoveryregister"
+	"github.com/openimsdk/open-im-server/v3/pkg/common/otelx"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/prommetrics"
 	"github.com/openimsdk/tools/discovery"
 	"github.com/openimsdk/tools/discovery/etcd"
@@ -44,6 +45,18 @@ func Start(ctx context.Context, index int, cfg *Config) error {
 		return err
 	}
 
+	traceShutdown, err := otelx.InitTracerProvider(ctx, "openim-api")
+	if err != nil {
+		return errs.WrapMsg(err, "init tracer provider failed")
+	}
+	if traceShutdown != nil {
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = traceShutdown(shutdownCtx)
+		}()
+	}
+
 	var client discovery.SvcDiscoveryRegistry
 
 	// Determine whether zk is passed according to whether it is a clustered deployment
@@ -58,6 +71,7 @@ func Start(ctx context.Context, index int, cfg *Config) error {
 	}
 	client.AddOption(mw.GrpcClient(), grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDefaultServiceConfig(fmt.Sprintf(`{"LoadBalancingPolicy": "%s"}`, "round_robin")))
+	client.AddOption(otelx.GrpcClientDialOptions()...)
 
 	var (
 		netDone        = make(chan struct{}, 1)

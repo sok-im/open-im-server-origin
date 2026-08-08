@@ -1,0 +1,81 @@
+## ============================================================
+##  红包 RPC 服务 —— 主网正式配置模板
+##  上线时：用本文件内容替换（或覆盖）同目录下的 openim-rpc-redpacket.yml
+##  （后端只按固定文件名 openim-rpc-redpacket.yml 加载，见 config.go）
+##
+##  ⚠️ 本文件含私钥占位符。填入真实私钥后【不要提交到 git】。
+##  ⚠️ 三条链请各用【独立】的 signer / configAdmin 私钥，
+##     绝不要复用测试网那把 e9f6... ！
+## ============================================================
+rpc:
+  registerIP: ""
+  listenIP: 0.0.0.0
+  autoSetPorts: false
+  ports: [10560]
+
+prometheus:
+  enable: false
+  ports: [12560]
+
+# 多链运行时配置。前端每个环境选择一个 chainKey：
+#   ethereum@mainnet / bsc@mainnet / tron@mainnet
+chains:
+  ethereum@mainnet:
+    chainType: EVM
+    chainID: 1
+    isTestnet: false
+    nativeSymbol: ETH
+    # 正式发布建议换成自有/付费节点（Alchemy / Infura / QuickNode 等）
+    rpcURL: "https://ethereum-rpc.publicnode.com"
+    contractAddress: "0xA1f42567559aBA5Ff0aac84cdE1AaF1F9DbB888F"
+    # 【需你填】= keys.env 的 SIGNER_PRIVATE_KEY（对应链上 signer 0xEEaD5bAB…ba9c）
+    signerPrivateKey: "340937a4edc4502b3e9fe34022045b4b7954c660db46bc15f584ad099c4c6d8f"
+    # 【需你填】= keys.env 的 CONFIG_ADMIN_PRIVATE_KEY（对应 0x1D81A16f…1597）
+    configAdminPrivateKey: "705dbfb2e3257dc8cfc5fb0537ea4150cdf43f3ad346f50f5efa8643154632ad"
+
+  bsc@mainnet:
+    chainType: EVM
+    chainID: 56
+    isTestnet: false
+    nativeSymbol: BNB
+    rpcURL: "https://bsc-dataseed3.bnbchain.org"
+    contractAddress: "0xA1f42567559aBA5Ff0aac84cdE1AaF1F9DbB888F"
+    # 【需你填】= keys.env 的 SIGNER_PRIVATE_KEY（对应 signer 0xEEaD5bAB…ba9c）
+    signerPrivateKey: "340937a4edc4502b3e9fe34022045b4b7954c660db46bc15f584ad099c4c6d8f"
+    # 【需你填】= keys.env 的 CONFIG_ADMIN_PRIVATE_KEY（对应 0x1D81A16f…1597）
+    configAdminPrivateKey: "705dbfb2e3257dc8cfc5fb0537ea4150cdf43f3ad346f50f5efa8643154632ad"
+
+  tron@mainnet:
+    chainType: TRON
+    chainID: 728126428
+    isTestnet: false
+    nativeSymbol: TRX
+    fullNodeURL: "https://api.trongrid.io"
+    contractBase58: "THTS5CQtGvjDfuN51HgM53xR4vKjzascMB"
+    # 配置管理员地址（公开，非私钥）：0x1D81… 的 TRON 形式
+    ownerBase58: "TCfDtWoYhWwqRAE4Ji8omtqyeJygnsbGhx"
+    # 【需你填】TRON signer 私钥 = keys.env 的 SIGNER_PRIVATE_KEY，去掉开头的 0x（对应 signer TXjDVqyG…Mnm）
+    privateKeyHex: "340937a4edc4502b3e9fe34022045b4b7954c660db46bc15f584ad099c4c6d8f"
+    feeLimit: 1500000000
+
+# 迁移期遗留的单链字段，主网留空即可。
+chain:
+  rpcURL: ""
+  contractAddress: ""
+  chainID: 0
+  signerPrivateKey: ""
+  configAdminPrivateKey: ""
+
+tron:
+  fullNodeURL: ""
+  contractBase58: ""
+  ownerBase58: ""
+  privateKeyHex: ""
+  feeLimit: 1000000000
+
+# 事件索引器轮询间隔（秒）。主网必须开启（>0），
+# 否则 PacketCreated / PacketClaimed / PacketRefunded 无法自动对账落库。
+indexer:
+  pollInterval: 5
+  # EVM 单次 eth_getLogs 最大区块跨度（0 = 默认 2000）
+  maxBlocksPerPoll: 2000

@@ -23,6 +23,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
+	"github.com/openimsdk/open-im-server/v3/pkg/common/otelx"
 	"github.com/openimsdk/open-im-server/v3/pkg/msgprocessor"
 	"github.com/openimsdk/protocol/constant"
 	"github.com/openimsdk/protocol/sdkws"
@@ -178,13 +179,16 @@ func (c *Client) handleMessage(message []byte) error {
 	ctx := mcontext.WithMustInfoCtx(
 		[]string{binaryReq.OperationID, binaryReq.SendID, constant.PlatformIDToName(c.PlatformID), c.ctx.GetConnID()},
 	)
-
-	log.ZDebug(ctx, "gateway req message", "req", binaryReq.String())
-
 	var (
 		resp       []byte
 		messageErr error
 	)
+	ctx, span := otelx.StartWSSpan(ctx, "openim-msggateway", binaryReq.ReqIdentifier)
+	defer func() {
+		otelx.EndSpan(span, messageErr)
+	}()
+
+	log.ZDebug(ctx, "gateway req message", "req", binaryReq.String())
 
 	switch binaryReq.ReqIdentifier {
 	case WSGetNewestSeq:
@@ -208,12 +212,13 @@ func (c *Client) handleMessage(message []byte) error {
 	case WsSubUserOnlineStatus:
 		resp, messageErr = c.longConnServer.SubUserOnlineStatus(ctx, c, binaryReq)
 	default:
-		return fmt.Errorf(
+		messageErr = fmt.Errorf(
 			"ReqIdentifier failed,sendID:%s,msgIncr:%s,reqIdentifier:%d",
 			binaryReq.SendID,
 			binaryReq.MsgIncr,
 			binaryReq.ReqIdentifier,
 		)
+		return messageErr
 	}
 
 	return c.replyMessage(ctx, binaryReq, messageErr, resp)

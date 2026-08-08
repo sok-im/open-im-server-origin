@@ -24,6 +24,7 @@ import (
 	"os/signal"
 	"strconv"
 	"syscall"
+	"time"
 
 	"github.com/openimsdk/tools/discovery/etcd"
 	"github.com/openimsdk/tools/utils/jsonutil"
@@ -38,7 +39,7 @@ import (
 
 	conf "github.com/openimsdk/open-im-server/v3/pkg/common/config"
 	discRegister "github.com/openimsdk/open-im-server/v3/pkg/common/discoveryregister"
-	kdisc "github.com/openimsdk/open-im-server/v3/pkg/common/discoveryregister"
+	"github.com/openimsdk/open-im-server/v3/pkg/common/otelx"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/controller"
 	"github.com/openimsdk/tools/errs"
 	"github.com/openimsdk/tools/log"
@@ -74,6 +75,18 @@ func Start(ctx context.Context, index int, config *Config) error {
 	log.CInfo(ctx, "MSG-TRANSFER server is initializing", "prometheusPorts",
 		config.MsgTransfer.Prometheus.Ports, "index", index)
 
+	traceShutdown, err := otelx.InitTracerProvider(ctx, "openim-msgtransfer")
+	if err != nil {
+		return errs.WrapMsg(err, "init tracer provider failed")
+	}
+	if traceShutdown != nil {
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = traceShutdown(shutdownCtx)
+		}()
+	}
+
 	mgocli, err := mongoutil.NewMongoDB(ctx, config.MongodbConfig.Build())
 	if err != nil {
 		return err
@@ -88,6 +101,7 @@ func Start(ctx context.Context, index int, config *Config) error {
 	}
 	client.AddOption(mw.GrpcClient(), grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDefaultServiceConfig(fmt.Sprintf(`{"LoadBalancingPolicy": "%s"}`, "round_robin")))
+	client.AddOption(otelx.GrpcClientDialOptions()...)
 
 	msgDocModel, err := mgo.NewMsgMongo(mgocli.GetDB())
 	if err != nil {
@@ -143,7 +157,7 @@ func (m *MsgTransfer) Start(index int, cfg *Config) error {
 		return err
 	}
 
-	client, err := kdisc.NewDiscoveryRegister(&cfg.Discovery, &cfg.Share, nil)
+	client, err := discRegister.NewDiscoveryRegister(&cfg.Discovery, &cfg.Share, nil)
 	if err != nil {
 		return errs.WrapMsg(err, "failed to register discovery service")
 	}

@@ -23,7 +23,7 @@ type MLSKeyPackage struct {
 	UserID         string    `bson:"user_id"`
 	DeviceID       string    `bson:"device_id"`
 	Platform       string    `bson:"platform"`
-	KeyPackage     string    `bson:"key_package"`   // base64 TLS-serialized KeyPackage
+	KeyPackage     string    `bson:"key_package"` // base64 TLS-serialized KeyPackage
 	Ciphersuite    string    `bson:"ciphersuite"`
 	CredentialType string    `bson:"credential_type"`
 	Consumed       bool      `bson:"consumed"`
@@ -47,6 +47,9 @@ type MLSCommit struct {
 	ID             string    `bson:"_id"`
 	GroupID        string    `bson:"group_id"`
 	Epoch          uint64    `bson:"epoch"`
+	FromEpoch      uint64    `bson:"from_epoch"`
+	CommitHash     string    `bson:"commit_hash,omitempty"`
+	IdempotencyKey string    `bson:"idempotency_key,omitempty"`
 	SequenceNumber int64     `bson:"sequence_number"`
 	CommitMessage  string    `bson:"commit_message"` // base64 TLS-serialized MLSMessage(Commit)
 	SenderUserID   string    `bson:"sender_user_id"`

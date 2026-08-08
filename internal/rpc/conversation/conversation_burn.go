@@ -46,7 +46,7 @@ func applySenderBurnToConversation(conv *dbModel.Conversation, burnDuration int3
 }
 
 // syncSenderConversationBurnOnCreateSingleChat 发起单聊时，若发送者已设置个人阅后即焚（用户全局 MsgBurnDuration），
-// 为新会话同步会话级 BurnDuration 并通知客户端，供 recordBurnDeadlines 读取。
+// 为新会话静默同步会话级 BurnDuration（不下发 1701），供 recordBurnDeadlines 读取。
 func (c *conversationServer) syncSenderConversationBurnOnCreateSingleChat(
 	ctx context.Context, sendID, recvID, conversationID string, burnDuration int32,
 ) {
@@ -68,6 +68,7 @@ func (c *conversationServer) syncSenderConversationBurnOnCreateSingleChat(
 		constant.SingleChatType,
 		conv,
 		true,
+		false,
 	); err != nil {
 		log.ZWarn(ctx, "syncSenderConversationBurnOnCreateSingleChat syncSingleChatPrivateSettings failed", err,
 			"sendID", sendID, "recvID", recvID, "conversationID", conversationID, "burnDuration", burnDuration)

@@ -30,6 +30,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/openimsdk/open-im-server/v3/pkg/common/prommetrics"
+	"github.com/openimsdk/open-im-server/v3/pkg/common/otelx"
 
 	"github.com/IBM/sarama"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/controller"
@@ -134,6 +135,16 @@ func (och *OnlineHistoryRedisConsumerHandler) do(ctx context.Context, channelID 
 	ctx = mcontext.WithTriggerIDContext(ctx, val.TriggerID())
 	ctxMessages := och.parseConsumerMessages(ctx, val.Val())
 	ctx = withAggregationCtx(ctx, ctxMessages)
+
+	// Span the real batched processing (persist + fan-out), continuing the upstream
+	// producer trace of a representative message rather than only the enqueue step.
+	var parentFrom = ctx
+	if len(ctxMessages) > 0 {
+		parentFrom = ctxMessages[0].ctx
+	}
+	ctx, span := otelx.StartKafkaBatchProcessSpan(ctx, parentFrom, "openim-msgtransfer", val.Key(), len(ctxMessages))
+	defer func() { otelx.EndSpan(span, nil) }()
+
 	log.ZInfo(ctx, "msg arrived channel", "channel id", channelID, "msgList length", len(ctxMessages), "key", val.Key())
 	och.doSetReadSeq(ctx, ctxMessages)
 
@@ -468,9 +479,11 @@ func (och *OnlineHistoryRedisConsumerHandler) ConsumeClaim(session sarama.Consum
 			if len(msg.Value) == 0 {
 				continue
 			}
-			err := och.redisMessageBatches.Put(context.Background(), msg)
-			if err != nil {
-				log.ZWarn(context.Background(), "put msg to  error", err, "msg", msg)
+			// Trace context travels via message headers; the processing span is created
+			// in do() where the actual persist/fan-out work happens (not this enqueue).
+			ctx := och.historyConsumerGroup.GetContextFromMsg(msg)
+			if err := och.redisMessageBatches.Put(ctx, msg); err != nil {
+				log.ZWarn(ctx, "put msg to  error", err, "msg", msg)
 			}
 		case <-session.Context().Done():
 			return nil

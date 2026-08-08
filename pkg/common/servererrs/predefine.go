@@ -72,6 +72,13 @@ var (
 
 	ErrAllUserBusy = errs.NewCodeError(AllUserBusyError, "AllUserBusyError")
 
+	ErrCallE2EERequiredUnsupported     = errs.NewCodeError(CallE2EERequiredUnsupportedError, "CALL_E2EE_REQUIRED_UNSUPPORTED")
+	ErrCallE2EEConversationNotReady    = errs.NewCodeError(CallE2EEConversationNotReadyError, "CALL_E2EE_CONVERSATION_NOT_READY")
+	ErrCallE2EEGroupMembershipInvalid  = errs.NewCodeError(CallE2EEGroupMembershipInvalidError, "CALL_E2EE_GROUP_MEMBERSHIP_INVALID")
+	ErrCallE2EEProtocolVersionMismatch = errs.NewCodeError(CallE2EEProtocolVersionMismatchError, "CALL_E2EE_PROTOCOL_VERSION_MISMATCH")
+	ErrCallE2EETokenDenied             = errs.NewCodeError(CallE2EETokenDeniedError, "CALL_E2EE_TOKEN_DENIED")
+	ErrMLSEpochConflict                = errs.NewCodeError(MLSEpochConflictError, "epoch conflict")
+
 	// TOTP / MFA errors.
 	ErrTotpAlreadyBound   = errs.NewCodeError(TotpAlreadyBoundError, "user already has TOTP bound, please unbind first")
 	ErrTotpCodeInvalid    = errs.NewCodeError(TotpCodeInvalidError, "TOTP or recovery code is incorrect")

@@ -275,7 +275,9 @@ func (c *conversationServer) getConversations(ctx context.Context, ownerUserID s
 	return list, nil
 }
 
-// syncSingleChatPrivateSettings syncs isPrivateChat/burnDuration to the peer and notifies both sides.
+// syncSingleChatPrivateSettings syncs isPrivateChat/burnDuration to the peer.
+// notifyPrivateChat controls ConversationPrivateChatNotification(1701)：
+// 仅「已有会话」被用户显式设置阅后即焚时为 true；新建会话自动继承全局设置时为 false。
 func (c *conversationServer) syncSingleChatPrivateSettings(
 	ctx context.Context,
 	ownerUserIDs []string,
@@ -283,6 +285,7 @@ func (c *conversationServer) syncSingleChatPrivateSettings(
 	conversationType int32,
 	convTemplate dbModel.Conversation,
 	syncBurnDuration bool,
+	notifyPrivateChat bool,
 ) error {
 	if conversationType != constant.SingleChatType || peerUserID == "" {
 		return nil
@@ -299,17 +302,26 @@ func (c *conversationServer) syncSingleChatPrivateSettings(
 	if err := c.conversationDatabase.SyncPeerUserPrivateConversationTx(ctx, conversations, syncBurnDuration); err != nil {
 		return err
 	}
-	c.notifySingleChatPrivateSettings(ctx, ownerUserIDs, peerUserID, conversationID, convTemplate.IsPrivateChat)
+	c.notifySingleChatPrivateSettings(ctx, ownerUserIDs, peerUserID, conversationID, convTemplate.IsPrivateChat, notifyPrivateChat)
 	return nil
 }
 
-func (c *conversationServer) notifySingleChatPrivateSettings(ctx context.Context, ownerUserIDs []string, peerUserID, conversationID string, isPrivateChat bool) {
+func (c *conversationServer) notifySingleChatPrivateSettings(
+	ctx context.Context,
+	ownerUserIDs []string,
+	peerUserID, conversationID string,
+	isPrivateChat bool,
+	notifyPrivateChat bool,
+) {
 	notifyUserIDs := datautil.Distinct(append(append([]string{}, ownerUserIDs...), peerUserID))
 	for _, userID := range notifyUserIDs {
 		if userID == "" {
 			continue
 		}
 		c.conversationNotificationSender.ConversationChangeNotification(ctx, userID, []string{conversationID})
+	}
+	if !notifyPrivateChat {
+		return
 	}
 	for _, userID := range ownerUserIDs {
 		if peerUserID != "" && userID != peerUserID {
@@ -492,16 +504,35 @@ func (c *conversationServer) SetConversations(ctx context.Context, req *pbconver
 		for _, v := range needUpdateUsersList {
 			c.conversationNotificationSender.ConversationChangeNotification(ctx, v, []string{req.Conversation.ConversationID})
 		}
+		// 群阅后即焚 1524：仅当目标用户此前已有该会话时下发。
+		// 新建群会话只写字段不发通知；群级 burn 由 set_group_info_ex 等显式接口下发 1524。
 		if req.Conversation.BurnDuration != nil &&
 			(req.Conversation.ConversationType == constant.ReadGroupChatType ||
 				req.Conversation.ConversationType == constant.WriteGroupChatType) &&
 			req.Conversation.GroupID != "" {
-			c.conversationNotificationSender.GroupBurnDurationSetNotification(
-				ctx, req.Conversation.GroupID, req.Conversation.BurnDuration.Value)
+			notifyGroupBurn := false
+			for _, userID := range req.UserIDs {
+				if _, ok := conversationMap[userID]; ok {
+					notifyGroupBurn = true
+					break
+				}
+			}
+			if notifyGroupBurn {
+				c.conversationNotificationSender.GroupBurnDurationSetNotification(
+					ctx, req.Conversation.GroupID, req.Conversation.BurnDuration.Value)
+			}
 		}
 	}
 	if req.Conversation.ConversationType == constant.SingleChatType &&
 		(req.Conversation.IsPrivateChat != nil || req.Conversation.BurnDuration != nil) {
+		// 仅当请求方会话此前已存在时下发 1701；新建会话（含全局阅后即焚自动落地）只同步字段。
+		notifyPrivateChat := false
+		for _, userID := range req.UserIDs {
+			if _, ok := conversationMap[userID]; ok {
+				notifyPrivateChat = true
+				break
+			}
+		}
 		if err := c.syncSingleChatPrivateSettings(
 			ctx,
 			req.UserIDs,
@@ -510,6 +541,7 @@ func (c *conversationServer) SetConversations(ctx context.Context, req *pbconver
 			req.Conversation.ConversationType,
 			conversation,
 			req.Conversation.BurnDuration != nil,
+			notifyPrivateChat,
 		); err != nil {
 			return nil, err
 		}
@@ -550,6 +582,7 @@ func (c *conversationServer) CreateSingleChatConversations(ctx context.Context,
 		if err != nil {
 			log.ZWarn(ctx, "create conversation failed", err, "conversation2", conversation)
 		}
+		// 新建会话仅静默同步阅后即焚字段，不下发 1701。
 		c.syncSenderConversationBurnOnCreateSingleChat(ctx, req.SendID, req.RecvID, req.ConversationID, burnDuration)
 		// 跳过 sendID==recvID：避免自聊会话再次下发 1705（见 ConversationE2EENotification 注释）。
 		//if req.SendID != req.RecvID {
@@ -854,7 +887,8 @@ func (c *conversationServer) UpdateConversation(ctx context.Context, req *pbconv
 					conv.IsPrivateChat = req.BurnDuration.Value > 0
 				}
 			}
-			if err := c.syncSingleChatPrivateSettings(ctx, req.UserIDs, conv.UserID, req.ConversationID, conv.ConversationType, conv, req.BurnDuration != nil); err != nil {
+			// UpdateConversation 针对已有会话，显式改阅后即焚时下发 1701。
+			if err := c.syncSingleChatPrivateSettings(ctx, req.UserIDs, conv.UserID, req.ConversationID, conv.ConversationType, conv, req.BurnDuration != nil, true); err != nil {
 				return nil, err
 			}
 		}
@@ -1128,6 +1162,7 @@ func (c *conversationServer) SetConversationBurn(ctx context.Context, req *pbcon
 	}
 	conv.BurnDuration = req.BurnDuration
 	conv.IsPrivateChat = isPrivateChat
+	// SetConversationBurn 要求会话已存在，属于用户显式设置，下发 1701。
 	if err := c.syncSingleChatPrivateSettings(
 		ctx,
 		[]string{req.OwnerUserID},
@@ -1135,6 +1170,7 @@ func (c *conversationServer) SetConversationBurn(ctx context.Context, req *pbcon
 		req.ConversationID,
 		conv.ConversationType,
 		*conv,
+		true,
 		true,
 	); err != nil {
 		return nil, err

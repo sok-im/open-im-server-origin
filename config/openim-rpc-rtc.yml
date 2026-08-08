@@ -28,6 +28,13 @@ liveKit:
   apiSecret: openim-livekit-default-secret-32chars-min
   # Token expiry in seconds (default: 3600 = 1 hour)
   tokenExpiry: 3600
+  # E2EE room JWT TTL in seconds (≤ 300). Short TTL because LiveKit JWTs are not revocable.
+  e2eeTokenExpiry: 300
+
+# Call E2EE capability allow-list (token gating only when invitation e2ee.required=true).
+e2ee:
+  allowedSchemes: ["mls-exporter-livekit-v1"]
+  minVersion: 1
 
 # Per-user call-status Redis TTL in seconds (default: 10).
 # Acts as a safety net so users are not stuck in "connecting"/"in-call" after crashes;

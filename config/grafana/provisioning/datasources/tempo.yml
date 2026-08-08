@@ -1,0 +1,23 @@
+apiVersion: 1
+
+datasources:
+  - name: Tempo
+    type: tempo
+    uid: tempo
+    access: proxy
+    url: http://127.0.0.1:3200
+    editable: true
+    jsonData:
+      httpMethod: GET
+      tracesToLogsV2:
+        datasourceUid: loki
+        spanStartTimeShift: -5m
+        spanEndTimeShift: 5m
+        filterByTraceID: false
+        customQuery: true
+        # Match JSON or text logs that contain the span's operation.id
+        query: '{job="openim"} |= "$${__span.tags["operation.id"]}"'
+      nodeGraph:
+        enabled: true
+      search:
+        hide: false

@@ -36,6 +36,11 @@ type User interface {
 	PageFindUser(ctx context.Context, level1 int64, level2 int64, pagination pagination.Pagination) (count int64, users []*model.User, err error)
 	PageFindUserWithKeyword(ctx context.Context, level1 int64, level2 int64, userID, nickName string, pagination pagination.Pagination) (count int64, users []*model.User, err error)
 	Exist(ctx context.Context, userID string) (exist bool, err error)
+	// MarkWelcomeNotificationSent 原子地将 welcome_notification_sent 从非 true 置为 true。
+	// 返回 claimed=true 表示本次调用抢占成功（此前未发送），用于首次上线欢迎语的并发去重。
+	MarkWelcomeNotificationSent(ctx context.Context, userID string) (claimed bool, err error)
+	// SetWelcomeNotificationSent 直接设置 welcome_notification_sent（发送失败时回滚为 false，允许下次重试）。
+	SetWelcomeNotificationSent(ctx context.Context, userID string, sent bool) error
 	GetAllUserID(ctx context.Context, pagination pagination.Pagination) (count int64, userIDs []string, err error)
 	GetUserGlobalRecvMsgOpt(ctx context.Context, userID string) (opt int, err error)
 	// Get user total quantity

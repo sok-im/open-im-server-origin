@@ -16,10 +16,16 @@ package tools
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"net"
+	"net/http"
 	"strings"
+	"time"
 
 	"github.com/openimsdk/open-im-server/v3/pkg/common/config"
 	kdisc "github.com/openimsdk/open-im-server/v3/pkg/common/discoveryregister"
+	"github.com/openimsdk/open-im-server/v3/pkg/common/prommetrics"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/database"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/database/mgo"
 	pbconversation "github.com/openimsdk/protocol/conversation"
@@ -80,6 +86,10 @@ func Start(ctx context.Context, cfg *CronTaskConfig) error {
 		return errs.WrapMsg(err, "crontask: init user_offline_record collection failed")
 	}
 
+	if err := startCronMetrics(ctx, &cfg.CronTask); err != nil {
+		return err
+	}
+
 	srv := &cronServer{
 		ctx:                 ctx,
 		config:              cfg,
@@ -115,6 +125,27 @@ func Start(ctx context.Context, cfg *CronTaskConfig) error {
 	return nil
 }
 
+func startCronMetrics(ctx context.Context, cronCfg *config.CronTask) error {
+	if !cronCfg.Prometheus.Enable {
+		return nil
+	}
+	if len(cronCfg.Prometheus.Ports) == 0 {
+		return errs.New("crontask prometheus.enable=true but ports is empty").Wrap()
+	}
+	port := cronCfg.Prometheus.Ports[0]
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	if err != nil {
+		return errs.WrapMsg(err, "crontask metrics listen failed", "port", port)
+	}
+	go func() {
+		log.ZInfo(ctx, "crontask prometheus metrics listening", "addr", listener.Addr().String())
+		if err := prommetrics.CronInit(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.ZError(ctx, "crontask prometheus metrics server stopped", err)
+		}
+	}()
+	return nil
+}
+
 type cronServer struct {
 	ctx                 context.Context
 	config              *CronTaskConfig
@@ -126,12 +157,28 @@ type cronServer struct {
 	chatAPIAddress      string
 }
 
+func (c *cronServer) instrument(task string, fn func()) func() {
+	return func() {
+		start := time.Now()
+		success := true
+		defer func() {
+			if r := recover(); r != nil {
+				success = false
+				prommetrics.CronTaskObserve(task, false, time.Since(start))
+				panic(r)
+			}
+			prommetrics.CronTaskObserve(task, success, time.Since(start))
+		}()
+		fn()
+	}
+}
+
 func (c *cronServer) registerClearS3() error {
 	if c.config.CronTask.FileExpireTime <= 0 || len(c.config.CronTask.DeleteObjectType) == 0 {
 		log.ZInfo(c.ctx, "disable scheduled cleanup of s3", "fileExpireTime", c.config.CronTask.FileExpireTime, "deleteObjectType", c.config.CronTask.DeleteObjectType)
 		return nil
 	}
-	_, err := c.cron.AddFunc(c.config.CronTask.CronExecuteTime, c.clearS3)
+	_, err := c.cron.AddFunc(c.config.CronTask.CronExecuteTime, c.instrument("clear_s3", c.clearS3))
 	return errs.WrapMsg(err, "failed to register clear s3 cron task")
 }
 
@@ -140,12 +187,12 @@ func (c *cronServer) registerDeleteMsg() error {
 		log.ZInfo(c.ctx, "disable scheduled cleanup of chat records", "retainChatRecords", c.config.CronTask.RetainChatRecords)
 		return nil
 	}
-	_, err := c.cron.AddFunc(c.config.CronTask.CronExecuteTime, c.deleteMsg)
+	_, err := c.cron.AddFunc(c.config.CronTask.CronExecuteTime, c.instrument("delete_msg", c.deleteMsg))
 	return errs.WrapMsg(err, "failed to register delete msg cron task")
 }
 
 func (c *cronServer) registerClearUserMsg() error {
-	_, err := c.cron.AddFunc(c.config.CronTask.CronExecuteTime, c.clearUserMsg)
+	_, err := c.cron.AddFunc(c.config.CronTask.CronExecuteTime, c.instrument("clear_user_msg", c.clearUserMsg))
 	return errs.WrapMsg(err, "failed to register clear user msg cron task")
 }
 
@@ -154,12 +201,12 @@ func (c *cronServer) registerClearBurnExpiredMsgs() error {
 	if schedule == "" {
 		schedule = c.config.CronTask.CronExecuteTime
 	}
-	_, err := c.cron.AddFunc(schedule, c.clearBurnExpiredMsgs)
+	_, err := c.cron.AddFunc(schedule, c.instrument("clear_burn_msgs", c.clearBurnExpiredMsgs))
 	return errs.WrapMsg(err, "failed to register clear burn expired msgs cron task")
 }
 
 func (c *cronServer) registerClearGroupBurnExpiredMsgs() error {
-	_, err := c.cron.AddFunc(c.config.CronTask.BurnCronExecuteTime, c.clearGroupBurnExpiredMsgs)
+	_, err := c.cron.AddFunc(c.config.CronTask.BurnCronExecuteTime, c.instrument("clear_group_burn_msgs", c.clearGroupBurnExpiredMsgs))
 	return errs.WrapMsg(err, "failed to register clear group burn expired msgs cron task")
 }
 
@@ -171,6 +218,6 @@ func (c *cronServer) registerDeleteExpiredOfflineUsers() error {
 		log.ZInfo(c.ctx, "disable auto delete expired offline users: chatAPI.address not configured")
 		return nil
 	}
-	_, err := c.cron.AddFunc("@every 1m", c.deleteExpiredOfflineUsers)
+	_, err := c.cron.AddFunc("@every 1m", c.instrument("delete_expired_offline_users", c.deleteExpiredOfflineUsers))
 	return errs.WrapMsg(err, "failed to register delete expired offline users cron task")
 }

@@ -1,0 +1,101 @@
+package rtc
+
+import (
+	"encoding/json"
+	"strconv"
+	"strings"
+
+	"github.com/openimsdk/open-im-server/v3/pkg/common/servererrs"
+	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/model"
+	"github.com/openimsdk/open-im-server/v3/pkg/util/conversationutil"
+	pbrtc "github.com/openimsdk/protocol/rtc"
+)
+
+func parseE2EEFromCustomData(customData string) (required bool, callID, e2eeJSON string, err error) {
+	if strings.TrimSpace(customData) == "" {
+		return false, "", "", nil
+	}
+	var outer map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(customData), &outer); err != nil {
+		return false, "", "", err
+	}
+	raw, ok := outer["e2ee"]
+	if !ok || len(raw) == 0 || string(raw) == "null" {
+		return false, "", "", nil
+	}
+	var descriptor struct {
+		Required bool   `json:"required"`
+		CallID   string `json:"callID"`
+	}
+	if err := json.Unmarshal(raw, &descriptor); err != nil {
+		return false, "", "", err
+	}
+	return descriptor.Required, descriptor.CallID, string(raw), nil
+}
+
+func normalizeCallConversationID(groupID, inviterID string, inviteeIDs []string) string {
+	if groupID != "" {
+		return groupID
+	}
+	if len(inviteeIDs) == 0 {
+		return ""
+	}
+	return conversationutil.GenConversationIDForSingle(inviterID, inviteeIDs[0])
+}
+
+func checkE2EECapability(cap *pbrtc.E2EECapability, allowedSchemes []string, minVersion int) error {
+	if cap == nil || !cap.GetFrameCryptor() {
+		return servererrs.ErrCallE2EERequiredUnsupported.Wrap()
+	}
+	allowed := make(map[string]struct{}, len(allowedSchemes))
+	for _, scheme := range allowedSchemes {
+		allowed[scheme] = struct{}{}
+	}
+	for _, scheme := range cap.GetSchemes() {
+		if _, ok := allowed[scheme]; ok {
+			if minVersion > 0 {
+				version, ok := capabilityMajorVersion(cap.GetClientVersion())
+				// 版本缺省或不可解析时，无法证明达到 minVersion，判失败。
+				if !ok || version < minVersion {
+					return servererrs.ErrCallE2EEProtocolVersionMismatch.Wrap()
+				}
+			}
+			return nil
+		}
+	}
+	return servererrs.ErrCallE2EEProtocolVersionMismatch.Wrap()
+}
+
+// negotiateE2EEScheme returns the E2EE scheme and client version to bind into
+// the LiveKit token for a capability that has already passed checkE2EECapability.
+// It picks the first client-declared scheme that the server allows; version is
+// the client-declared version string (empty when unset). Neither value is secret.
+func negotiateE2EEScheme(cap *pbrtc.E2EECapability, allowedSchemes []string) (scheme, version string) {
+	if cap == nil {
+		return "", ""
+	}
+	allowed := make(map[string]struct{}, len(allowedSchemes))
+	for _, s := range allowedSchemes {
+		allowed[s] = struct{}{}
+	}
+	for _, s := range cap.GetSchemes() {
+		if _, ok := allowed[s]; ok {
+			return s, cap.GetClientVersion()
+		}
+	}
+	return "", cap.GetClientVersion()
+}
+
+func capabilityMajorVersion(value string) (int, bool) {
+	value = strings.TrimPrefix(strings.TrimSpace(value), "v")
+	if value == "" {
+		return 0, false
+	}
+	part, _, _ := strings.Cut(value, ".")
+	version, err := strconv.Atoi(part)
+	return version, err == nil
+}
+
+func e2eeRequiredFromInvitation(inv *model.SignalInvitation) bool {
+	return inv != nil && inv.E2EERequired
+}

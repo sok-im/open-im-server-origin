@@ -8,7 +8,7 @@ groups:
           severity: critical
         annotations:
           summary: "Instance {{ $labels.instance }} down"
-          description: "{{ $labels.instance }} of job {{ $labels.job }} has been down for more than 1 minutes."
+          description: "{{ $labels.instance }} of job {{ $labels.job }} has been down for more than 1 minute."
 
   - name: database_insert_failure_alerts
     rules:
@@ -18,8 +18,8 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: "Increase in MsgInsertRedisFailedCounter or MsgInsertMongoFailedCounter detected"
-          description: "Either MsgInsertRedisFailedCounter or MsgInsertMongoFailedCounter has increased in the last 5 minutes, indicating failures in message insert operations to Redis or MongoDB,maybe the redis or mongodb is crash."
+          summary: "Message insert to Redis/Mongo failed"
+          description: "msg_insert_redis_failed_total or msg_insert_mongo_failed_total increased in the last 5 minutes."
 
   - name: registrations_few
     rules:
@@ -29,8 +29,8 @@ groups:
         labels:
           severity: info
         annotations:
-          summary: "Too few registrations within the time frame"
-          description: "The number of registrations in the last hour is 0. There might be some issues."
+          summary: "No logins in the last hour"
+          description: "user_login_total increase over 1h is 0."
 
   - name: messages_few
     rules:
@@ -40,5 +40,194 @@ groups:
         labels:
           severity: info
         annotations:
-          summary: "Too few messages within the time frame"
-          description: "The number of messages sent in the last hour is 0. There might be some issues."
+          summary: "No chat messages processed in the last hour"
+          description: "single/group chat success counters did not increase in 1h."
+
+  - name: kafka_lag
+    rules:
+      - alert: KafkaConsumerLagHigh
+        expr: sum by (consumergroup, topic) (kafka_consumergroup_lag) > 10000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Kafka consumer lag high"
+          description: "Group {{ $labels.consumergroup }} topic {{ $labels.topic }} lag is {{ $value }}."
+
+  - name: api_latency
+    rules:
+      - alert: APIHighLatencyP95
+        expr: histogram_quantile(0.95, sum by (le, module) (rate(api_request_duration_seconds_bucket[5m]))) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API p95 latency > 2s"
+          description: "module={{ $labels.module }} p95={{ $value }}s over 5m."
+
+  - name: api_error_rate
+    rules:
+      - alert: APIHighErrorRate
+        expr: |
+          (
+            sum(rate(api_count{code!="0"}[5m]))
+            /
+            clamp_min(sum(rate(api_count[5m])), 0.001)
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API business error rate > 5%"
+          description: "Non-zero business code rate is {{ $value | humanizePercentage }}."
+
+  - name: middleware_health
+    rules:
+      - alert: RedisDown
+        expr: up{job="redis_exporter"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis exporter target down"
+          description: "job=redis_exporter instance={{ $labels.instance }}."
+
+      - alert: MongoDown
+        expr: up{job="mongodb_exporter"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "MongoDB exporter target down"
+          description: "job=mongodb_exporter instance={{ $labels.instance }}."
+
+      - alert: KafkaExporterDown
+        expr: up{job="kafka_exporter"} == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Kafka exporter target down"
+          description: "job=kafka_exporter instance={{ $labels.instance }}."
+
+  - name: monitoring_stack
+    rules:
+      - alert: PrometheusDown
+        expr: up{job="prometheus"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prometheus self-scrape down"
+          description: "Prometheus target is down."
+
+      - alert: TempoDown
+        expr: up{job="tempo"} == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tempo metrics endpoint down"
+          description: "job=tempo instance={{ $labels.instance }}."
+
+      - alert: LokiDown
+        expr: up{job="loki"} == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Loki metrics endpoint down"
+          description: "job=loki instance={{ $labels.instance }}."
+
+      - alert: OTelCollectorDown
+        expr: up{job="otel-collector"} == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "OTel Collector metrics endpoint down"
+          description: "job=otel-collector instance={{ $labels.instance }}."
+
+  - name: msggateway_capacity
+    rules:
+      - alert: OnlineUserSpike
+        expr: online_user_num > 50000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Online users exceeded 50k"
+          description: "online_user_num={{ $value }}."
+
+      - alert: WSConnectionNearLimit
+        expr: |
+          (
+            ws_connection_num
+            /
+            clamp_min(ws_max_connection_num, 1)
+          ) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "WS connections > 80% of max"
+          description: "utilization={{ $value | humanizePercentage }} ({{ $labels.instance }})."
+
+      - alert: WSConnRejectedRising
+        expr: sum(increase(ws_conn_rejected_total[5m])) > 20
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Websocket connection rejections rising"
+          description: "{{ $value }} WS connections rejected in 5m."
+
+  - name: push_failures
+    rules:
+      - alert: OfflinePushFailures
+        expr: increase(msg_offline_push_failed_total[5m]) > 50
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Offline push failures rising"
+          description: "{{ $value }} offline push failures in 5m."
+
+      - alert: LongTimePushRising
+        expr: increase(msg_long_time_push_total[5m]) > 20
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Slow push (>10s) rising"
+          description: "{{ $value }} long-time pushes in 5m."
+
+  - name: crontask
+    rules:
+      - alert: CronTaskDown
+        expr: up{job="openimserver-openim-crontask"} == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "openim-crontask metrics target down"
+          description: "job=openimserver-openim-crontask instance={{ $labels.instance }}."
+
+      - alert: CronTaskFailed
+        expr: increase(cron_task_runs_total{result="failed"}[1h]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Cron task failed"
+          description: "task={{ $labels.task }} had failures in the last hour."
+
+      - alert: CronTaskStale
+        expr: |
+          (time() - cron_task_last_success_unixtime{task=~"delete_msg|clear_s3|clear_user_msg"}) > 36 * 3600
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Cron task has not succeeded recently"
+          description: "task={{ $labels.task }} last success was more than 36h ago."

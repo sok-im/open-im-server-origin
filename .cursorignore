@@ -39,8 +39,8 @@ deployments/templates/
 .note.md
 
 ### 生成代码（以 .proto 为准，勿重复索引）###
-protocol/**/*.pb.go
-protocol/**/*_grpc.pb.go
+#protocol/**/*.pb.go
+#protocol/**/*_grpc.pb.go
 
 ### 功能 / E2EE / OpenMLS / Virgil 设计文档（长文，以实现与 .proto 为准）###
 #*-design.md
@@ -113,7 +113,7 @@ openim-sdk-core/pkg/db/*.db
 out/
 
 ### Git / CI（低价值索引）###
-.git/
+#.git/
 .github/
 
 ### Tags / 索引工具 ###

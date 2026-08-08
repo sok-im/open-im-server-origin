@@ -34,6 +34,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	kdisc "github.com/openimsdk/open-im-server/v3/pkg/common/discoveryregister"
+	"github.com/openimsdk/open-im-server/v3/pkg/common/otelx"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/prommetrics"
 	"github.com/openimsdk/tools/discovery"
 	"github.com/openimsdk/tools/errs"
@@ -134,12 +135,27 @@ func Start[T any](ctx context.Context, discovery *conf.Discovery, prometheusConf
 		return err
 	}
 
+	traceShutdown, err := otelx.InitTracerProvider(ctx, "openim-rpc-"+rpcRegisterName)
+	if err != nil {
+		return errs.WrapMsg(err, "init tracer provider failed")
+	}
+	if traceShutdown != nil {
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = traceShutdown(shutdownCtx)
+		}()
+	}
+
 	defer client.Close()
 	client.AddOption(mw.GrpcClient(), grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithDefaultServiceConfig(fmt.Sprintf(`{"LoadBalancingPolicy": "%s"}`, "round_robin")))
+	client.AddOption(otelx.GrpcClientDialOptions()...)
 
 	if len(clientOptions) > 0 {
 		client.AddOption(clientOptions...)
 	}
+
+	options = append(options, otelx.GrpcServerOptions()...)
 
 	// var reg *prometheus.Registry
 	// var metric *grpcprometheus.ServerMetrics
@@ -281,8 +297,9 @@ func prommetricsUnaryInterceptor(rpcRegisterName string) grpc.ServerOption {
 		return int(rpcErr.GRPCStatus().Code())
 	}
 	return grpc.ChainUnaryInterceptor(func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		start := time.Now()
 		resp, err := handler(ctx, req)
-		prommetrics.RPCCall(rpcRegisterName, info.FullMethod, getCode(err))
+		prommetrics.RPCObserveCtx(ctx, rpcRegisterName, info.FullMethod, getCode(err), time.Since(start))
 		return resp, err
 	})
 }

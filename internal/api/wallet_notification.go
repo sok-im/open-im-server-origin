@@ -175,13 +175,7 @@ func (m *MessageApi) NotifyRedPacketClaimed(c *gin.Context) {
 	m.fillWalletSenderName(c, req.DetailExtra, req.ReceiverUserID, req.SenderUserID)
 
 	if req.GroupID != "" {
-		if req.GroupText == "" {
-			err := errs.ErrArgs.WrapMsg("groupText is required when groupID is set")
-			log.ZWarn(c, "NotifyRedPacketClaimed: groupText is required when groupID is set", err, "req", req)
 
-			apiresp.GinError(c, err)
-			return
-		}
 		groupContent := apistruct.WalletActionNotificationContent{
 			Text:           req.GroupText,
 			BizID:          req.BizID,

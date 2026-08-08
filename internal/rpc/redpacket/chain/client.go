@@ -181,6 +181,67 @@ func (c *ChainClient) TokenDecimals(ctx context.Context, tokenAddr string) (int3
 	return int32(dec.Int64()), nil
 }
 
+// erc20SymbolSelector is the 4-byte function selector for the ERC20 `symbol()`
+// view method (keccak256("symbol()")[:4] == 0x95d89b41).
+var erc20SymbolSelector = crypto.Keccak256([]byte("symbol()"))[:4]
+
+// TokenSymbol reads the ERC20 `symbol()` value of the given token contract via
+// eth_call. Callers must not pass the zero (native) address; native token
+// symbols are decided by the caller. It handles both the standard ABI-encoded
+// string return and the legacy fixed bytes32 return used by a few older tokens
+// (e.g. MKR). Implements chain.SymbolReader.
+func (c *ChainClient) TokenSymbol(ctx context.Context, tokenAddr string) (string, error) {
+	addr := common.HexToAddress(tokenAddr)
+	msg := ethereum.CallMsg{
+		To:   &addr,
+		Data: erc20SymbolSelector,
+	}
+	out, err := c.client.CallContract(ctx, msg, nil)
+	if err != nil {
+		return "", fmt.Errorf("call symbol() on %s failed: %w", tokenAddr, err)
+	}
+	sym := decodeERC20String(out)
+	if sym == "" {
+		return "", fmt.Errorf("empty symbol() response from %s", tokenAddr)
+	}
+	return sym, nil
+}
+
+// decodeERC20String decodes the return data of an ERC20 string view method
+// (symbol/name). It supports the standard ABI dynamic-string encoding
+// ([offset][length][data...]) and the legacy fixed bytes32 encoding.
+func decodeERC20String(out []byte) string {
+	if len(out) == 0 {
+		return ""
+	}
+	// Legacy bytes32: exactly one 32-byte word, right-padded with zeros.
+	if len(out) == 32 {
+		return strings.TrimRight(string(out), "\x00")
+	}
+	// Standard dynamic string: [offset(32)][length(32)][data...].
+	if len(out) < 64 {
+		return ""
+	}
+	offset := new(big.Int).SetBytes(out[:32])
+	if !offset.IsUint64() {
+		return ""
+	}
+	off := offset.Uint64()
+	if off+32 > uint64(len(out)) {
+		return ""
+	}
+	length := new(big.Int).SetBytes(out[off : off+32])
+	if !length.IsUint64() {
+		return ""
+	}
+	n := length.Uint64()
+	start := off + 32
+	if start+n > uint64(len(out)) {
+		return ""
+	}
+	return strings.TrimRight(string(out[start:start+n]), "\x00")
+}
+
 // ContractABI exposes the parsed ABI for indexers.
 func (c *ChainClient) ContractABI() abi.ABI {
 	return c.contractABI

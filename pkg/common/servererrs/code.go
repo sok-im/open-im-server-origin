@@ -100,6 +100,14 @@ const (
 	// RTC error codes.
 	AllUserBusyError = 1801 // All invitees are busy on another call
 
+	CallE2EERequiredUnsupportedError     = 1830
+	CallE2EEConversationNotReadyError    = 1831
+	CallE2EEGroupMembershipInvalidError  = 1832
+	CallE2EEProtocolVersionMismatchError = 1833
+	CallE2EETokenDeniedError             = 1834
+
+	MLSEpochConflictError = 4010
+
 	// TOTP / MFA error codes (20001–20099).
 	TotpAlreadyBoundError    = 20001 // User already has TOTP bound; must unbind first
 	TotpCodeInvalidError     = 20002 // TOTP or recovery code is incorrect

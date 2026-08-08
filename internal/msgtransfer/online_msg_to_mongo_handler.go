@@ -19,6 +19,7 @@ import (
 
 	"github.com/IBM/sarama"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/config"
+	"github.com/openimsdk/open-im-server/v3/pkg/common/otelx"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/prommetrics"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/controller"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/kafka"
@@ -45,17 +46,17 @@ func NewOnlineHistoryMongoConsumerHandler(kafkaConf *config.Kafka, database cont
 	return mc, nil
 }
 
-func (mc *OnlineHistoryMongoConsumerHandler) handleChatWs2Mongo(ctx context.Context, cMsg *sarama.ConsumerMessage, key string, session sarama.ConsumerGroupSession) {
+func (mc *OnlineHistoryMongoConsumerHandler) handleChatWs2Mongo(ctx context.Context, cMsg *sarama.ConsumerMessage, key string, session sarama.ConsumerGroupSession) error {
 	msg := cMsg.Value
 	msgFromMQ := pbmsg.MsgDataToMongoByMQ{}
 	err := proto.Unmarshal(msg, &msgFromMQ)
 	if err != nil {
 		log.ZError(ctx, "unmarshall failed", err, "key", key, "len", len(msg))
-		return
+		return err
 	}
 	if len(msgFromMQ.MsgData) == 0 {
 		log.ZError(ctx, "msgFromMQ.MsgData is empty", nil, "cMsg", cMsg)
-		return
+		return nil
 	}
 	log.ZDebug(ctx, "mongo consumer recv msg", "msgs", msgFromMQ.String())
 	err = mc.msgTransferDatabase.BatchInsertChat2DB(ctx, msgFromMQ.ConversationID, msgFromMQ.MsgData, msgFromMQ.LastSeq)
@@ -70,9 +71,9 @@ func (mc *OnlineHistoryMongoConsumerHandler) handleChatWs2Mongo(ctx context.Cont
 			msgFromMQ.ConversationID,
 		)
 		prommetrics.MsgInsertMongoFailedCounter.Inc()
-	} else {
-		prommetrics.MsgInsertMongoSuccessCounter.Inc()
+		return err
 	}
+	prommetrics.MsgInsertMongoSuccessCounter.Inc()
 	//var seqs []int64
 	//for _, msg := range msgFromMQ.MsgData {
 	//	seqs = append(seqs, msg.Seq)
@@ -81,6 +82,7 @@ func (mc *OnlineHistoryMongoConsumerHandler) handleChatWs2Mongo(ctx context.Cont
 	//	log.ZError(ctx, "remove cache msg from redis err", err, "msg",
 	//		msgFromMQ.MsgData, "conversationID", msgFromMQ.ConversationID)
 	//}
+	return nil
 }
 
 func (*OnlineHistoryMongoConsumerHandler) Setup(_ sarama.ConsumerGroupSession) error { return nil }
@@ -92,11 +94,14 @@ func (mc *OnlineHistoryMongoConsumerHandler) ConsumeClaim(sess sarama.ConsumerGr
 		claim.HighWaterMarkOffset(), "topic", claim.Topic(), "partition", claim.Partition())
 	for msg := range claim.Messages() {
 		ctx := mc.historyConsumerGroup.GetContextFromMsg(msg)
+		ctx, span := otelx.StartKafkaConsumerSpan(ctx, "openim-msgtransfer", msg.Topic, msg.Partition, msg.Offset)
+		var err error
 		if len(msg.Value) != 0 {
-			mc.handleChatWs2Mongo(ctx, msg, string(msg.Key), sess)
+			err = mc.handleChatWs2Mongo(ctx, msg, string(msg.Key), sess)
 		} else {
 			log.ZError(ctx, "mongo msg get from kafka but is nil", nil, "conversationID", msg.Key)
 		}
+		otelx.EndKafkaConsumerSpan(span, err)
 		sess.MarkMessage(msg, "")
 	}
 	return nil

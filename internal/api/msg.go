@@ -21,6 +21,7 @@ import (
 	"github.com/openimsdk/open-im-server/v3/pkg/apistruct"
 	"github.com/openimsdk/open-im-server/v3/pkg/authverify"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/config"
+	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/database"
 	"github.com/openimsdk/open-im-server/v3/pkg/msgprocessor"
 	"github.com/openimsdk/open-im-server/v3/pkg/rpcli"
 	"github.com/openimsdk/protocol/constant"
@@ -38,15 +39,23 @@ import (
 )
 
 type MessageApi struct {
-	Client         msg.MsgClient
-	userClient     *rpcli.UserClient
-	relationClient *rpcli.RelationClient
-	imAdminUserID  []string
-	validate       *validator.Validate
+	Client                msg.MsgClient
+	userClient            *rpcli.UserClient
+	relationClient        *rpcli.RelationClient
+	imAdminUserID         []string
+	validate              *validator.Validate
+	paymentNotificationDB database.PaymentNotification
 }
 
-func NewMessageApi(client msg.MsgClient, userClient *rpcli.UserClient, relationClient *rpcli.RelationClient, imAdminUserID []string) MessageApi {
-	return MessageApi{Client: client, userClient: userClient, relationClient: relationClient, imAdminUserID: imAdminUserID, validate: validator.New()}
+func NewMessageApi(client msg.MsgClient, userClient *rpcli.UserClient, relationClient *rpcli.RelationClient, imAdminUserID []string, paymentNotificationDB database.PaymentNotification) MessageApi {
+	return MessageApi{
+		Client:                client,
+		userClient:            userClient,
+		relationClient:        relationClient,
+		imAdminUserID:         imAdminUserID,
+		validate:              validator.New(),
+		paymentNotificationDB: paymentNotificationDB,
+	}
 }
 
 func (*MessageApi) SetOptions(options map[string]bool, value bool) {
@@ -502,20 +511,25 @@ func (m *MessageApi) BatchSendServiceNotification(c *gin.Context) {
 		apiresp.GinError(c, errs.ErrArgs.WithDetail(err.Error()).Wrap())
 		return
 	}
+
+	log.ZDebug(c, "BatchSendServiceNotification", "req", req)
+
 	if !authverify.IsAppManagerUid(c, m.imAdminUserID) {
+		log.ZWarn(c, "BatchSendServiceNotification failed", errs.ErrNoPermission.WrapMsg("only app manager can send notification"))
 		apiresp.GinError(c, errs.ErrNoPermission.WrapMsg("only app manager can send notification"))
 		return
 	}
 	if err := m.userClient.GetNotificationByID(c, req.SendUserID); err != nil {
+		log.ZWarn(c, "BatchSendServiceNotification failed", err, "sendUserID", req.SendUserID)
 		apiresp.GinError(c, err)
 		return
 	}
 	recvIDs, err := m.collectBatchRecvUserIDs(c, req.IsSendAll, req.RecvIDs)
 	if err != nil {
+		log.ZWarn(c, "BatchSendServiceNotification failed", err, "isSendAll", req.IsSendAll, "recvIDs", req.RecvIDs)
 		apiresp.GinError(c, err)
 		return
 	}
-	log.ZInfo(c, "BatchSendServiceNotification", "nums", len(recvIDs), "isSendAll", req.IsSendAll)
 	opUserID := mcontext.GetOpUserID(c)
 	offlinePushInfo := resolveServiceNotificationOfflinePush(req.Content, req.OfflinePushInfo)
 	for _, recvID := range recvIDs {
@@ -529,11 +543,13 @@ func (m *MessageApi) BatchSendServiceNotification(c *gin.Context) {
 		)
 		if err != nil {
 			apiresp.GinError(c, err)
+			log.ZWarn(c, "BatchSendServiceNotification failed", err, "recvID", recvID)
 			return
 		}
 		rpcResp, err := m.Client.SendMsg(c, sendMsgReq)
 		if err != nil {
 			resp.FailedIDs = append(resp.FailedIDs, recvID)
+			log.ZWarn(c, "BatchSendServiceNotification failed", err, "recvID", recvID, "sendMsgReq", sendMsgReq)
 			continue
 		}
 		resp.Results = append(resp.Results, &apistruct.SingleReturnResult{
@@ -543,6 +559,8 @@ func (m *MessageApi) BatchSendServiceNotification(c *gin.Context) {
 			RecvID:      recvID,
 		})
 	}
+	log.ZInfo(c, "BatchSendServiceNotification", "nums", len(recvIDs), "isSendAll", req.IsSendAll, "resp", resp)
+
 	apiresp.GinSuccess(c, resp)
 }
 
@@ -559,10 +577,67 @@ func (m *MessageApi) SendPaymentNotification(c *gin.Context) {
 
 	log.ZDebug(c, "SendPaymentNotification", "req", req)
 
-	//req.Content.RecvUserID = req.RecvUserID
-	//req.Content.SendUserID = req.SendUserID
+	doc := buildPaymentNotification(req.Content.SendUserID, req.Content.RecvUserID, req.Content)
+	if err := m.paymentNotificationDB.Create(c, doc); err != nil {
+		log.ZError(c, "SendPaymentNotification create mongo failed", err,
+			"sendUserID", req.Content.SendUserID, "recvUserID", req.Content.RecvUserID,
+			"orderNo", req.Content.OrderNo, "bizID", req.Content.BizID)
+		apiresp.GinError(c, err)
+		return
+	}
 
 	m.sendNotificationChatMsg(c, req.SendUserID, req.RecvUserID, constant.PaymentNotification, req.Content, false)
+}
+
+func (m *MessageApi) GetPaymentNotifications(c *gin.Context) {
+	var req apistruct.GetPaymentNotificationsReq
+	if err := c.BindJSON(&req); err != nil {
+		apiresp.GinError(c, errs.ErrArgs.WithDetail(err.Error()).Wrap())
+		return
+	}
+	total, list, err := m.paymentNotificationDB.FindPage(c, mcontext.GetOpUserID(c), req.Pagination)
+	if err != nil {
+		apiresp.GinError(c, err)
+		return
+	}
+	items := make([]*apistruct.PaymentNotificationItem, 0, len(list))
+	for _, n := range list {
+		item := &apistruct.PaymentNotificationItem{
+			ID:                n.ID.Hex(),
+			SendUserID:        n.SendUserID,
+			RecvUserID:        n.RecvUserID,
+			Title:             n.Title,
+			Amount:            n.Amount,
+			TransactionType:   n.TransactionType,
+			TransactionTime:   n.TransactionTime,
+			Currency:          n.Currency,
+			CurrencyIconURL:   n.CurrencyIconURL,
+			DetailURL:         n.DetailURL,
+			DetailText:        n.DetailText,
+			OrderNo:           n.OrderNo,
+			BizID:             n.BizID,
+			ChainID:           n.ChainID,
+			PacketID:          n.PacketID,
+			ChainKey:          n.ChainKey,
+			GroupID:           n.GroupID,
+			ContentSendUserID: n.ContentSendUserID,
+			ContentRecvUserID: n.ContentRecvUserID,
+			CreateTime:        n.CreateTime.UnixMilli(),
+		}
+		if n.SecondaryAction != nil {
+			item.SecondaryAction = &apistruct.PaymentNotificationAction{
+				Text: n.SecondaryAction.Text,
+				URL:  n.SecondaryAction.URL,
+			}
+		}
+		items = append(items, item)
+	}
+	apiresp.GinSuccess(c, &apistruct.GetPaymentNotificationsResp{
+		Total:         total,
+		Notifications: items,
+	})
+	log.ZDebug(c, "GetPaymentNotifications", "req", req, "total", total, "items", len(items))
+	return
 }
 
 func (m *MessageApi) BatchSendMsg(c *gin.Context) {

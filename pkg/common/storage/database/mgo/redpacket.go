@@ -80,6 +80,7 @@ func (m *RedPacketMgo) UpdateCreated(ctx context.Context, rp *model.RedPacket) e
 		"packet_type":              rp.PacketType,
 		"token":                    rp.Token,
 		"decimals":                 rp.Decimals,
+		"symbol":                   rp.Symbol,
 		"total_amount":             rp.TotalAmount,
 		"total_amount_display":     rp.TotalAmountDisplay,
 		"total_shares":             rp.TotalShares,

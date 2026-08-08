@@ -170,6 +170,7 @@ services:
     ports:
       - "7880:7880"
       - "7881:7881"
+      - "16789:6789"
       - "50000-50100:50000-50100/udp"
     volumes:
       - ./config/livekit.yaml:/etc/livekit.yaml
@@ -194,6 +195,7 @@ services:
       TZ: Asia/Shanghai
       MINIO_ROOT_USER: root
       MINIO_ROOT_PASSWORD: openIM123
+      MINIO_PROMETHEUS_AUTH_TYPE: public
     restart: always
     command: minio server /data --console-address ':9090'
     networks:
@@ -231,6 +233,10 @@ services:
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=${PROMETHEUS_RETENTION_TIME:-15d}'
+      - '--storage.tsdb.retention.size=${PROMETHEUS_RETENTION_SIZE:-10GB}'
+      - '--web.enable-lifecycle'
+      - '--enable-feature=exemplar-storage'
       - '--web.listen-address=:${PROMETHEUS_PORT}'
     network_mode: host
 
@@ -258,12 +264,17 @@ services:
     environment:
       - GF_SECURITY_ALLOW_EMBEDDING=true
       - GF_SESSION_COOKIE_SAMESITE=none
-      - GF_SESSION_COOKIE_SECURE=true
-      - GF_AUTH_ANONYMOUS_ENABLED=true
-      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_SESSION_COOKIE_SECURE=${GF_SESSION_COOKIE_SECURE:-false}
+      - GF_AUTH_ANONYMOUS_ENABLED=${GF_AUTH_ANONYMOUS_ENABLED:-true}
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=${GF_AUTH_ANONYMOUS_ORG_ROLE:-Admin}
+      - GF_SECURITY_ADMIN_USER=${GF_SECURITY_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
       - GF_SERVER_HTTP_PORT=${GRAFANA_PORT}
     volumes:
       - ${DATA_DIR:-./}/components/grafana:/var/lib/grafana
+      - ./config/grafana/provisioning:/etc/grafana/provisioning
+      - ./config/grafana-template:/etc/grafana/dashboards
     network_mode: host
 
   node-exporter:
@@ -281,4 +292,95 @@ services:
       - '--path.sysfs=/host/sys'
       - '--path.rootfs=/rootfs'
       - '--web.listen-address=:${NODE_EXPORTER_PORT}'
+    network_mode: host
+
+  redis-exporter:
+    image: ${REDIS_EXPORTER_IMAGE}
+    container_name: redis-exporter
+    restart: always
+    profiles:
+      - m
+    environment:
+      REDIS_ADDR: ${REDIS_EXPORTER_ADDR:-redis://127.0.0.1:16379}
+      REDIS_PASSWORD: ${REDIS_EXPORTER_PASSWORD:-openIM123}
+    command:
+      - '--web.listen-address=:${REDIS_EXPORTER_PORT}'
+    network_mode: host
+
+  mongodb-exporter:
+    image: ${MONGO_EXPORTER_IMAGE}
+    container_name: mongodb-exporter
+    restart: always
+    profiles:
+      - m
+    environment:
+      MONGODB_URI: ${MONGO_EXPORTER_URI:-mongodb://openIM:openIM123@127.0.0.1:37017/openim_v3?authSource=openim_v3}
+    command:
+      - '--web.listen-address=:${MONGO_EXPORTER_PORT}'
+      - '--collect-all'
+    network_mode: host
+
+  kafka-exporter:
+    image: ${KAFKA_EXPORTER_IMAGE}
+    container_name: kafka-exporter
+    restart: always
+    profiles:
+      - m
+    command:
+      - '--kafka.server=127.0.0.1:19094'
+      - '--web.listen-address=:${KAFKA_EXPORTER_PORT}'
+    network_mode: host
+
+  tempo:
+    image: ${TEMPO_IMAGE}
+    container_name: tempo
+    restart: always
+    profiles:
+      - m
+    user: root
+    volumes:
+      - ./config/tempo.yaml:/etc/tempo.yaml
+      - ${DATA_DIR:-./}/components/tempo:/var/tempo
+    command:
+      - '-config.file=/etc/tempo.yaml'
+    network_mode: host
+
+  otel-collector:
+    image: ${OTEL_COLLECTOR_IMAGE}
+    container_name: otel-collector
+    restart: always
+    profiles:
+      - m
+    volumes:
+      - ./config/otel-collector.yaml:/etc/otelcol-contrib/config.yaml
+    command:
+      - '--config=/etc/otelcol-contrib/config.yaml'
+    network_mode: host
+
+  loki:
+    image: ${LOKI_IMAGE}
+    container_name: loki
+    user: root
+    restart: always
+    profiles:
+      - m
+    volumes:
+      - ./config/loki.yaml:/etc/loki/local-config.yaml
+      - ${DATA_DIR:-./}/components/loki:/loki
+    command:
+      - '-config.file=/etc/loki/local-config.yaml'
+    network_mode: host
+
+  promtail:
+    image: ${PROMTAIL_IMAGE}
+    container_name: promtail
+    restart: always
+    profiles:
+      - m
+    volumes:
+      - ./config/promtail.yaml:/etc/promtail/config.yml
+      - ${DATA_DIR:-./}/logs:/var/log/openim:ro
+      - ${DATA_DIR:-./}/_output/logs:/var/log/openim-output:ro
+    command:
+      - '-config.file=/etc/promtail/config.yml'
     network_mode: host

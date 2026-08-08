@@ -23,6 +23,7 @@ type RedPacket struct {
 	TransactionType        string    `bson:"transaction_type"`
 	Token                  string    `bson:"token"`
 	Decimals               int32     `bson:"decimals"`
+	Symbol                 string    `bson:"symbol"`
 	TotalAmount            string    `bson:"total_amount"`
 	TotalAmountDisplay     string    `bson:"total_amount_display"`
 	TotalShares            int32     `bson:"total_shares"`

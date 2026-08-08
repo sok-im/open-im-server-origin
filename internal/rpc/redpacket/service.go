@@ -52,6 +52,7 @@ func (s *redPacketServer) CreateOrder(ctx context.Context, req *pbredpacket.Crea
 	chainID, contractAddress := applyRuntimeDefaults(runtime, req.ChainID, strings.TrimSpace(req.ContractAddress))
 
 	decimals := s.resolveDecimals(ctx, runtime, chainType, req.Token)
+	symbol := s.resolveSymbol(ctx, runtime, chainType, req.Token)
 
 	rp := &model.RedPacket{
 		BizID:                  bizID,
@@ -69,6 +70,7 @@ func (s *redPacketServer) CreateOrder(ctx context.Context, req *pbredpacket.Crea
 		TransactionType:        transactionType,
 		Token:                  req.Token,
 		Decimals:               decimals,
+		Symbol:                 symbol,
 		TotalAmount:            req.TotalAmount,
 		TotalAmountDisplay:     model.FormatUnits(req.TotalAmount, decimals),
 		TotalShares:            req.TotalShares,
@@ -124,11 +126,14 @@ func (s *redPacketServer) CreatedCallback(ctx context.Context, req *pbredpacket.
 		return nil, err
 	}
 
-	// Re-resolve decimals against the on-chain-confirmed token so the display
-	// amount is corrected even if create-time resolution had to fall back.
+	// Re-resolve decimals/symbol against the on-chain-confirmed token so the
+	// display metadata is corrected even if create-time resolution had to fall
+	// back.
 	decimals := rp.Decimals
+	symbol := rp.Symbol
 	if packetRuntime, rtErr := s.runtimeFromPacket(rp); rtErr == nil {
 		decimals = s.resolveDecimals(ctx, packetRuntime, rp.ChainType, createdPacket.Token)
+		symbol = s.resolveSymbol(ctx, packetRuntime, rp.ChainType, createdPacket.Token)
 	}
 
 	// Balance = confirmed total minus whatever has already been claimed (usually
@@ -150,6 +155,7 @@ func (s *redPacketServer) CreatedCallback(ctx context.Context, req *pbredpacket.
 		PacketType:             createdPacket.PacketType,
 		Token:                  createdPacket.Token,
 		Decimals:               decimals,
+		Symbol:                 symbol,
 		TotalAmount:            createdPacket.TotalAmount,
 		TotalAmountDisplay:     model.FormatUnits(createdPacket.TotalAmount, decimals),
 		TotalShares:            createdPacket.TotalShares,
@@ -1109,6 +1115,27 @@ func (s *redPacketServer) resolveDecimals(ctx context.Context, runtime *chainRun
 	return chain.ResolveDecimals(ctx, chainType, token, decimalsReaderFor(runtime))
 }
 
+// symbolReaderFor returns the on-chain symbol reader for a runtime, or a nil
+// interface (not a typed nil) when no EVM client is available, mirroring
+// decimalsReaderFor.
+func symbolReaderFor(runtime *chainRuntime) chain.SymbolReader {
+	if runtime != nil && runtime.EVMClient != nil {
+		return runtime.EVMClient
+	}
+	return nil
+}
+
+// resolveSymbol determines the token symbol for a packet, preferring the static
+// known-token table and on-chain lookup. It never fails; unresolvable tokens
+// degrade to an empty symbol inside chain.ResolveSymbol.
+func (s *redPacketServer) resolveSymbol(ctx context.Context, runtime *chainRuntime, chainType, token string) string {
+	var nativeSymbol string
+	if runtime != nil {
+		nativeSymbol = runtime.NativeSymbol
+	}
+	return chain.ResolveSymbol(ctx, chainType, token, nativeSymbol, symbolReaderFor(runtime))
+}
+
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if strings.TrimSpace(value) != "" {
@@ -1138,6 +1165,7 @@ func redPacketModelToProto(rp *model.RedPacket) *pbredpacket.RedPacketRecord {
 		PacketType:             rp.PacketType,
 		Token:                  rp.Token,
 		Decimals:               rp.Decimals,
+		Symbol:                 rp.Symbol,
 		TotalAmount:            rp.TotalAmount,
 		TotalAmountDisplay:     rp.TotalAmountDisplay,
 		TotalShares:            rp.TotalShares,
@@ -1166,7 +1194,10 @@ func (s *redPacketServer) RequestRefund(ctx context.Context, req *pbredpacket.Re
 	if req.GetPacketID() == "" {
 		return nil, errs.ErrArgs.WrapMsg("packet_id is required")
 	}
-	runtime, err := s.resolveRuntime(req.GetChainKey(), req.GetChainType(), 0)
+	if strings.TrimSpace(req.GetChainKey()) == "" {
+		return nil, errs.ErrArgs.WrapMsg("chain_key is required")
+	}
+	runtime, err := s.resolveRuntime(req.GetChainKey(), "", 0)
 	if err != nil {
 		return nil, err
 	}
@@ -1245,11 +1276,81 @@ func (s *redPacketServer) RequestRefund(ctx context.Context, req *pbredpacket.Re
 	return &pbredpacket.RequestRefundResp{TxHash: txHash, Status: "REFUNDED"}, nil
 }
 
+// RefundCallback records a self-service refund whose on-chain transaction was
+// broadcast by the creator's own wallet (the contract allows the creator to
+// call refund directly). The client reports the txHash here; the backend parses
+// the PacketRefunded event, persists the refund and marks the packet REFUNDED.
+// It is the refund counterpart of ClaimResult and never submits a transaction.
+func (s *redPacketServer) RefundCallback(ctx context.Context, req *pbredpacket.RefundCallbackReq) (*pbredpacket.RefundCallbackResp, error) {
+	currentUserID := mcontext.GetOpUserID(ctx)
+	if currentUserID == "" {
+		return nil, servererrs.ErrNoPermission.WrapMsg("op user id is empty")
+	}
+	if strings.TrimSpace(req.GetPacketID()) == "" || strings.TrimSpace(req.GetTxHash()) == "" {
+		return nil, errs.ErrArgs.WrapMsg("packet_id and tx_hash are required")
+	}
+	if strings.TrimSpace(req.GetChainKey()) == "" {
+		return nil, errs.ErrArgs.WrapMsg("chain_key is required")
+	}
+	runtime, err := s.resolveRuntime(req.GetChainKey(), "", 0)
+	if err != nil {
+		return nil, err
+	}
+
+	rp, err := s.db.GetRedPacketByChainKeyAndPacketID(ctx, runtime.ChainKey, req.GetPacketID())
+	if err != nil {
+		return nil, err
+	}
+	if rp.CreatorUserID != currentUserID {
+		return nil, errs.ErrNoPermission.WrapMsg("only the creator can refund")
+	}
+	if rp.Status == "REFUNDED" {
+		return &pbredpacket.RefundCallbackResp{TxHash: req.GetTxHash(), Status: "REFUNDED"}, nil
+	}
+
+	txSuccess, events, parseErr := s.parseChainReceiptWithStatus(ctx, rp, req.GetTxHash())
+	if parseErr != nil {
+		log.ZWarn(ctx, "parse refund callback receipt failed, fallback to async indexer", parseErr, "packetID", rp.PacketID, "txHash", req.GetTxHash())
+		return &pbredpacket.RefundCallbackResp{TxHash: req.GetTxHash(), Status: "PENDING"}, nil
+	}
+	if !txSuccess {
+		return &pbredpacket.RefundCallbackResp{TxHash: req.GetTxHash(), Status: "FAILED"}, nil
+	}
+
+	refundedEvent, err := resolveRefundedEventFromParsedEvents(rp, events)
+	if err != nil {
+		log.ZWarn(ctx, "resolve refund callback event failed, fallback to async indexer", err, "packetID", rp.PacketID, "txHash", req.GetTxHash())
+		return &pbredpacket.RefundCallbackResp{TxHash: req.GetTxHash(), Status: "PENDING"}, nil
+	}
+	if refundedEvent == nil {
+		return &pbredpacket.RefundCallbackResp{TxHash: req.GetTxHash(), Status: "PENDING"}, nil
+	}
+
+	if err := s.db.SaveRefund(ctx, &model.RedPacketRefund{
+		ChainKey:  rp.ChainKey,
+		ChainType: rp.ChainType,
+		PacketID:  rp.PacketID,
+		RefundTo:  refundedEvent.RefundTo,
+		TxHash:    req.GetTxHash(),
+		Amount:    refundedEvent.Amount,
+		CreatedAt: time.Now(),
+	}); err != nil {
+		return nil, err
+	}
+	if err := s.db.UpdateRedPacketStatus(ctx, rp.ChainKey, rp.PacketID, "REFUNDED"); err != nil {
+		return nil, err
+	}
+	return &pbredpacket.RefundCallbackResp{TxHash: req.GetTxHash(), Status: "REFUNDED"}, nil
+}
+
 func (s *redPacketServer) GetRefund(ctx context.Context, req *pbredpacket.GetRefundReq) (*pbredpacket.GetRefundResp, error) {
 	if req.GetPacketID() == "" {
 		return nil, errs.ErrArgs.WrapMsg("packet_id is required")
 	}
-	runtime, err := s.resolveRuntime(req.GetChainKey(), req.GetChainType(), 0)
+	if strings.TrimSpace(req.GetChainKey()) == "" {
+		return nil, errs.ErrArgs.WrapMsg("chain_key is required")
+	}
+	runtime, err := s.resolveRuntime(req.GetChainKey(), "", 0)
 	if err != nil {
 		return nil, err
 	}

@@ -43,7 +43,7 @@ func NewMLSKeyPackageMongo(db *mongo.Database) (database.MLSKeyPackageDatabase, 
 			Keys: bson.D{{Key: "user_id", Value: 1}, {Key: "device_id", Value: 1}, {Key: "consumed", Value: 1}},
 		},
 		{
-			Keys: bson.D{{Key: "expires_at", Value: 1}},
+			Keys:    bson.D{{Key: "expires_at", Value: 1}},
 			Options: options.Index().SetExpireAfterSeconds(0),
 		},
 	})
@@ -224,11 +224,17 @@ func NewMLSCommitMongo(db *mongo.Database) (database.MLSCommitDatabase, error) {
 	coll := db.Collection("mls_commit")
 	_, err := coll.Indexes().CreateMany(context.Background(), []mongo.IndexModel{
 		{
-			Keys: bson.D{{Key: "group_id", Value: 1}, {Key: "epoch", Value: 1}},
+			Keys:    bson.D{{Key: "group_id", Value: 1}, {Key: "epoch", Value: 1}},
 			Options: options.Index().SetUnique(true),
 		},
 		{
 			Keys: bson.D{{Key: "group_id", Value: 1}, {Key: "created_at", Value: 1}},
+		},
+		{
+			Keys: bson.D{{Key: "idempotency_key", Value: 1}},
+			Options: options.Index().
+				SetUnique(true).
+				SetPartialFilterExpression(bson.M{"idempotency_key": bson.M{"$gt": ""}}),
 		},
 	})
 	if err != nil {
@@ -240,6 +246,17 @@ func NewMLSCommitMongo(db *mongo.Database) (database.MLSCommitDatabase, error) {
 func (m *mlsCommitMgo) AppendCommit(ctx context.Context, c *model.MLSCommit) error {
 	_, err := m.coll.InsertOne(ctx, c)
 	return err
+}
+
+func (m *mlsCommitMgo) FindByIdempotencyKey(ctx context.Context, key string) (*model.MLSCommit, error) {
+	var commit model.MLSCommit
+	if err := m.coll.FindOne(ctx, bson.M{"idempotency_key": key}).Decode(&commit); err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, errs.ErrRecordNotFound.Wrap()
+		}
+		return nil, err
+	}
+	return &commit, nil
 }
 
 func (m *mlsCommitMgo) FindSinceEpoch(ctx context.Context, groupID string, sinceEpoch uint64, limit int) ([]*model.MLSCommit, error) {

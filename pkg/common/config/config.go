@@ -141,7 +141,11 @@ type CronTask struct {
 	// BurnClearMaxLoop 单次定时触发内最多循环轮数；<=0 时默认 10000。
 	BurnClearMaxLoop int `mapstructure:"burnClearMaxLoop"`
 	// ChatAPI 是 chat HTTP API 服务的访问配置，用于调用 /account/del 等需要管理员权限的接口。
-	ChatAPI ChatAPI `mapstructure:"chatAPI"`
+	ChatAPI    ChatAPI `mapstructure:"chatAPI"`
+	Prometheus struct {
+		Enable bool  `mapstructure:"enable"`
+		Ports  []int `mapstructure:"ports"`
+	} `mapstructure:"prometheus"`
 }
 
 type OfflinePushConfig struct {
@@ -188,6 +192,7 @@ type Notification struct {
 	GroupBurnDurationSet             NotificationConfig `mapstructure:"groupBurnDurationSet"`
 	GroupFaceURLSet                  NotificationConfig `mapstructure:"groupFaceURLSet"`
 	GroupNeedVerificationSet         NotificationConfig `mapstructure:"groupNeedVerificationSet"`
+	GroupPermissionChanged           NotificationConfig `mapstructure:"groupPermissionChanged"`
 	GroupE2EE                        NotificationConfig `mapstructure:"groupE2EE"`
 	FriendApplicationAdded           NotificationConfig `mapstructure:"friendApplicationAdded"`
 	FriendApplicationApproved        NotificationConfig `mapstructure:"friendApplicationApproved"`
@@ -430,7 +435,7 @@ type DeactivatedUserDefaults struct {
 
 const (
 	defaultDeactivatedUserNickname = "Deactivated user"
-	defaultDeactivatedUserFaceURL  = "http://13.215.203.29:10002/object/6794065114/mmexport1782219627453.jpg"
+	defaultDeactivatedUserFaceURL  = "http://127.0.0.1:10002/object/6794065114/mmexport1782219627453.jpg"
 )
 
 // FillDeactivatedUserDefaults applies defaults when nickname or faceURL is empty.
@@ -460,6 +465,28 @@ type User struct {
 	PhoneSearchVisibility bool `mapstructure:"phoneSearchVisibility"`
 	// CallRingtoneDefaults 注册时未传入的铃声字段将使用此处配置；留空则不填充。
 	CallRingtoneDefaults CallRingtoneDefaults `mapstructure:"callRingtoneDefaults"`
+	// WelcomeNotification 用户首次上线时由官方服务号推送的欢迎通知配置。
+	WelcomeNotification WelcomeNotification `mapstructure:"welcomeNotification"`
+}
+
+// WelcomeNotification 首次上线欢迎服务号通知配置。
+type WelcomeNotification struct {
+	// Enable 是否启用首次上线欢迎通知。
+	Enable bool `mapstructure:"enable"`
+	// SendID 发送方账号，必须是通知账号（AppMangerLevel>=3）。
+	SendID string `mapstructure:"sendID"`
+	// SubType 服务通知分类：1安全 2账号 3系统 4版本更新。
+	SubType int32 `mapstructure:"subType"`
+	// DefaultLanguage 语言未匹配/未设置时使用的兜底桶键（如 en）。
+	DefaultLanguage string `mapstructure:"defaultLanguage"`
+	// Languages 各语言桶（zh-Hans / zh-Hant / en）对应的文案。
+	Languages map[string]WelcomeNotificationText `mapstructure:"languages"`
+}
+
+// WelcomeNotificationText 单一语言的欢迎通知文案。
+type WelcomeNotificationText struct {
+	Title   string `mapstructure:"title"`
+	Content string `mapstructure:"content"`
 }
 
 type Redis struct {
@@ -563,6 +590,13 @@ type LiveKit struct {
 	APIKey          string `mapstructure:"apiKey"`
 	APISecret       string `mapstructure:"apiSecret"`
 	TokenExpiry     int    `mapstructure:"tokenExpiry"`
+	// E2EETokenExpiry is JWT TTL in seconds for E2EE-required rooms (default 300, capped at 300).
+	E2EETokenExpiry int `mapstructure:"e2eeTokenExpiry"`
+}
+
+type RtcE2EE struct {
+	AllowedSchemes []string `mapstructure:"allowedSchemes"`
+	MinVersion     int      `mapstructure:"minVersion"`
 }
 
 type Rtc struct {
@@ -575,6 +609,7 @@ type Rtc struct {
 	Prometheus    Prometheus `mapstructure:"prometheus"`
 	LiveKit       LiveKit    `mapstructure:"liveKit"`
 	CallStatusTTL int        `mapstructure:"callStatusTTL"`
+	E2EE          RtcE2EE    `mapstructure:"e2ee"`
 }
 
 type Crypto struct {
@@ -661,9 +696,14 @@ type RedPacket struct {
 }
 
 type RedPacketChainRuntime struct {
-	ChainType             string `mapstructure:"chainType"`
-	ChainID               int64  `mapstructure:"chainID"`
-	IsTestnet             bool   `mapstructure:"isTestnet"`
+	ChainType string `mapstructure:"chainType"`
+	ChainID   int64  `mapstructure:"chainID"`
+	IsTestnet bool   `mapstructure:"isTestnet"`
+	// NativeSymbol is the ticker of this chain's native coin (e.g. ETH / BNB /
+	// POL / TRX). It is per-deployment because a single "EVM" chainType covers
+	// many chains whose native coins differ. Empty falls back to a generic
+	// default (ETH for EVM, TRX for TRON).
+	NativeSymbol          string `mapstructure:"nativeSymbol"`
 	RPCURL                string `mapstructure:"rpcURL"`
 	ContractAddress       string `mapstructure:"contractAddress"`
 	SignerPrivateKey      string `mapstructure:"signerPrivateKey"`

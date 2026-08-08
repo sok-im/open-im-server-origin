@@ -50,6 +50,9 @@ type SignalInvitation struct {
 	InviterUserID      string   `bson:"inviter_user_id"`
 	InviteeUserIDList  []string `bson:"invitee_user_id_list"`
 	CustomData         string   `bson:"custom_data"`
+	ConversationID     string   `bson:"conversation_id,omitempty"`
+	E2EERequired       bool     `bson:"e2ee_required,omitempty"`
+	CallID             string   `bson:"call_id,omitempty"`
 	GroupID            string   `bson:"group_id"`
 	Timeout            int32    `bson:"timeout"`
 	MediaType          string   `bson:"media_type"`

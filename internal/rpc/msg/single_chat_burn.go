@@ -25,7 +25,8 @@ import (
 )
 
 // ensureSenderSingleChatBurn 发送单聊消息前，若发送者已设置个人阅后即焚且会话尚未开启，
-// 提前写入会话级 BurnDuration 并通知客户端（早于 msgtransfer 创建会话的路径）。
+// 提前静默写入会话级 BurnDuration（不下发 1701；早于 msgtransfer 创建会话）。
+// 阅后即焚提示通知仅在用户对已有会话显式设置时由 SetConversationBurn / SetConversations 下发。
 func (m *msgServer) ensureSenderSingleChatBurn(ctx context.Context, sendID, recvID string) {
 	if sendID == "" || recvID == "" || sendID == recvID {
 		return
@@ -41,6 +42,10 @@ func (m *msgServer) ensureSenderSingleChatBurn(ctx context.Context, sendID, recv
 	conversationID := conversationutil.GenConversationIDForSingle(sendID, recvID)
 	conv, err := m.ConversationLocalCache.GetConversation(ctx, sendID, conversationID)
 	if err == nil && conv != nil && conv.BurnDuration > 0 {
+		return
+	}
+	// 会话已存在：留给用户显式 set_burn / SetConversations，避免自动落地时误发 1701。
+	if err == nil && conv != nil {
 		return
 	}
 	convReq := &pbconversation.ConversationReq{
